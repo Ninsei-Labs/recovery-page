@@ -1,8 +1,12 @@
 name: build
 
 # WHAT THIS RUNS ON: a clean machine, no network secrets, no node, no chain. It installs the exact
-# versions named in package.json, builds dist/, and runs the repository's own checks. If the checks
+# versions named in bun.lock, builds dist/, and runs the repository's own checks. If the checks
 # pass, the artefact a host should receive is the uploaded `dist/`.
+#
+# BUN, NOT NODE. The build is esbuild plus a few file operations, and Bun runs both the build and the
+# checks (package.json: `test`). This workflow used the Node toolchain until the repository became
+# standalone Bun-only, and it failed before the build: there is no Node lock file to install from.
 
 on:
   push:
@@ -19,16 +23,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version-file: .nvmrc
-          cache: npm
+          bun-version: "1.4"
 
       - name: Install the locked dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Build and check
-        run: npm test
+        run: bun run test
 
       - name: Keep the built page
         uses: actions/upload-artifact@v4
