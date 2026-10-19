@@ -256,6 +256,9 @@ await check("the workflows run Bun and never npm", async () => {
     if (!/oven-sh\/setup-bun/.test(text)) problems.push(`${file}: no setup-bun`);
     if (/\bnpm (ci|test|version)\b|actions\/setup-node/.test(text)) problems.push(`${file}: names npm or node`);
   }
+  const release = await readFile(join(dir, "release.yml"), "utf8");
+  if (!/workflow_dispatch:/.test(release)) problems.push("release.yml cannot publish an existing tag whose first run failed");
+  if (!/\$TAG/.test(release)) problems.push("release.yml does not use the tag it was asked about");
   assert.deepEqual(problems, []);
   return `${files.length} workflows`;
 });
