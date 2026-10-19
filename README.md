@@ -85,7 +85,7 @@ docker build -t ninsei-sweep .
 docker run --rm -p 8080:8080 ninsei-sweep
 ```
 
-The image is built in two stages: Node installs the locked dependencies and runs the checks, then the
+The image is built in two stages: Bun installs the locked dependencies and runs the checks, then the
 built `dist/` is served by Bun from `serve.bun.mjs`. The server is one file with no dependencies, and
 it sets the isolation headers itself - that is the part a generic static server gets wrong. Running as
 UID 10001, `TZ=UTC`, and a health check that fetches `index.html` over HTTP and looks for the page's own marker.

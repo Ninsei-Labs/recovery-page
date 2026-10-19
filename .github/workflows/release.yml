@@ -13,6 +13,14 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # A TAG WHOSE FIRST RUN FAILED MUST BE PUBLISHABLE WITHOUT RE-TAGGING. The workflow takes the tag as an input and
+  # uses it exactly as a pushed tag: same version, same archive name, same release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish, for example v0.1.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -21,24 +29,30 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
         with:
-          node-version-file: .nvmrc
-          cache: npm
+          # A DISPATCH RUN BUILDS THE TAG IT IS ASKED ABOUT, not the branch the button was pressed on.
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4"
 
       # THE VERSION COMES FROM THE TAG, NOT FROM A HAND-EDITED FILE. `build.json` then names the
-      # version of the release it is attached to, and the two cannot disagree.
+      # version of the release it is attached to, and the two cannot disagree. The script replaces the
+      # Node package manager step, which this Bun-only build does not use.
       - name: Take the version from the tag
-        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+        run: bun tools/version-from-tag.mjs "$TAG"
 
       - name: Install the locked dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Build and check
-        run: npm test
+        run: bun run test
 
       # THE ARCHIVE IS THE CONTENTS OF dist/, not the repository: an operator unzips it into a web
       # root and has a working page.
@@ -46,18 +60,23 @@ jobs:
         run: |
           set -eu
           cd dist
-          zip -q -r "../ninsei-sweep-${GITHUB_REF_NAME}.zip" .
+          zip -q -r "../ninsei-sweep-${TAG}.zip" .
           cd ..
-          sha256sum "ninsei-sweep-${GITHUB_REF_NAME}.zip" > "ninsei-sweep-${GITHUB_REF_NAME}.zip.sha256"
-          unzip -l "ninsei-sweep-${GITHUB_REF_NAME}.zip" | tail -3
+          sha256sum "ninsei-sweep-${TAG}.zip" > "ninsei-sweep-${TAG}.zip.sha256"
+          unzip -l "ninsei-sweep-${TAG}.zip" | tail -3
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          gh release create "$GITHUB_REF_NAME" \
-            "ninsei-sweep-${GITHUB_REF_NAME}.zip" \
-            "ninsei-sweep-${GITHUB_REF_NAME}.zip.sha256" \
-            --title "NinseiSwap sweep $GITHUB_REF_NAME" \
-            --notes "Static page: unzip and serve the contents over HTTPS with the headers in deploy/. The archive holds dist/ only; every file's SHA-256 is in build.json."
+          files="ninsei-sweep-${TAG}.zip ninsei-sweep-${TAG}.zip.sha256"
+          # A RERUN OF A TAG WHOSE RELEASE EXISTS MUST ATTACH, NOT FAIL. The first v0.1.0 run created the
+          # release and failed before the files were attached; a retry has to be able to finish it.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" $files --clobber
+          else
+            gh release create "$TAG" $files \
+              --title "NinseiSwap sweep $TAG" \
+              --notes "Static page: unzip and serve the contents over HTTPS with the headers in deploy/. The archive holds dist/ only; every file's SHA-256 is in build.json."
+          fi

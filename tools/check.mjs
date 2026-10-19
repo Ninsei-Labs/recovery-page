@@ -8,7 +8,7 @@
 //      `build.json` match the files they name;
 //   3. the page files a host must receive - the isolation fallback and the header file.
 //
-// Run: npm test   (builds first, then runs this file)
+// Run: bun run test   (builds first, then runs this file)
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -245,6 +245,22 @@ await check("the header file carries both isolation headers", async () => {
   const headers = await readFile(join(DIST, "_headers"), "utf8");
   assert.match(headers, /Cross-Origin-Opener-Policy:\s*same-origin/i);
   assert.match(headers, /Cross-Origin-Embedder-Policy:\s*require-corp/i);
+});
+
+await check("the workflows run Bun and never npm", async () => {
+  const dir = join(ROOT, ".github", "workflows");
+  const files = (await readdir(dir)).filter((f) => f.endsWith(".yml"));
+  const problems = [];
+  for (const file of files) {
+    const text = await readFile(join(dir, file), "utf8");
+    if (!/oven-sh\/setup-bun/.test(text)) problems.push(`${file}: no setup-bun`);
+    if (/\bnpm (ci|test|version)\b|actions\/setup-node/.test(text)) problems.push(`${file}: names npm or node`);
+  }
+  const release = await readFile(join(dir, "release.yml"), "utf8");
+  if (!/workflow_dispatch:/.test(release)) problems.push("release.yml cannot publish an existing tag whose first run failed");
+  if (!/\$TAG/.test(release)) problems.push("release.yml does not use the tag it was asked about");
+  assert.deepEqual(problems, []);
+  return `${files.length} workflows`;
 });
 
 console.log(`\n${pass} passed, ${failed} failed`);
