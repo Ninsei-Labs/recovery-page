@@ -1,0 +1,39 @@
+name: build
+
+# WHAT THIS RUNS ON: a clean machine, no network secrets, no node, no chain. It installs the exact
+# versions named in package.json, builds dist/, and runs the repository's own checks. If the checks
+# pass, the artefact a host should receive is the uploaded `dist/`.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install the locked dependencies
+        run: npm ci
+
+      - name: Build and check
+        run: npm test
+
+      - name: Keep the built page
+        uses: actions/upload-artifact@v4
+        with:
+          name: sweep-dist
+          path: dist
+          retention-days: 30
+          if-no-files-found: error

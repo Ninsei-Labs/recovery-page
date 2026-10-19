@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-i18n-title="diagpage.title">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NinseiSwap</title>
+<link rel="stylesheet" href="./sweep.css">
+</head>
+<body>
+  <main>
+    <header class="brand">
+      <span class="mark" aria-hidden="true">N</span>
+      <strong>NinseiSwap</strong>
+      <span class="tag">diagnostics</span>
+    </header>
+
+    <div class="bar">
+      <label class="field">
+        <span data-i18n="page.lang"></span>
+        <select id="lang"></select>
+      </label>
+    </div>
+    <h1 data-i18n="diagpage.h1"></h1>
+    <p class="note">
+      <span data-i18n="diagpage.lead"></span><a href="./index.html" data-i18n="diagpage.lead.link"></a><span data-i18n="diagpage.lead.tail"></span>
+    </p>
+
+    <section class="step" id="stepNode">
+      <h2 data-i18n="page.node.h"></h2>
+      <label class="field">
+        <span data-i18n="page.node.label"></span>
+        <input id="node" type="text" spellcheck="false" autocomplete="off" data-i18n-placeholder="page.node.placeholder">
+      </label>
+      <p class="hint" data-i18n="page.node.hint"></p>
+    </section>
+
+    <div class="bar">
+      <button id="rerun" type="button" data-i18n="diagpage.btn.rerun"></button>
+      <button id="scan" type="button" data-i18n="diagpage.btn.scan"></button>
+      <span id="state" class="wait" data-i18n="diagpage.state.starting"></span>
+    </div>
+
+    <pre id="out" class="log" data-i18n="diagpage.state.starting"></pre>
+
+    <h2 data-i18n="diagpage.why"></h2>
+    <ul class="legend">
+      <li data-i18n="diagpage.li1"></li>
+      <li data-i18n="diagpage.li2"></li>
+      <li data-i18n="diagpage.li3"></li>
+      <li data-i18n="diagpage.li4"></li>
+      <li data-i18n="diagpage.li5"></li>
+      <li data-i18n="diagpage.li6"></li>
+    </ul>
+  </main>
+  <script src="./coi.js"></script>
+  <script type="module" src="./diagnostics.js"></script>
+</body>
+</html>

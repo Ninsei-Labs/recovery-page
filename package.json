@@ -1,0 +1,43 @@
+{
+  "name": "@ninsei-labs/sweep",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Static page that withdraws XMR from a swap wallet using a recovery file. Keys stay in the tab.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ninsei-Labs/sweep.git"
+  },
+  "packageManager": "bun@1.4.2",
+  "engines": {
+    "bun": ">=1.4"
+  },
+  "scripts": {
+    "build": "bun build/build.mjs",
+    "test": "bun build/build.mjs && bun tools/check.mjs",
+    "serve": "bun serve.bun.mjs"
+  },
+  "devDependencies": {
+    "@ninsei-labs/sdk": "0.44.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "assert": "2.1.0",
+    "buffer": "6.0.3",
+    "crypto-browserify": "3.12.1",
+    "esbuild": "0.28.2",
+    "events": "3.3.0",
+    "https-browserify": "1.0.0",
+    "keccak256": "1.0.6",
+    "memfs": "4.80.0",
+    "monero-ts": "0.11.20",
+    "os-browserify": "0.3.0",
+    "path-browserify": "1.0.1",
+    "process": "0.11.10",
+    "querystring-es3": "0.2.1",
+    "stream-browserify": "3.0.0",
+    "stream-http": "3.2.0",
+    "url": "0.11.4",
+    "util": "0.12.5"
+  }
+}

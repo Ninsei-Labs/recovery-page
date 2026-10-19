@@ -1,0 +1,16 @@
+# WHAT THE IMAGE DOES NOT NEED.
+#
+# node_modules is installed inside the build stage from the lock file; a copied tree would be a
+# second install that can differ from the first. dist/ is built in the image, so a local build must
+# not leak in. The rest is repository furniture: git history, CI files, docs, the release archive.
+node_modules
+dist
+.git
+.github
+*.zip
+*.sha256
+
+# Local and OS noise.
+.DS_Store
+Thumbs.db
+*.log

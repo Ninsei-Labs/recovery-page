@@ -1,0 +1,251 @@
+// THE CHECKS THIS REPOSITORY RUNS ON ITSELF.
+//
+// Three kinds, and nothing else:
+//   1. rules that must hold in the SOURCES - one parser for the node address, no absolute asset paths,
+//      no eval, the SDK entry naming package subpaths and not files inside the package, one key set
+//      for the single language;
+//   2. facts about the BUILD - every stamped file exists, no placeholder survives, and the hashes in
+//      `build.json` match the files they name;
+//   3. the page files a host must receive - the isolation fallback and the header file.
+//
+// Run: npm test   (builds first, then runs this file)
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { readFile, readdir, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const DIST = join(ROOT, "dist");
+
+let pass = 0;
+let failed = 0;
+const ok = (name, detail) => {
+  pass += 1;
+  console.log(`ok    ${name}${detail ? " - " + detail : ""}`);
+};
+const bad = (name, why) => {
+  failed += 1;
+  console.log(`FAIL  ${name} - ${why}`);
+};
+async function check(name, fn) {
+  try {
+    const detail = await fn();
+    ok(name, detail);
+  } catch (e) {
+    bad(name, String((e && e.message) || e));
+  }
+}
+const read = (rel) => readFile(join(ROOT, rel), "utf8");
+
+// --- 1. the node address ----------------------------------------------------------------
+const { parseNodeUrl, DEFAULT_NODE } = await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
+
+await check("an empty address is refused with its own reason", () => {
+  assert.deepEqual(parseNodeUrl(""), { ok: false, why: "empty", url: null });
+  assert.deepEqual(parseNodeUrl("   "), { ok: false, why: "empty", url: null });
+});
+await check("a plain https address is accepted and loses a trailing slash", () => {
+  assert.equal(parseNodeUrl("https://node.example/").url, "https://node.example");
+  assert.equal(parseNodeUrl("https://node.example/xmr/").url, "https://node.example/xmr");
+});
+await check("http is accepted (a node behind a local proxy is a real case)", () => {
+  assert.equal(parseNodeUrl("http://127.0.0.1:38081").url, "http://127.0.0.1:38081");
+});
+await check("another scheme is refused by name", () => {
+  assert.equal(parseNodeUrl("ftp://node.example").why, "scheme");
+  assert.equal(parseNodeUrl("node.example").why, "shape");
+});
+await check("credentials in the address are refused, never stored", () => {
+  assert.equal(parseNodeUrl("https://user:pass@node.example").why, "credentials");
+});
+await check("a query or a fragment is refused: the page appends its own paths", () => {
+  assert.equal(parseNodeUrl("https://node.example/?x=1").why, "shape");
+  assert.equal(parseNodeUrl("https://node.example/#top").why, "shape");
+});
+await check("the default is an https proxy, not a bare node", () => {
+  assert.match(DEFAULT_NODE, /^https:\/\//);
+});
+
+// --- 2. one key set for the one language ------------------------------------------------
+const localesDir = join(ROOT, "locales");
+const tags = (await readdir(localesDir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
+await check("exactly one language folder is present", () => {
+  assert.deepEqual(tags.sort(), ["en"]);
+});
+const en = (await import(pathToFileURL(join(localesDir, "en", "index.js")).href)).default;
+const strings = en.strings;
+
+await check("each section of the language file has no duplicate keys (a duplicate would silently win)", async () => {
+  const text = await read(join("locales", "en", "index.js"));
+  const sections = new Map();
+  let section = "(top)";
+  for (const line of text.split("\n")) {
+    const head = /^  (strings|sdk|params):\s*\{/.exec(line);
+    if (head) {
+      section = head[1];
+      continue;
+    }
+    const key = /^    "([^"]+)":/.exec(line);
+    if (!key) continue;
+    const seen = sections.get(section) || new Map();
+    seen.set(key[1], (seen.get(key[1]) || 0) + 1);
+    sections.set(section, seen);
+  }
+  const dupes = [];
+  for (const [name, seen] of sections) {
+    for (const [key, n] of seen) if (n > 1) dupes.push(`${name}: ${key} x${n}`);
+  }
+  assert.deepEqual(dupes, []);
+  return [...sections].map(([name, seen]) => `${name}: ${seen.size}`).join(", ");
+});
+
+await check("every key the HTML asks for exists", async () => {
+  const missing = [];
+  for (const file of ["index.html", "diagnostics.html"]) {
+    const html = await read(file);
+    for (const m of html.matchAll(/data-i18n(?:-placeholder|-title)?="([^"]+)"/g)) {
+      if (!(m[1] in strings)) missing.push(`${file}: ${m[1]}`);
+    }
+  }
+  assert.deepEqual(missing, []);
+});
+
+await check("every literal t() key in the page exists", async () => {
+  const missing = [];
+  for (const file of ["sweep.js", "diagnostics.js", "lib/node.js"]) {
+    const text = await read(file);
+    for (const m of text.matchAll(/\bt\("([a-z0-9._]+)"/g)) {
+      // A key built by concatenation (`"sdk." + code`) is a prefix, not a key: it is covered by the
+      // dictionary checks on the SDK side and cannot be resolved here.
+      if (m[1].endsWith(".")) continue;
+      if (!(m[1] in strings)) missing.push(`${file}: ${m[1]}`);
+    }
+  }
+  assert.deepEqual(missing, []);
+});
+
+await check("the node labels the module can return all exist", () => {
+  for (const key of ["node.label.default", "node.label.same", "node.label.custom"]) {
+    if (!(key in strings)) throw new Error("missing " + key);
+  }
+});
+
+// --- 3. the page's own rules ------------------------------------------------------------
+await check("the SDK entry names package subpaths, not files inside the package", async () => {
+  const text = await read("sdk-entry.js");
+  const specifiers = [...text.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(specifiers.length > 0, "no imports found");
+  for (const s of specifiers) {
+    assert.ok(!s.startsWith(".") && !s.startsWith("/"), `a path into the package: ${s}`);
+    assert.ok(s.startsWith("@ninsei-labs/sdk"), `not from the SDK: ${s}`);
+  }
+  return specifiers.join(", ");
+});
+
+await check("no absolute asset paths: the page must work in a subdirectory", async () => {
+  const offenders = [];
+  for (const file of ["sweep.js", "diagnostics.js", "index.html", "diagnostics.html", "lib/node.js"]) {
+    const text = await read(file);
+    for (const m of text.matchAll(/(?:src|href)="\/(?!\/)|from\s+"\/(?!\/)|import\("\/(?!\/)|fetch\("\/[a-z]/g)) {
+      offenders.push(`${file}: ${m[0]}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+await check("no eval and no new Function in the page's own code", async () => {
+  const offenders = [];
+  for (const file of ["sweep.js", "diagnostics.js", "lib/node.js", "lib/codes.js", "coi.js", "sw.js"]) {
+    const text = await read(file);
+    if (/\beval\s*\(|new\s+Function\s*\(/.test(text)) offenders.push(file);
+  }
+  assert.deepEqual(offenders, []);
+});
+
+await check("the page never writes the recovery file or the password anywhere", async () => {
+  for (const file of ["sweep.js"]) {
+    const text = await read(file);
+    assert.ok(!/localStorage\.setItem\([^)]*(contents|passphrase|seed|mnemonic)/i.test(text), file);
+  }
+});
+
+// --- 4. the build -----------------------------------------------------------------------
+await check("dist/ was built", async () => {
+  const info = await stat(DIST).catch(() => null);
+  assert.ok(info && info.isDirectory(), "run npm run build first");
+});
+
+const REQUIRED = [
+  "index.html",
+  "diagnostics.html",
+  "sweep.css",
+  "sweep.js",
+  "diagnostics.js",
+  "coi.js",
+  "sw.js",
+  "monero.worker.js",
+  "assets/vendors/monero/monero-ts-browser.js",
+  "assets/vendors/sdk/sdk-browser.js",
+  "locales/index.js",
+  "locales/available.js",
+  "locales/en/index.js",
+  "_headers",
+  "build.json",
+];
+await check("every file a host must receive is in dist/", () => {
+  const missing = REQUIRED.filter((rel) => !existsSync(join(DIST, rel)));
+  assert.deepEqual(missing, []);
+  return `${REQUIRED.length} files`;
+});
+
+await check("no build placeholder survives in dist/", async () => {
+  const leftovers = [];
+  for (const file of ["sweep.js", "diagnostics.js"]) {
+    const text = await readFile(join(DIST, file), "utf8");
+    for (const m of text.matchAll(/__V_[A-Z]+__/g)) leftovers.push(`${file}: ${m[0]}`);
+  }
+  assert.deepEqual(leftovers, []);
+});
+
+await check("build.json lists every built file with its real hash", async () => {
+  const manifest = JSON.parse(await readFile(join(DIST, "build.json"), "utf8"));
+  assert.ok(Array.isArray(manifest.files) && manifest.files.length > 0, "no files listed");
+  const wrong = [];
+  for (const entry of manifest.files) {
+    const path = join(DIST, entry.file);
+    if (!existsSync(path)) {
+      wrong.push(`${entry.file}: missing`);
+      continue;
+    }
+    const bytes = await readFile(path);
+    const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 8);
+    if (hash !== entry.sha256 || bytes.length !== entry.bytes) wrong.push(`${entry.file}: hash or size differs`);
+  }
+  assert.deepEqual(wrong, []);
+  return `${manifest.files.length} files, version ${manifest.version}`;
+});
+
+await check("the stamped page names the hashes of the files it loads", async () => {
+  const page = await readFile(join(DIST, "sweep.js"), "utf8");
+  const bundle = await readFile(join(DIST, "assets", "vendors", "sdk", "sdk-browser.js"));
+  const expected = createHash("sha256").update(bundle).digest("hex").slice(0, 8);
+  assert.ok(page.includes(expected), `sdk-browser.js?v=${expected} is not named by the page`);
+  return `?v=${expected}`;
+});
+
+await check("the isolation fallback ships with the page", async () => {
+  const html = await readFile(join(DIST, "index.html"), "utf8");
+  assert.ok(html.includes('src="./coi.js"'), "coi.js is not loaded by index.html");
+  assert.ok(existsSync(join(DIST, "sw.js")), "sw.js is missing");
+});
+
+await check("the header file carries both isolation headers", async () => {
+  const headers = await readFile(join(DIST, "_headers"), "utf8");
+  assert.match(headers, /Cross-Origin-Opener-Policy:\s*same-origin/i);
+  assert.match(headers, /Cross-Origin-Embedder-Policy:\s*require-corp/i);
+});
+
+console.log(`\n${pass} passed, ${failed} failed`);
+process.exit(failed === 0 ? 0 : 1);

@@ -1,0 +1,306 @@
+/* A SMALL DESIGN SYSTEM, NOT A FRAMEWORK.
+ *
+ * The page has one job and one screen: decrypt a file, sync a wallet, send a transfer. A theme with
+ * hundreds of components would be bigger than the page itself, and every component it does not use is
+ * a class name nobody can explain later. What is here is the whole visual language: tokens, a column,
+ * cards, fields, buttons and a log.
+ *
+ * COLOURS COME FROM THE BRAND: near-black background, soft grey text, one warm accent used only for
+ * the action the person is meant to take. Status colours (ok, warn, bad) are separate from the accent
+ * on purpose: an accent-coloured refusal would read as a suggestion.
+ *
+ * NO EXTERNAL FONT, NO EXTERNAL STYLESHEET: the page is served with `script-src 'self'` and
+ * `style-src 'self'`, and a font from a CDN would be both a network dependency and a privacy leak.
+ * The stack resolves to the platform's UI font (Inter where it is installed).
+ */
+
+:root {
+  color-scheme: dark;
+  --bg: #080a0f;
+  --panel: #0e1218;
+  --panel-2: #12171f;
+  --line: #1e2633;
+  --line-soft: #17202b;
+  --text: #e6ebf2;
+  --muted: #8b93a7;
+  --muted-2: #63708a;
+  --accent: #ff7a45;
+  --accent-dim: rgba(255, 122, 69, 0.12);
+  --ok: #4ade80;
+  --warn: #f5c451;
+  --bad: #ff6b6b;
+  --radius: 16px;
+  --pill: 999px;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+* { box-sizing: border-box; }
+
+html, body { min-height: 100%; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(900px 420px at 50% -10%, rgba(255, 122, 69, 0.08), transparent 60%),
+    var(--bg);
+  color: var(--text);
+  font: 15px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 56px 20px 72px;
+}
+
+/* THE WORDMARK: a link home is not needed (there is one page), but a person must see whose page this
+   is before typing a password into it. */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 40px;
+  color: var(--muted);
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+.brand .mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #140a04;
+  font-weight: 700;
+  font-size: 14px;
+}
+.brand strong { color: var(--text); font-weight: 600; }
+.brand .tag {
+  margin-left: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--pill);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+h1 {
+  margin: 0 0 10px;
+  font-size: 32px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  margin: 0 0 16px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+p { margin: 0; }
+
+.note {
+  margin: 0 0 28px;
+  max-width: 60ch;
+  color: var(--muted);
+  font-size: 14.5px;
+}
+.note a { color: var(--text); text-decoration-color: var(--line); text-underline-offset: 3px; }
+.note a:hover { color: var(--accent); }
+
+/* A STEP IS A CARD. Steps are numbered by their heading, not by decoration: the page runs in order
+   and the order is the point. */
+.step {
+  margin: 0 0 16px;
+  padding: 22px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.bar:first-child { margin-top: 0; }
+
+.field {
+  display: block;
+  margin: 0 0 14px;
+}
+.field > span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="file"],
+select {
+  width: 100%;
+  padding: 12px 14px;
+  background: #0a0e14;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font: inherit;
+  font-size: 14.5px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input::placeholder { color: var(--muted-2); }
+input:focus, select:focus {
+  border-color: rgba(255, 122, 69, 0.55);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+input[type="file"] { padding: 10px 12px; color: var(--muted); }
+input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  padding: 6px 12px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
+
+button {
+  appearance: none;
+  padding: 11px 18px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--pill);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.06s ease;
+}
+button:hover:not(:disabled) { border-color: #2b3648; background: #171d27; }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* THE ACTION THE PAGE EXPECTS NEXT: the accent belongs to it and to nothing else. */
+button.ready,
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #170a03;
+}
+button.ready:hover:not(:disabled),
+button.primary:hover:not(:disabled) { background: #ff8a5c; border-color: #ff8a5c; }
+
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+button.ghost:hover:not(:disabled) { background: var(--panel-2); color: var(--text); border-color: var(--line); }
+
+.hint {
+  margin: 10px 0 0;
+  color: var(--muted-2);
+  font-size: 13px;
+}
+.hint.warn { color: var(--warn); }
+
+.info {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 13.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.info b, .info strong { color: var(--text); font-weight: 600; }
+
+/* STATUS IS A PILL WITH A DOT: the dot carries the state at a glance, the text says it in words. */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 16px;
+  padding: 9px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--pill);
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted-2);
+  flex: none;
+}
+.status.ok { color: #cfe9d8; border-color: rgba(74, 222, 128, 0.35); }
+.status.ok::before { background: var(--ok); box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12); }
+.status.bad { color: #ffd6d6; border-color: rgba(255, 107, 107, 0.38); }
+.status.bad::before { background: var(--bad); box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.12); }
+.status.warn { color: #ffe9b8; border-color: rgba(245, 196, 81, 0.35); }
+.status.warn::before { background: var(--warn); }
+.status.wait::before { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+
+.log {
+  margin: 20px 0 0;
+  padding: 16px 18px;
+  min-height: 92px;
+  max-height: 280px;
+  overflow: auto;
+  background: #070a0e;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font: 12.5px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.log .ok { color: #9fe7b8; }
+.log .bad { color: #ffb3b3; }
+.log .warn { color: #ffe1a1; }
+.log .wait { color: var(--muted-2); }
+
+.legend {
+  margin: 12px 0 0;
+  padding: 0 0 0 18px;
+  color: var(--muted-2);
+  font-size: 13.5px;
+}
+.legend li { margin: 6px 0; }
+
+.explorer-link { color: var(--accent); text-decoration: none; }
+.explorer-link:hover { text-decoration: underline; }
+
+[hidden] { display: none !important; }
+
+@media (max-width: 560px) {
+  main { padding: 32px 16px 48px; }
+  h1 { font-size: 26px; }
+  .step { padding: 18px; border-radius: 14px; }
+  .brand { margin-bottom: 28px; }
+}
