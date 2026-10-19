@@ -251,14 +251,23 @@ await check("the workflows run Bun and never npm", async () => {
   const dir = join(ROOT, ".github", "workflows");
   const files = (await readdir(dir)).filter((f) => f.endsWith(".yml"));
   const problems = [];
+  const BUILD_WORKFLOWS = ["ci.yml", "release.yml"];
   for (const file of files) {
     const text = await readFile(join(dir, file), "utf8");
-    if (!/oven-sh\/setup-bun/.test(text)) problems.push(`${file}: no setup-bun`);
     if (/\bnpm (ci|test|version)\b|actions\/setup-node/.test(text)) problems.push(`${file}: names npm or node`);
+    // The build workflows install and run the page with Bun; CodeQL reads the sources and needs no
+    // toolchain, so the setup-bun rule belongs to the two that build.
+    if (BUILD_WORKFLOWS.includes(file) && !/oven-sh\/setup-bun/.test(text)) problems.push(`${file}: no setup-bun`);
   }
   const release = await readFile(join(dir, "release.yml"), "utf8");
   if (!/workflow_dispatch:/.test(release)) problems.push("release.yml cannot publish an existing tag whose first run failed");
   if (!/\$TAG/.test(release)) problems.push("release.yml does not use the tag it was asked about");
+  const codeql = await readFile(join(dir, "codeql.yml"), "utf8");
+  if (!/github\/codeql-action\/init@v\d/.test(codeql) || !/github\/codeql-action\/analyze@v\d/.test(codeql)) {
+    problems.push("codeql.yml does not run the CodeQL init and analyze actions");
+  }
+  if (!/security-events:\s*write/.test(codeql)) problems.push("codeql.yml cannot upload its findings: no security-events: write");
+  if (!/build-mode:\s*none/.test(codeql)) problems.push("codeql.yml tries to build a language that has no compiler");
   assert.deepEqual(problems, []);
   return `${files.length} workflows`;
 });

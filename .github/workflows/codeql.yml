@@ -1,0 +1,82 @@
+name: CodeQL
+
+# STATIC ANALYSIS OF THE PAGE, THE BUILD AND THE WORKFLOWS THEMSELVES.
+#
+# The page handles a recovery file, a password and a signed Monero transaction in the browser, so the
+# places worth a second reader are the ones that touch those values: sweep.js, sdk-entry.js, the SDK
+# bundle boundary and the build scripts. `actions` covers the workflow files, where a wrong permission
+# is as expensive as a wrong line of JavaScript.
+#
+# WHY build-mode: none. The page is JavaScript and TypeScript; there is no compiler for CodeQL to run,
+# and building dist/ first would only make the analysis slower without changing what is extracted. The
+# build itself is proven by the `build` workflow.
+#
+# A finding is reported in the repository's Security tab and as a check on the pull request. The job
+# does not fail on a finding: the alert is the answer, and a red build for a warning teaches people to
+# ignore the build.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # WEEKLY, SO A NEW QUERY OR A NEW ADVISORY FINDS THE OLD CODE TOO.
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  javascript:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:javascript-typescript"
+
+  workflows:
+    name: Analyze (actions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      # NO build-mode HERE: the `actions` language is read, not built, and the input belongs to
+      # compiled languages only.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: actions
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:actions"
