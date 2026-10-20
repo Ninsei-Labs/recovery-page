@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/sweep",
   "version": "0.1.0",
-  "commit": "4ab340ea16bc5b93d387c2234af48d043d68d3f8",
-  "builtAt": "2026-10-20T14:23:42.110Z",
+  "commit": "55749b4f7196c92f6fdedf4958b009e69d1b803f",
+  "builtAt": "2026-10-20T14:42:12.193Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -31,8 +31,8 @@
     },
     {
       "file": "locales/en/index.js",
-      "bytes": 21955,
-      "sha256": "619ee95d"
+      "bytes": 22286,
+      "sha256": "c62be797"
     },
     {
       "file": "locales/index.js",
@@ -41,8 +41,8 @@
     },
     {
       "file": "index.html",
-      "bytes": 4164,
-      "sha256": "9f28e443"
+      "bytes": 4272,
+      "sha256": "25613741"
     },
     {
       "file": "sweep.css",
@@ -66,8 +66,8 @@
     },
     {
       "file": "lib/node.js",
-      "bytes": 6482,
-      "sha256": "a2d03886"
+      "bytes": 6652,
+      "sha256": "c4e2acf3"
     },
     {
       "file": "lib/codes.js",

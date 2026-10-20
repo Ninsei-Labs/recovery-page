@@ -19,7 +19,7 @@
     "serve": "bun serve.bun.mjs"
   },
   "devDependencies": {
-    "@ninsei-labs/sdk": "0.44.0",
+    "@ninsei-labs/sdk": "0.44.1",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "assert": "2.1.0",
