@@ -7,8 +7,8 @@ name: release
 # the page is not a library, and a registry has no business holding a copy that can drift from the
 # release notes.
 #
-# GitHub Pages is not wired yet. When it is, it will consume the same `dist/` artifact this job
-# already produces; the archive is what people can serve today from any host.
+# The same `dist/` is then served from Cloudflare Pages (project `ninsei-recovery`, at
+# recovery.ninsei.finance), the last step below; the archive is what people serve from any other host.
 
 on:
   push:
@@ -31,6 +31,7 @@ jobs:
     timeout-minutes: 25
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
+      HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -52,6 +53,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build and check
+        id: check
         run: bun run test
 
       # THE ARCHIVE IS THE CONTENTS OF dist/, not the repository: an operator unzips it into a web
@@ -80,3 +82,27 @@ jobs:
               --title "NinseiSwap sweep $TAG" \
               --notes "Static page: unzip and serve the contents over HTTPS with the headers in deploy/. The archive holds dist/ only; every file's SHA-256 is in build.json."
           fi
+
+      # CLOUDFLARE PAGES GETS THE dist/ THIS RUN BUILT AND CHECKED, whether or not the archive above was attached:
+      # the two are separate copies of one build, and a failure of one must not hold back the other. Two
+      # repository secrets: CLOUDFLARE_API_TOKEN (Account, Cloudflare Pages: Edit) and CLOUDFLARE_ACCOUNT_ID. The
+      # project is created on the first deploy; `dist/_headers` carries the isolation headers, which Pages applies.
+      # No GitHub app is linked to Cloudflare: the run uploads the files itself, with wrangler run by Bun.
+      - name: Deploy the page to Cloudflare Pages
+        if: ${{ !cancelled() && steps.check.outcome == 'success' && env.HAS_CLOUDFLARE == 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -eu
+          wrangler="bunx --bun wrangler@4.147.0"
+          if ! $wrangler pages project list | grep -qE '(^|[^a-z0-9-])ninsei-recovery([^a-z0-9-]|$)'; then
+            $wrangler pages project create ninsei-recovery --production-branch=main
+          fi
+          # The version step rewrote the manifest, so the tree is dirty on purpose.
+          $wrangler pages deploy dist --project-name=ninsei-recovery --branch=main \
+            --commit-hash="$(git rev-parse HEAD)" --commit-message="$TAG" --commit-dirty=true
+
+      - name: Say the page was not deployed
+        if: ${{ !cancelled() && env.HAS_CLOUDFLARE != 'true' }}
+        run: echo "CLOUDFLARE_API_TOKEN is not set; the page is not deployed to Cloudflare Pages."
