@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/sweep",
   "version": "0.1.0",
-  "commit": null,
-  "builtAt": "2026-10-19T15:59:12.317Z",
+  "commit": "4ab340ea16bc5b93d387c2234af48d043d68d3f8",
+  "builtAt": "2026-10-20T14:23:42.110Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -11,8 +11,8 @@
     },
     {
       "file": "assets/vendors/monero/monero-ts-browser.js",
-      "bytes": 4005171,
-      "sha256": "002836c9"
+      "bytes": 3994277,
+      "sha256": "cf687c3e"
     },
     {
       "file": "assets/vendors/sdk/sdk-browser.js",
@@ -31,8 +31,8 @@
     },
     {
       "file": "locales/en/index.js",
-      "bytes": 21966,
-      "sha256": "a732cec9"
+      "bytes": 21955,
+      "sha256": "619ee95d"
     },
     {
       "file": "locales/index.js",
@@ -41,8 +41,8 @@
     },
     {
       "file": "index.html",
-      "bytes": 4157,
-      "sha256": "44e69619"
+      "bytes": 4164,
+      "sha256": "9f28e443"
     },
     {
       "file": "sweep.css",
@@ -66,8 +66,8 @@
     },
     {
       "file": "lib/node.js",
-      "bytes": 6427,
-      "sha256": "a3380ec5"
+      "bytes": 6482,
+      "sha256": "a2d03886"
     },
     {
       "file": "lib/codes.js",
@@ -82,12 +82,12 @@
     {
       "file": "sweep.js",
       "bytes": 28374,
-      "sha256": "61d84205"
+      "sha256": "85d33e77"
     },
     {
       "file": "diagnostics.js",
       "bytes": 19024,
-      "sha256": "3f4622ba"
+      "sha256": "79b41418"
     }
   ]
 }

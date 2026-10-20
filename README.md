@@ -36,7 +36,7 @@ Two conditions apply in a browser:
    same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, because the wallet uses
    `SharedArrayBuffer`. A CORS-passing answer also passes `require-corp`.
 
-The node address is a field on the page. It defaults to our public proxy, can be given in the link
+The node address is a field on the page. It defaults to a public community node, can be given in the link
 (`?node=https://node.example`), and is remembered for the tab. A node of your own behind an HTTPS
 proxy is enough; `deploy/xmr-proxy.conf` shows the CORS part.
 
