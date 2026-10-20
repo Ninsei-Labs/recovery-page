@@ -20,7 +20,7 @@ import { AVAILABLE } from "./available.js";
 
 // THE DEFAULT LANGUAGE IS ENGLISH; the choice is kept in the page's own storage.
 export const DEFAULT_LOCALE = "en";
-export const STORAGE_KEY = "sweep.lang";
+export const STORAGE_KEY = "recovery.lang";
 export const SDK_PREFIX = "sdk.";
 
 // THE ORDER AND SHAPE OF DETAILS (`params`) match the page dictionary (lib/codes.js): the same error has to

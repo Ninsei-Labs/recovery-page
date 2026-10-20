@@ -59,7 +59,7 @@ const STUBS = ["net", "tls", "child_process", "worker_threads", "perf_hooks", "w
 
 const builtinNames = Object.keys(POLYFILLS).join("|");
 const polyfillPlugin = {
-  name: "sweep-polyfills",
+  name: "recovery-polyfills",
   setup(b) {
     b.onResolve({ filter: new RegExp(`^(node:)?(${builtinNames})$`) }, (args) => ({
       path: require.resolve(POLYFILLS[args.path.replace(/^node:/, "")]),
@@ -67,9 +67,9 @@ const polyfillPlugin = {
     b.onResolve({ filter: /^process\/browser(\.js)?$/ }, () => ({ path: require.resolve("process/browser.js") }));
     b.onResolve({ filter: /^buffer\/?$/ }, () => ({ path: require.resolve("buffer/") }));
     for (const name of STUBS) {
-      b.onResolve({ filter: new RegExp(`^(node:)?${name}$`) }, () => ({ path: name, namespace: "sweep-stub" }));
+      b.onResolve({ filter: new RegExp(`^(node:)?${name}$`) }, () => ({ path: name, namespace: "recovery-stub" }));
     }
-    b.onLoad({ filter: /.*/, namespace: "sweep-stub" }, (args) => ({
+    b.onLoad({ filter: /.*/, namespace: "recovery-stub" }, (args) => ({
       loader: "js",
       contents: `
         const fail = () => { throw new Error("node module '${args.path}' is not available in the browser"); };
@@ -162,8 +162,8 @@ const STAMP = {
 };
 
 console.log("\npage:");
-const PAGE_TEXT = ["sweep.js", "diagnostics.js"];
-const PAGE_COPY = ["index.html", "sweep.css", "diagnostics.html", "coi.js", "sw.js", "lib/node.js", "lib/codes.js"];
+const PAGE_TEXT = ["recovery.js", "diagnostics.js"];
+const PAGE_COPY = ["index.html", "recovery.css", "diagnostics.html", "coi.js", "sw.js", "lib/node.js", "lib/codes.js"];
 
 // The locale list is derived from the folders, not edited by hand: a third language is one folder.
 const localesDir = join(ROOT, "locales");
@@ -201,7 +201,7 @@ for (const rel of PAGE_TEXT) {
   // Each page file names only the artefacts it loads: the withdrawal page names all three, the
   // diagnostics page only the wallet pair. A placeholder that is missing where it is expected is a
   // failure; one that a file does not use is not.
-  if (rel === "sweep.js") {
+  if (rel === "recovery.js") {
     for (const placeholder of Object.keys(STAMP)) {
       if (!text.includes(placeholder)) throw new Error(`${rel}: expected ${placeholder}, which names a built file`);
     }

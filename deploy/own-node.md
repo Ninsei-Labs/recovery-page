@@ -1,4 +1,4 @@
-# Running your own node proxy for the sweep page
+# Running your own node proxy for the recovery page
 
 The page asks a Monero node for a small set of calls. A browser can use a node only when the node
 answers over HTTPS and allows the page's origin in CORS. A stock `monerod` does neither, so an operator
@@ -153,7 +153,7 @@ Notes that matter in practice:
 ```sh
 # preflight: expect 204 and the three Access-Control headers
 curl -sS -i -X OPTIONS https://xmr.example.com/json_rpc \
-  -H 'Origin: https://sweep.ninsei.finance' \
+  -H 'Origin: https://recovery.ninsei.finance' \
   -H 'Access-Control-Request-Method: POST' \
   -H 'Access-Control-Request-Headers: content-type'
 

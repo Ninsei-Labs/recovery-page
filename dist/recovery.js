@@ -1,4 +1,4 @@
-// Real sweep: recovery file -> wallet in this tab -> transfer to your own address.
+// The recovery page: recovery file -> wallet in this tab -> transfer to your own address.
 //
 // THE WITHDRAWAL RULES LIVE IN @ninsei-labs/sdk 0.44: recovery.open, sweep.plan, sweep.keys, sweep.wallet,
 // sweep.restore, recovery.restoreHeight, sweep.destination, sweep.sign, sweep.relay, formatXmr, probeMoneroNode.
@@ -14,9 +14,9 @@ import { t, n, d, init as initLocale } from "./locales/index.js";
 import { nodeUrl, nodeLabelKey, nodeLabelParams, setNodeUrl, DEFAULT_NODE } from "./lib/node.js";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
-const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=__V_MONERO__";
-const WORKER = "./monero.worker.js?v=__V_WORKER__";
-const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=__V_SDK__";
+const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=cf687c3e";
+const WORKER = "./monero.worker.js?v=fd2e8b51";
+const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=479a2e5c";
 // THE APP IS OPTIONAL: a third-party operator has none, so the height is typed by hand. A 404 is not an error.
 const API = "./api";
 

@@ -23,7 +23,7 @@ export const DEFAULT_NODE = "https://monero.openinternet.io";
 
 // THE SETTING IS KEPT FOR THE TAB, NOT FOR THE BROWSER: a node address is a choice about this session,
 // and a shared machine must not remember one person's node for the next.
-export const NODE_STORAGE_KEY = "ninsei.sweep.node";
+export const NODE_STORAGE_KEY = "ninsei.recovery.node";
 
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])$/;
 const isLocalHost = (h) => LOCAL_HOST.test(h) || /\.local$/.test(h);
