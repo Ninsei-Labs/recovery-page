@@ -16,7 +16,7 @@ import { nodeUrl, nodeLabelKey, nodeLabelParams, setNodeUrl, DEFAULT_NODE } from
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=cf687c3e";
 const WORKER = "./monero.worker.js?v=fd2e8b51";
-const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=2da1fec7";
+const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=91ea9285";
 // THE APP IS OPTIONAL: a third-party operator has none, so the height is typed by hand. A 404 is not an error.
 const API = "./api";
 
@@ -236,8 +236,9 @@ async function facade() {
 
 async function preflight() {
   const failed = [];
-  if (!self.crossOriginIsolated) failed.push(t("preflight.fail.coop"));
-  if (typeof SharedArrayBuffer === "undefined") failed.push(t("preflight.fail.sab"));
+  // ISOLATION IS NOT A REQUIREMENT. monero-ts 0.11.20 has no pthreads and needs no SharedArrayBuffer; the
+  // headers are still served when the host has them, and the diagnostics report the fact. A host without them
+  // runs the same wallet.
   if (!self.isSecureContext) failed.push(t("preflight.fail.https"));
 
   try {
