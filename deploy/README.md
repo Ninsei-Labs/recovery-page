@@ -13,7 +13,8 @@ of the four ways below.
 Before anything else, decide about the node. If you run `monerod`, put `deploy/xmr-proxy.conf` in front
 of it; the page needs CORS and the wallet's binary paths. If you would rather not run a node, leave the
 field at its default, which points at a public community node - the page still works, but it depends on
-that node being up and allowing this page's origin.
+that node being up and allowing this page's origin. For a proxy of your own, with or without a public
+fallback, see `own-node.md` in this directory.
 
 ## 1. nginx (recommended)
 

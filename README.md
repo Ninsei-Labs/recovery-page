@@ -25,9 +25,11 @@ The page speaks to a Monero node through the wallet's own paths:
 | Path | Purpose |
 |---|---|
 | `/json_rpc` | `get_info`, fee estimate, hard fork info |
-| `/getblocks.bin` | blocks with transactions (the main sync channel) |
-| `/gethashes.bin` | block hashes |
-| `/get_blocks.bin` | the same range in another shape |
+| `/get_blocks_by_height.bin` | blocks with transactions (the main sync channel) |
+| `/get_transactions` | transaction lookup |
+| `/send_raw_transaction` | broadcast of the signed transaction |
+| `/is_key_image_spent` | double spend check before the send |
+| `/get_height` | chain height fallback |
 
 Two conditions apply in a browser:
 
@@ -38,7 +40,8 @@ Two conditions apply in a browser:
 
 The node address is a field on the page. It defaults to a public community node, can be given in the link
 (`?node=https://node.example`), and is remembered for the tab. A node of your own behind an HTTPS
-proxy is enough; `deploy/xmr-proxy.conf` shows the CORS part.
+proxy is enough; `deploy/xmr-proxy.conf` has the block and `deploy/own-node.md` walks through the setup,
+including a public fallback and the exact headers.
 
 ## Build
 
