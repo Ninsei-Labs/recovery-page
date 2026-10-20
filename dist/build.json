@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/sweep",
-  "version": "0.1.0",
-  "commit": "55749b4f7196c92f6fdedf4958b009e69d1b803f",
-  "builtAt": "2026-10-20T14:42:12.193Z",
+  "version": "0.2.0",
+  "commit": "98490b0a40833d3f79e822caef5419eebc6afd2d",
+  "builtAt": "2026-10-20T14:50:34.865Z",
   "files": [
     {
       "file": "monero.worker.js",
