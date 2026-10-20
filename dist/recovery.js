@@ -236,8 +236,9 @@ async function facade() {
 
 async function preflight() {
   const failed = [];
-  if (!self.crossOriginIsolated) failed.push(t("preflight.fail.coop"));
-  if (typeof SharedArrayBuffer === "undefined") failed.push(t("preflight.fail.sab"));
+  // ISOLATION IS NOT A REQUIREMENT. monero-ts 0.11.20 has no pthreads and needs no SharedArrayBuffer; the
+  // headers are still served when the host has them, and the diagnostics report the fact. A host without them
+  // runs the same wallet.
   if (!self.isSecureContext) failed.push(t("preflight.fail.https"));
 
   try {

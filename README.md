@@ -34,9 +34,9 @@ The page speaks to a Monero node through the wallet's own paths:
 Two conditions apply in a browser:
 
 1. **CORS** - the node (or a proxy in front of it) must allow the page's origin.
-2. **Cross-origin isolation** - the document must be served with `Cross-Origin-Opener-Policy:
-   same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, because the wallet uses
-   `SharedArrayBuffer`. A CORS-passing answer also passes `require-corp`.
+2. **Cross-origin isolation is not required.** The wallet does not use `SharedArrayBuffer`. When the host does
+   send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, the page
+   reports it in the diagnostics and nothing changes. A CORS-passing answer also passes `require-corp`.
 
 The node address is a field on the page. It defaults to a public community node, can be given in the link
 (`?node=https://node.example`), and is remembered for the tab. A node of your own behind an HTTPS
