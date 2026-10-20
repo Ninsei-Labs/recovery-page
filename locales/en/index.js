@@ -1,14 +1,14 @@
 // THE "en" LANGUAGE (THE DEFAULT): DATA ONLY, NO CODE.
 //
 // Every word a person sees: markup and log lines (strings), refusal phrases by code (sdk), detail captions
-// (params). No machinery: sweep/locales/index.js holds it.
+// (params). No machinery: locales/index.js holds it.
 //
 // A LANGUAGE IS A FOLDER: a third one is a folder of the same shape, no code or markup edited.
 export default {
   tag: "en",
   name: "English",
   strings: {
-    "page.title": "NinseiSwap: withdraw XMR from a swap wallet",
+    "page.title": "Ninsei recovery: withdraw XMR from a swap wallet",
     "page.h1": "Withdraw XMR from a swap wallet",
     "page.intro": "Keys and the password never leave this tab: the recovery file is decrypted in the browser and the transfer is signed here too. Only requests to the Monero node leave the tab - the balance, the sync and the sending of an already signed transaction.",
     "page.lang": "Language",
@@ -35,10 +35,10 @@ export default {
     "page.keys.li4": "If the file was issued for stagenet while the node is on mainnet, the transfer deliberately does not go: the page says so directly instead of signing a transaction on the wrong network.",
     "page.diag.lead": "The technical report about the environment (COOP/COEP isolation, the worker, the availability of the node paths, a scan-speed measurement) is on a separate page ",
     "page.diag.tail": ".",
-    "diagpage.title": "NinseiSwap: sweep environment check",
+    "diagpage.title": "Ninsei recovery: environment check",
     "diagpage.h1": "Wallet environment check",
-    "diagpage.lead": "A technical page: it shows what the sweep production environment is made of and which of its parts work right now - COOP/COEP isolation, the wallet bundle, the worker, the node paths and the scan speed. It is needed when a transfer does not go and it has to be understood whose side it is. The transfer itself is on the ",
-    "diagpage.lead.link": "sweep page",
+    "diagpage.lead": "A technical page: it shows what the recovery page's production environment is made of and which of its parts work right now - COOP/COEP isolation, the wallet bundle, the worker, the node paths and the scan speed. It is needed when a transfer does not go and it has to be understood whose side it is. The transfer itself is on the ",
+    "diagpage.lead.link": "recovery page",
     "diagpage.lead.tail": ".",
     "diagpage.btn.rerun": "Run the check again",
     "diagpage.btn.scan": "Measure a scan of 3000 blocks (~2 min)",

@@ -1,4 +1,4 @@
-# NinseiSwap sweep
+# Ninsei recovery page
 
 A static page that moves XMR out of a swap wallet. A person opens it in a browser, supplies the
 recovery file and its password, and the page rebuilds the wallet **in the tab**, syncs it against a
@@ -84,8 +84,8 @@ only in a secure context.
 ## Docker
 
 ```
-docker build -t ninsei-sweep .
-docker run --rm -p 8080:8080 ninsei-sweep
+docker build -t ninsei-recovery .
+docker run --rm -p 8080:8080 ninsei-recovery
 ```
 
 The image is built in two stages: Bun installs the locked dependencies and runs the checks, then the
@@ -108,8 +108,10 @@ git push origin v0.1.0
 
 The `release` workflow takes the version from the tag, installs the locked dependencies, runs the
 checks, and attaches one archive to a GitHub release: the contents of `dist/`, plus a `.sha256`.
-Nothing is published to npm - the page is not a library. GitHub Pages is not wired yet; when it is,
-it will consume the same `dist/` directory.
+Nothing is published to npm - the page is not a library. The same run then deploys that `dist/` to
+Cloudflare Pages (project `ninsei-recovery`), which serves it at `https://recovery.ninsei.finance`;
+it needs the repository secrets `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit) and
+`CLOUDFLARE_ACCOUNT_ID`.
 
 To verify an archive before serving it, compare every file with `build.json` inside it, or check the
 archive itself against the published `.sha256`.

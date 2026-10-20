@@ -21,7 +21,7 @@ fallback, see `own-node.md` in this directory.
 Copy `dist/` to the host and use `deploy/nginx.conf` as the server block. Then check the headers:
 
 ```
-curl -sI https://sweep.example.com/ | grep -i cross-origin
+curl -sI https://recovery.example.com/ | grep -i cross-origin
 ```
 
 You should see `cross-origin-opener-policy: same-origin` and

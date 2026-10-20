@@ -114,7 +114,7 @@ await check("every key the HTML asks for exists", async () => {
 
 await check("every literal t() key in the page exists", async () => {
   const missing = [];
-  for (const file of ["sweep.js", "diagnostics.js", "lib/node.js"]) {
+  for (const file of ["recovery.js", "diagnostics.js", "lib/node.js"]) {
     const text = await read(file);
     for (const m of text.matchAll(/\bt\("([a-z0-9._]+)"/g)) {
       // A key built by concatenation (`"sdk." + code`) is a prefix, not a key: it is covered by the
@@ -146,7 +146,7 @@ await check("the SDK entry names package subpaths, not files inside the package"
 
 await check("no absolute asset paths: the page must work in a subdirectory", async () => {
   const offenders = [];
-  for (const file of ["sweep.js", "diagnostics.js", "index.html", "diagnostics.html", "lib/node.js"]) {
+  for (const file of ["recovery.js", "diagnostics.js", "index.html", "diagnostics.html", "lib/node.js"]) {
     const text = await read(file);
     for (const m of text.matchAll(/(?:src|href)="\/(?!\/)|from\s+"\/(?!\/)|import\("\/(?!\/)|fetch\("\/[a-z]/g)) {
       offenders.push(`${file}: ${m[0]}`);
@@ -157,7 +157,7 @@ await check("no absolute asset paths: the page must work in a subdirectory", asy
 
 await check("no eval and no new Function in the page's own code", async () => {
   const offenders = [];
-  for (const file of ["sweep.js", "diagnostics.js", "lib/node.js", "lib/codes.js", "coi.js", "sw.js"]) {
+  for (const file of ["recovery.js", "diagnostics.js", "lib/node.js", "lib/codes.js", "coi.js", "sw.js"]) {
     const text = await read(file);
     if (/\beval\s*\(|new\s+Function\s*\(/.test(text)) offenders.push(file);
   }
@@ -165,7 +165,7 @@ await check("no eval and no new Function in the page's own code", async () => {
 });
 
 await check("the page never writes the recovery file or the password anywhere", async () => {
-  for (const file of ["sweep.js"]) {
+  for (const file of ["recovery.js"]) {
     const text = await read(file);
     assert.ok(!/localStorage\.setItem\([^)]*(contents|passphrase|seed|mnemonic)/i.test(text), file);
   }
@@ -180,8 +180,8 @@ await check("dist/ was built", async () => {
 const REQUIRED = [
   "index.html",
   "diagnostics.html",
-  "sweep.css",
-  "sweep.js",
+  "recovery.css",
+  "recovery.js",
   "diagnostics.js",
   "coi.js",
   "sw.js",
@@ -202,7 +202,7 @@ await check("every file a host must receive is in dist/", () => {
 
 await check("no build placeholder survives in dist/", async () => {
   const leftovers = [];
-  for (const file of ["sweep.js", "diagnostics.js"]) {
+  for (const file of ["recovery.js", "diagnostics.js"]) {
     const text = await readFile(join(DIST, file), "utf8");
     for (const m of text.matchAll(/__V_[A-Z]+__/g)) leftovers.push(`${file}: ${m[0]}`);
   }
@@ -228,7 +228,7 @@ await check("build.json lists every built file with its real hash", async () => 
 });
 
 await check("the stamped page names the hashes of the files it loads", async () => {
-  const page = await readFile(join(DIST, "sweep.js"), "utf8");
+  const page = await readFile(join(DIST, "recovery.js"), "utf8");
   const bundle = await readFile(join(DIST, "assets", "vendors", "sdk", "sdk-browser.js"));
   const expected = createHash("sha256").update(bundle).digest("hex").slice(0, 8);
   assert.ok(page.includes(expected), `sdk-browser.js?v=${expected} is not named by the page`);

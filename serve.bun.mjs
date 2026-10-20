@@ -11,9 +11,9 @@
 //
 // Environment:
 //   PORT  (default 8080)  - the port to listen on
-//   ROOT  (default /srv/sweep) - the directory with dist/'s contents
+//   ROOT  (default /srv/recovery) - the directory with dist/'s contents
 //   HOST  (default 0.0.0.0) - the interface to bind
-const ROOT = (process.env.ROOT || "/srv/sweep").replace(/[\\/]+$/, "");
+const ROOT = (process.env.ROOT || "/srv/recovery").replace(/[\\/]+$/, "");
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
 
@@ -91,4 +91,4 @@ const server = Bun.serve({
   },
 });
 
-console.log(`sweep: serving ${ROOT} on http://${HOST}:${server.port}`);
+console.log(`recovery: serving ${ROOT} on http://${HOST}:${server.port}`);
