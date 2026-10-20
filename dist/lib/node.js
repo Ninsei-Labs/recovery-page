@@ -15,11 +15,11 @@
 //
 // NOTHING SECRET LIVES HERE. A node address is public by nature; the wallet's keys never leave the tab.
 
-// THE DEFAULT IS A PROXY, NOT A NODE: browsers cannot reach a Monero node directly (CORS, and a node
-// does not speak HTTPS on the wallet paths), so the default is the public proxy that forwards exactly
-// those paths. An operator who runs a node can put the same kind of proxy in front of it and enter
-// that address instead.
-export const DEFAULT_NODE = "https://xmr.arrakisswap.trade";
+// THE DEFAULT IS A PUBLIC COMMUNITY NODE: a browser can use a node only when the node serves the wallet
+// paths over HTTPS and allows this page's origin in CORS, and only some public nodes do both. The
+// default is one of those; an operator who runs a node can put a proxy in front of it and enter that
+// address instead. The field on the page and the link override it for the tab.
+export const DEFAULT_NODE = "https://monero.openinternet.io";
 
 // THE SETTING IS KEPT FOR THE TAB, NOT FOR THE BROWSER: a node address is a choice about this session,
 // and a shared machine must not remember one person's node for the next.
@@ -87,7 +87,7 @@ function resolveAtStart() {
     return;
   }
   // A LOCAL STAND IS ITS OWN PROXY: on localhost the page is served by the stand, which forwards the
-  // wallet's paths to a local node. Using the public proxy there would send a stand's traffic to
+  // wallet's paths to a local node. Using the public node there would send a stand's traffic to
   // production, which is both wrong and invisible.
   if (isLocalPage()) {
     current = location.origin;
@@ -136,7 +136,7 @@ export function resetNodeUrl() {
 }
 
 // THE LABEL IS A KEY AND ITS PARAMS, NOT A SENTENCE: words live in locales/<tag>/, and this module
-// stays free of them. The default names the public proxy, the page's own origin names a local stand,
+// stays free of them. The default names the public node, the page's own origin names a local stand,
 // and any other address is shown in full.
 export function nodeLabelKey() {
   if (source === "local") return "node.label.same";

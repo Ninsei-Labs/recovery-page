@@ -14,7 +14,7 @@ import { t, n, d, init as initLocale } from "./locales/index.js";
 import { nodeUrl, nodeLabelKey, nodeLabelParams, setNodeUrl, DEFAULT_NODE } from "./lib/node.js";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
-const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=002836c9";
+const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=cf687c3e";
 const WORKER = "./monero.worker.js?v=fd2e8b51";
 const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=479a2e5c";
 // THE APP IS OPTIONAL: a third-party operator has none, so the height is typed by hand. A 404 is not an error.
