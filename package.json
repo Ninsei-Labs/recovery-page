@@ -1,5 +1,5 @@
 {
-  "name": "@ninsei-labs/sweep",
+  "name": "@ninsei-labs/recovery-page",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Ninsei-Labs/sweep.git"
+    "url": "https://github.com/Ninsei-Labs/recovery-page.git"
   },
   "packageManager": "bun@1.4.2",
   "engines": {

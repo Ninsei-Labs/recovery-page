@@ -62,24 +62,24 @@ jobs:
         run: |
           set -eu
           cd dist
-          zip -q -r "../ninsei-sweep-${TAG}.zip" .
+          zip -q -r "../ninsei-recovery-${TAG}.zip" .
           cd ..
-          sha256sum "ninsei-sweep-${TAG}.zip" > "ninsei-sweep-${TAG}.zip.sha256"
-          unzip -l "ninsei-sweep-${TAG}.zip" | tail -3
+          sha256sum "ninsei-recovery-${TAG}.zip" > "ninsei-recovery-${TAG}.zip.sha256"
+          unzip -l "ninsei-recovery-${TAG}.zip" | tail -3
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          files="ninsei-sweep-${TAG}.zip ninsei-sweep-${TAG}.zip.sha256"
+          files="ninsei-recovery-${TAG}.zip ninsei-recovery-${TAG}.zip.sha256"
           # A RERUN OF A TAG WHOSE RELEASE EXISTS MUST ATTACH, NOT FAIL. The first v0.1.0 run created the
           # release and failed before the files were attached; a retry has to be able to finish it.
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" $files --clobber
           else
             gh release create "$TAG" $files \
-              --title "NinseiSwap sweep $TAG" \
+              --title "Ninsei recovery page $TAG" \
               --notes "Static page: unzip and serve the contents over HTTPS with the headers in deploy/. The archive holds dist/ only; every file's SHA-256 is in build.json."
           fi
 

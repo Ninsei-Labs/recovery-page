@@ -1,8 +1,8 @@
 {
-  "name": "@ninsei-labs/sweep",
+  "name": "@ninsei-labs/recovery-page",
   "version": "0.2.0",
-  "commit": "98490b0a40833d3f79e822caef5419eebc6afd2d",
-  "builtAt": "2026-10-20T14:50:34.865Z",
+  "commit": "2269250183ee5cec1d07ea32509b1837642e4f7e",
+  "builtAt": "2026-10-20T15:39:53.637Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -31,28 +31,28 @@
     },
     {
       "file": "locales/en/index.js",
-      "bytes": 22286,
-      "sha256": "c62be797"
+      "bytes": 21966,
+      "sha256": "601e940b"
     },
     {
       "file": "locales/index.js",
-      "bytes": 10990,
-      "sha256": "68045718"
+      "bytes": 10993,
+      "sha256": "68b1eb7b"
     },
     {
       "file": "index.html",
-      "bytes": 4272,
-      "sha256": "25613741"
+      "bytes": 4175,
+      "sha256": "a8ddd5d1"
     },
     {
-      "file": "sweep.css",
+      "file": "recovery.css",
       "bytes": 8048,
       "sha256": "e479672a"
     },
     {
       "file": "diagnostics.html",
-      "bytes": 1952,
-      "sha256": "00604ff7"
+      "bytes": 1960,
+      "sha256": "5b3bb4c1"
     },
     {
       "file": "coi.js",
@@ -66,8 +66,8 @@
     },
     {
       "file": "lib/node.js",
-      "bytes": 6652,
-      "sha256": "c4e2acf3"
+      "bytes": 6485,
+      "sha256": "eb4aeea5"
     },
     {
       "file": "lib/codes.js",
@@ -80,14 +80,14 @@
       "sha256": "8556c59c"
     },
     {
-      "file": "sweep.js",
-      "bytes": 28374,
-      "sha256": "85d33e77"
+      "file": "recovery.js",
+      "bytes": 28381,
+      "sha256": "6014343a"
     },
     {
       "file": "diagnostics.js",
-      "bytes": 19024,
-      "sha256": "79b41418"
+      "bytes": 19050,
+      "sha256": "540f7faa"
     }
   ]
 }

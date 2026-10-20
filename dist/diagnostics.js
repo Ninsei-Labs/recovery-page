@@ -1,6 +1,6 @@
-// A CHECK OF THE LIVE SWEEP ENVIRONMENT (a technical report, not the withdrawal interface).
+// A CHECK OF THE RECOVERY PAGE'S LIVE ENVIRONMENT (a technical report, not the withdrawal interface).
 //
-// Why a separate page: the sweep origin has its own policy (a CSP with a strict script-src - 'unsafe-eval' is
+// Why a separate page: the recovery page's origin has its own policy (a CSP with a strict script-src - 'unsafe-eval' is
 // gone now that monero-ts is 0.11.16 - plus COOP/COEP and a worker) and its own way to the node (our proxy),
 // and when a transfer does not go it has to be clear what broke. The checks are the ones the withdrawal page
 // runs before work, but verbose and with measurements.
@@ -263,10 +263,10 @@ async function quickCheck() {
 
     await measure("diag.step.sign", async () => {
       const addr = await wallet.getAddress(0, 0);
-      const sig = await wallet.signMessage("ninsei-sweep-check", addr);
+      const sig = await wallet.signMessage("ninsei-recovery-check", addr);
       let verified = null;
       try {
-        verified = JSON.stringify(await wallet.verifyMessage("ninsei-sweep-check", addr, sig));
+        verified = JSON.stringify(await wallet.verifyMessage("ninsei-recovery-check", addr, sig));
       } catch (e) {
         verified = () => t("diag.detail.sign.failed", { why: String((e && e.message) || e).slice(0, 60) });
       }

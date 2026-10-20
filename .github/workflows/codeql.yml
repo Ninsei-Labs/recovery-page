@@ -3,7 +3,7 @@ name: CodeQL
 # STATIC ANALYSIS OF THE PAGE, THE BUILD AND THE WORKFLOWS THEMSELVES.
 #
 # The page handles a recovery file, a password and a signed Monero transaction in the browser, so the
-# places worth a second reader are the ones that touch those values: sweep.js, sdk-entry.js, the SDK
+# places worth a second reader are the ones that touch those values: recovery.js, sdk-entry.js, the SDK
 # bundle boundary and the build scripts. `actions` covers the workflow files, where a wrong permission
 # is as expensive as a wrong line of JavaScript.
 #

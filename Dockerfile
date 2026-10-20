@@ -31,7 +31,7 @@ FROM oven/bun:1.4-slim AS runtime
 ENV TZ=UTC \
     NODE_ENV=production \
     PORT=8080 \
-    ROOT=/srv/sweep
+    ROOT=/srv/recovery
 
 # tzdata keeps timestamps honest in logs; ca-certificates is what a reverse proxy or an operator's
 # tooling may need. No secret ever enters through this file.
@@ -40,7 +40,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv
-COPY --from=build /src/dist ./sweep
+COPY --from=build /src/dist ./recovery
 COPY serve.bun.mjs ./serve.bun.mjs
 
 # A FIXED, UNPRIVILEGED UID: a runtime that changes identity between hosts is one whose file

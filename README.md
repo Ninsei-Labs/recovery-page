@@ -1,4 +1,4 @@
-# NinseiSwap sweep
+# Ninsei recovery page
 
 A static page that moves XMR out of a swap wallet. A person opens it in a browser, supplies the
 recovery file and its password, and the page rebuilds the wallet **in the tab**, syncs it against a
@@ -84,8 +84,8 @@ only in a secure context.
 ## Docker
 
 ```
-docker build -t ninsei-sweep .
-docker run --rm -p 8080:8080 ninsei-sweep
+docker build -t ninsei-recovery .
+docker run --rm -p 8080:8080 ninsei-recovery
 ```
 
 The image is built in two stages: Bun installs the locked dependencies and runs the checks, then the
