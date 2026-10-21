@@ -1,20 +1,40 @@
 # Ninsei recovery page
 
-A static page that moves XMR out of a swap wallet. A person opens it in a browser, supplies the
-recovery key (twelve words) or an older recovery file, and the page rebuilds the wallet **in the tab**,
-syncs it against a Monero node, and sends a transfer to an address the person types. With a key the page
-finds the open swaps on chain first; the key itself is never sent anywhere. Keys and the password never leave
-the tab; the page has no server of its own.
+A static page that moves XMR out of a swap wallet. A person opens it in a browser and enters their Ninsei key:
+the twelve words, or the key file the swap widget saved
+(`ninsei-recovery-key-DO-NOT-DELETE-<date>-<fingerprint>.txt`, optionally with a password). The page finds the
+swaps the key made on the settlement chain, lists each with what it needs, and for a swap whose XMR can be taken
+it rebuilds the wallet **in the tab**, syncs it against a Monero node, and sends a transfer to an address the
+person types. The key, its password and the wallet keys never leave the tab; the page has no server of its own.
+
+The Ninsei key is not a wallet seed and is never imported into a wallet. The SDK calls it the recovery key, and
+its file keeps that name and its first line, `NINSEI RECOVERY KEY`, which is what people search for on disk.
+The per-swap recovery file of earlier builds is no longer read.
 
 This repository is the reference implementation. An operator can serve it from their own host and
 point it at their own Monero node, with no dependency on us.
 
 ## Why the page exists
 
-A swap wallet is opened with two halves of a spend key: one half in the deal, one half in the recovery
-file. As long as the service is running, the service's node holds the wallet. This page is the way out
-when it is not: it combines the halves, verifies the sum against the address (`(s_a + s_b)·G`), builds
-and signs the transfer locally, and only then puts the signed transaction on the wire.
+A swap wallet is opened with two halves of a spend key: the person's half, derived from the Ninsei key and
+the swap's number, and the maker's half, which the maker publishes on the settlement chain when it takes the ETH
+(a buy) or takes its ETH back (a failed sell). As long as the person's browser keeps the swap, the widget holds
+the wallet. This page is the way out when it does not: it finds the swap's order by the key's commitments,
+reads the maker's half from the escrow, combines the halves, verifies the sum against the address
+(`(s_a + s_b)·G`), builds and signs the transfer locally, and only then puts the signed transaction on the wire.
+
+What the page reads for a swap, and where:
+
+| What | From |
+|---|---|
+| the swaps of a key | the factory's `OrderCreated` logs, matched against the key's commitments in the tab (`findSwaps`) |
+| the swap's state | the escrow's `status()`: claimed, refunded or open, and its deadline from the order |
+| the swap's date | the time of the block that holds the order |
+| the Monero start block | the last Monero block at or before that time, minus 60 (`lib/start-height.js`, until the SDK has it) |
+| the maker's half | the escrow's `revealedHalf()`, read by the SDK's `sweep.plan` |
+
+The SDK's withdrawal (`sweep.plan`, `keys`, `sign`, `relay`) takes a per-swap payload; the page writes a found
+swap into that payload in memory (`lib/found-swap.js`), so every withdrawal rule stays the SDK's.
 
 That is also why the page must be hostable anywhere. A recovery page that only works while our domain
 answers is not a recovery page.
@@ -84,7 +104,7 @@ A page served from a subdirectory works too: every path in the page is relative.
 the same origin.
 
 HTTPS is required in every case except `localhost`: workers and the browser's crypto, which decrypts
-the recovery file, exist only in a secure context.
+the Ninsei key file, exist only in a secure context.
 
 ## Docker
 
@@ -123,13 +143,15 @@ archive itself against the published `.sha256`.
 ## Security notes
 
 - **The keys stay in the tab.** The page sends the node only what a wallet sends a node: height,
-  block requests, the signed transaction. It never sends the recovery file, the password, the spend
-  key or a seed.
-- **The settlement chain is read, never written.** The file names the network the deal settled on; the
-  page reads it with `eth_call` through public RPCs that pass CORS (`lib/settlement.js`) and refuses a
-  file whose network it does not know. It holds no EVM key and sends no EVM transaction.
-- **The file is decrypted in the browser**, with the same code path the SDK uses; the page does not
-  carry a second implementation of the format.
+  block headers and blocks, the signed transaction. It never sends the Ninsei key, its password, a half or
+  a spend key. The words are cleared from the field once read, never logged and never stored.
+- **The settlement chain is read, never written.** The search sends a public RPC the factory, the
+  `OrderCreated` topic and a block range, never the key or a commitment; the swap's state and the maker's
+  half are `eth_call`s on the escrow (`lib/settlement.js`). The page holds no EVM key and sends no EVM
+  transaction. A network the SDK names a live factory for, but which this page cannot read, is said, not
+  skipped.
+- **A missing answer is unknown.** A swap whose state could not be read is shown as unknown, a network that did
+  not answer makes the list say it is incomplete, and a start block the chain does not give is asked for.
 - **Verify what you serve.** `dist/build.json` lists a SHA-256 for every file, and a release archive
   should be checked against it. On IPFS the CID is the check.
 - **A compromised host is a compromised page.** This page handles spend keys, so serve it from a host

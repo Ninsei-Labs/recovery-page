@@ -69,10 +69,9 @@ this page can make about itself: the bytes that handle a spend key are the bytes
 2. The first status line is green (the wallet, the worker and the SDK core).
 3. The node rows turn green or red by themselves, the chosen row is the node you expect, and the log
    reports its height and network.
-   A `stagenet` node and a `mainnet` recovery file do not match; the page says so before anything is
-   signed.
-4. A recovery file from a real deal opens, and the page says what the money is doing: ready, not yet, or
-   nothing there.
+   A `stagenet` node and a `mainnet` swap do not match; the page says so before anything is signed.
+4. A Ninsei key with no swaps says "No swaps for this Ninsei key"; a key with swaps lists each with its date, side,
+   amount, state and what it needs, and a swap to withdraw says what the money is doing.
 5. Only then does a real withdrawal make sense.
 
 ## Things not to do

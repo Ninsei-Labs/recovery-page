@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.2.0",
-  "commit": "c42d772fa936ec41fa0bc883a03b032c585c3b45",
-  "builtAt": "2026-10-21T18:36:32.482Z",
+  "commit": "346be5b3d40b896c8bd4664263121c4a78c445a4",
+  "builtAt": "2026-10-21T18:36:41.542Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -16,8 +16,8 @@
     },
     {
       "file": "assets/vendors/sdk/sdk-browser.js",
-      "bytes": 481586,
-      "sha256": "7cdaa53c"
+      "bytes": 481657,
+      "sha256": "79abd9a2"
     },
     {
       "file": "assets/vendors/atomic/atomic-browser.js",
@@ -31,8 +31,8 @@
     },
     {
       "file": "locales/en/index.js",
-      "bytes": 25359,
-      "sha256": "15fd44aa"
+      "bytes": 27913,
+      "sha256": "b71b00fd"
     },
     {
       "file": "locales/index.js",
@@ -41,13 +41,13 @@
     },
     {
       "file": "index.html",
-      "bytes": 10499,
-      "sha256": "0537e33d"
+      "bytes": 11169,
+      "sha256": "75600e49"
     },
     {
       "file": "recovery.css",
-      "bytes": 29009,
-      "sha256": "74caf274"
+      "bytes": 32092,
+      "sha256": "dafffc04"
     },
     {
       "file": "diagnostics.html",
@@ -65,14 +65,19 @@
       "sha256": "ca701a3e"
     },
     {
+      "file": "lib/found-swap.js",
+      "bytes": 4184,
+      "sha256": "9aae9424"
+    },
+    {
       "file": "lib/node.js",
       "bytes": 12690,
       "sha256": "96796910"
     },
     {
       "file": "lib/settlement.js",
-      "bytes": 9082,
-      "sha256": "baa2d8d3"
+      "bytes": 12358,
+      "sha256": "2c7bbba3"
     },
     {
       "file": "lib/start-height.js",
@@ -81,8 +86,8 @@
     },
     {
       "file": "lib/withdrawal.js",
-      "bytes": 2821,
-      "sha256": "64de1ad0"
+      "bytes": 3299,
+      "sha256": "aabb6ac9"
     },
     {
       "file": "assets/fonts/chakra-petch-OFL.txt",
@@ -146,8 +151,8 @@
     },
     {
       "file": "recovery.js",
-      "bytes": 60007,
-      "sha256": "20570bc3"
+      "bytes": 60086,
+      "sha256": "fc9d2069"
     },
     {
       "file": "diagnostics.js",
