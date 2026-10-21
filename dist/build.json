@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.2.0",
-  "commit": "4200a378b7543f969865601af16128006af2a841",
-  "builtAt": "2026-10-21T16:55:48.838Z",
+  "commit": "98d0d7906b53605eb0879f44bf6c025d59e9ed71",
+  "builtAt": "2026-10-21T17:57:27.254Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -16,8 +16,8 @@
     },
     {
       "file": "assets/vendors/sdk/sdk-browser.js",
-      "bytes": 469811,
-      "sha256": "d8cd7866"
+      "bytes": 481586,
+      "sha256": "7cdaa53c"
     },
     {
       "file": "assets/vendors/atomic/atomic-browser.js",
@@ -142,7 +142,7 @@
     {
       "file": "recovery.js",
       "bytes": 58624,
-      "sha256": "7cc95290"
+      "sha256": "a1f6a14e"
     },
     {
       "file": "diagnostics.js",
