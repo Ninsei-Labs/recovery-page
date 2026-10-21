@@ -1,7 +1,7 @@
 // The recovery page: recovery file -> the state of the money -> your address -> one button that syncs, builds
 // and signs -> confirm -> send.
 //
-// THE WITHDRAWAL RULES LIVE IN @ninsei-labs/sdk 0.44: recovery.open, sweep.plan, sweep.keys, sweep.wallet,
+// THE WITHDRAWAL RULES LIVE IN @ninsei-labs/sdk: isEncrypted, recovery.open, sweep.plan, sweep.keys, sweep.wallet,
 // sweep.restore, recovery.restoreHeight, sweep.destination, sweep.sign, sweep.relay, formatXmr, probeMoneroNode.
 //
 // The page keeps the DOM, node address, state, display and texts, and parses the payload for display and OLD
@@ -18,7 +18,7 @@ import {
   pingNode, medianHeight, nodeVerdict, fastestGood,
 } from "./lib/node.js";
 import { settlementOf, evmCall } from "./lib/settlement.js";
-import { fileIsEncrypted, isSell, promisedXmrAddress, fileAmount, moneyState } from "./lib/withdrawal.js";
+import { isSell, promisedXmrAddress, fileAmount, moneyState } from "./lib/withdrawal.js";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=__V_MONERO__";
@@ -268,9 +268,9 @@ async function sdkBundle() {
 // a file is open, so nothing can run against a chain the file did not name.
 //
 // THE CHAIN READ IS REAL: `evmCall` is an eth_call over the settlement network's public RPCs (lib/settlement.js),
-// and a failed read throws instead of answering "0x". SDK 0.44's sweep.plan still asks the page's own host for
-// the revealed half (./api), which a static host does not serve, so there the plan says "not revealed" until the
-// SDK reads the half through this seam.
+// and a failed read throws instead of answering "0x". sweep.plan reads the revealed half through it; the app
+// route under ./api is only its fallback, and on a static host it answers 404, which the plan reads as "not
+// revealed", the same answer the chain gave.
 async function facade() {
   const m = await sdkBundle();
   if (!settlement || !network) throw new Error("no recovery file is open");
@@ -360,8 +360,9 @@ async function preflight(isCurrent = () => true) {
 
 // --- 1. Opening the file ---
 
-// THE PASSWORD IS ASKED ONLY FOR AN ENCRYPTED FILE, and the envelope says which it is. Picking another file
-// forgets the open one: two files in one tab is how a withdrawal goes to the wrong deal.
+// THE PASSWORD IS ASKED ONLY FOR AN ENCRYPTED FILE, and the SDK's reader of the envelope says which it is: a
+// file written without a password names that fact. Picking another file forgets the open one: two files in one
+// tab is how a withdrawal goes to the wrong deal.
 async function onFileChosen() {
   if (payload || adapter) await forget({ keepFile: true });
   quiet(openErrorEl);
@@ -371,7 +372,8 @@ async function onFileChosen() {
     const text = await file.text();
     let envelope = null;
     try { envelope = JSON.parse(text); } catch { envelope = null; }
-    chosen = { text, envelope, encrypted: fileIsEncrypted(envelope) };
+    const m = await sdkBundle();
+    chosen = { text, envelope, encrypted: Boolean(envelope && typeof envelope === "object") && m.isEncrypted(envelope) };
   }
   passField.hidden = !(chosen && chosen.encrypted);
   updateButtons();
@@ -384,10 +386,9 @@ async function openFile() {
     log(t("log.not.json"), "bad");
     return say(openErrorEl, "flow.err.notFile");
   }
-  // A PLAIN FILE is not opened yet: the SDK's plan still takes a password (sdk#70 makes it optional).
-  if (!chosen.encrypted) return say(openErrorEl, "flow.err.plain");
-  const pass = passInput.value;
-  if (!pass) {
+  // A FILE WITHOUT A PASSWORD opens with an empty one; the SDK refuses an empty one for an encrypted file.
+  const pass = chosen.encrypted ? passInput.value : "";
+  if (chosen.encrypted && !pass) {
     passField.hidden = false;
     return say(openErrorEl, "flow.err.noPass");
   }

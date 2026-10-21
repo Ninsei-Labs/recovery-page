@@ -258,16 +258,25 @@ await check("the node list has no check button, and its rows are radios of one g
 });
 
 // --- 2b. the withdrawal: the file, the state of the money, the settlement read ---------------
-const { fileIsEncrypted, isSell, promisedXmrAddress, moneyState } = await import(pathToFileURL(join(ROOT, "lib", "withdrawal.js")).href);
+const { isSell, promisedXmrAddress, moneyState } = await import(pathToFileURL(join(ROOT, "lib", "withdrawal.js")).href);
 const { SETTLEMENT, settlementOf, evmCall } = await import(pathToFileURL(join(ROOT, "lib", "settlement.js")).href);
 
-await check("an encrypted file is told by its envelope, not its name", () => {
-  // The envelope as the SDK writes it (recoveryFile.js encryptPayload), with example values.
-  const envelope = { v: 2, alg: "AES-GCM-256/PBKDF2-SHA256", iter: 600000, salt: "c2FsdA==", iv: "aXY=", ciphertext: "Y2lwaGVy", meta: { id: "example", side: "buy" } };
-  assert.equal(fileIsEncrypted(envelope), true);
-  assert.equal(fileIsEncrypted({ magic: "NINSEI-SWAP-RECOVERY", version: 3, swapId: "example" }), false);
-  assert.equal(fileIsEncrypted({ ...envelope, ciphertext: undefined }), false);
-  for (const odd of [null, undefined, "text", 42, []]) assert.equal(fileIsEncrypted(odd), false);
+// THE PASSWORD FIELD FOLLOWS THE SDK'S READING OF THE ENVELOPE, so the page keeps no rule of its own that could
+// drift from the files the widget writes. Both kinds below are written by the installed SDK itself.
+await check("the password is asked for an encrypted file only, as the SDK reads the envelope", async () => {
+  const { createRecoveryFile, decryptFile, isEncrypted } = await import("@ninsei-labs/sdk/recovery");
+  const example = { swapId: "example", side: "buy", createdAt: 1791187000000 };
+  // createRecoveryFile returns the file's text; the page parses it before asking, as onFileChosen does.
+  const sealed = JSON.parse(await createRecoveryFile(example, "example-password-1234"));
+  const plain = JSON.parse(await createRecoveryFile(example, ""));
+  assert.equal(isEncrypted(sealed), true, "a file with a password is not seen as encrypted");
+  assert.equal(isEncrypted(plain), false, "a file without a password is seen as encrypted");
+  assert.equal((await decryptFile(plain, "")).swapId, "example", "a file without a password does not open with an empty one");
+  const page = await read("recovery.js");
+  assert.match(page, /m\.isEncrypted\(envelope\)/, "the page does not ask the SDK whether the file is encrypted");
+  assert.ok(!/fileIsEncrypted|flow\.err\.plain/.test(page), "the page keeps its own envelope rule or refuses plain files");
+  const entry = await read("sdk-entry.js");
+  assert.match(entry, /isEncrypted \} from "@ninsei-labs\/sdk\/recovery"/, "the SDK entry does not export isEncrypted");
 });
 
 // A PAYLOAD as buildPayload writes it, cut to the fields the rules read; addresses and amounts are examples.

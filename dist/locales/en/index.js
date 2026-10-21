@@ -53,7 +53,6 @@ export default {
     "flow.err.noFile": "Choose the recovery file first",
     "flow.err.notFile": "This is not a recovery file",
     "flow.err.noPass": "Enter the file password",
-    "flow.err.plain": "This file is not encrypted, and this version of the page opens only encrypted files",
     "flow.err.decrypt": "The file did not open: wrong password, or the file is damaged",
     "flow.err.settlement": "This file settles on a network this page does not know ({network})",
     "flow.err.plan": "The file opened, but the withdrawal plan could not be read. See Details for why",

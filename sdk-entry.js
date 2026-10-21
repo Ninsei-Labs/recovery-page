@@ -21,7 +21,7 @@ export {
   unlockStateOf,
 } from "@ninsei-labs/sdk/xmr";
 // RECOVERY FILE AS IT IS ON THE PATH: envelope and payload shape, for display and for OLD mnemonic files.
-export { decryptFile, validatePayload } from "@ninsei-labs/sdk/recovery";
+export { decryptFile, validatePayload, isEncrypted } from "@ninsei-labs/sdk/recovery";
 // CORE WALLET AND WITHDRAWAL WALLET, with in-memory storage. moneroWalletAdapter plays the core wallet
 // (vm/connect/address/chainId/unlockedBalance/driver), moneroWallet the withdrawal one
 // (open/sync/sweepUnlocked/relay/close). No WASM: createWallet comes from the page, so no monero-ts byte here.
