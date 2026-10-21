@@ -215,6 +215,32 @@ export async function moneroHeaderTime(url, height, fetchImpl = globalThis.fetch
   return time;
 }
 
+// THE MONERO READERS THE SDK'S START-HEIGHT RULE TAKES (findSwaps: moneroTip, moneroBlockTimestamp), over one node,
+// or null when the node does not answer on `network`. get_info's `height` is the number of blocks, so the top block
+// is one lower: a header asked at `height` does not exist yet, and a reader that asks for it never gets a height.
+export async function moneroReaders(url, network, probe, fetchImpl = globalThis.fetch) {
+  if (!url || typeof probe !== "function") return null;
+  let answer = null;
+  try {
+    answer = await probe({ url });
+  } catch {
+    return null;
+  }
+  if (!answer || !answer.ok || answer.network !== network || !Number.isSafeInteger(answer.height) || answer.height < 1) return null;
+  return {
+    moneroTip: async () => answer.height - 1,
+    moneroBlockTimestamp: (height) => moneroHeaderTime(url, height, fetchImpl),
+  };
+}
+
+// THE NODE FOR A SWAP'S MONERO NETWORK: the chosen one when it answers on that network; for stagenet, the project's
+// stagenet node otherwise, since the listed nodes are all mainnet; for mainnet, none when the chosen node is on
+// another network. `chosenNetwork` is the network the chosen node answered with.
+export function nodeFor(network, chosenNetwork) {
+  if (current && chosenNetwork === network) return current;
+  return network === "stagenet" ? STAGENET_NODE : null;
+}
+
 // THE MEDIAN HEIGHT of the synchronized mainnet answers, or null when there are none: the measure of
 // "behind" and "ahead". The median, not the highest: one node claiming a height far above the rest must
 // not turn the others red and leave itself the only good one. With an even count the lower middle
