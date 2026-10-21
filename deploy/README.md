@@ -79,7 +79,8 @@ this page can make about itself: the bytes that handle a spend key are the bytes
 
 ## Things not to do
 
-- Do not add third-party scripts, fonts or analytics to this page.
+- Do not add scripts, fonts or analytics from another host to this page. Its fonts ship in
+  `assets/fonts/`, with their licences.
 - Do not serve it over plain HTTP (except on `localhost`): `SharedArrayBuffer` and workers require a
   secure context.
 - Do not paste a node address with credentials into the field; the page refuses it on purpose.

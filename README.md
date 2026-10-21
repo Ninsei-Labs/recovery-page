@@ -53,8 +53,8 @@ bun install
 bun run build
 ```
 
-`dist/` is the result: HTML, CSS, the page's JavaScript, the locale files, the wallet worker, two
-bundles and `build.json` with the version, the commit and a SHA-256 of every file. Nothing in `dist/`
+`dist/` is the result: HTML, CSS, the fonts with their licences, the page's JavaScript, the locale
+files, the wallet worker, two bundles and `build.json` with the version, the commit and a SHA-256 of every file. Nothing in `dist/`
 needs a build step on the host and nothing there is fetched from a CDN.
 
 The bundles are built from **exact** versions of `monero-ts` and `@ninsei-labs/sdk` (see

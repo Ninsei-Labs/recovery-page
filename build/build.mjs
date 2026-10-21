@@ -10,7 +10,7 @@
 //     with Node built-ins and do not run in a browser as published;
 //   * the SDK core - bundled from the pinned @ninsei-labs/sdk, so the page's rules (plan, keys,
 //     sign, relay) come from the package and not from a second copy inside this repository;
-//   * the page itself (HTML, CSS, JS, locales, the service worker) - copied as written.
+//   * the page itself (HTML, CSS, JS, locales, fonts, the service worker) - copied as written.
 //
 // THE STAMPED HASH in `?v=` is the content hash of the file it names. It is not a cache trick for its
 // own sake: an operator who replaces `dist/` must not have a returning visitor run the old bundle
@@ -192,6 +192,12 @@ await emit("locales/index.js", await readFile(join(localesDir, "index.js")));
 
 for (const rel of PAGE_COPY) {
   await emit(rel, await readFile(join(ROOT, rel)));
+}
+// The fonts and their licences are the folder's contents, like the languages: recovery.css names the
+// files it loads, and every licence travels with its font.
+const fontsDir = join(ROOT, "assets", "fonts");
+for (const name of (await readdir(fontsDir)).sort()) {
+  await emit(`assets/fonts/${name}`, await readFile(join(fontsDir, name)));
 }
 // Hosts that cannot be configured (Cloudflare Pages) read their headers from a file in the published
 // directory. It travels with the build so an operator does not have to remember it.

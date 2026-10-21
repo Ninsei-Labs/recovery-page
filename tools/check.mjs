@@ -6,7 +6,7 @@
 //      for the single language;
 //   2. facts about the BUILD - every stamped file exists, no placeholder survives, and the hashes in
 //      `build.json` match the files they name;
-//   3. the page files a host must receive - the isolation fallback and the header file.
+//   3. the page files a host must receive - the isolation fallback, the header file and the fonts.
 //
 // Run: bun run test   (builds first, then runs this file)
 import assert from "node:assert/strict";
@@ -152,6 +152,9 @@ await check("no absolute asset paths: the page must work in a subdirectory", asy
       offenders.push(`${file}: ${m[0]}`);
     }
   }
+  // The stylesheet's files (the fonts) follow the same rule, and a URL with a scheme would be another host.
+  const css = await read("recovery.css");
+  for (const m of css.matchAll(/url\(\s*["']?(?:\/|(?!data:)[a-z][a-z0-9+.-]*:)[^)]*\)/gi)) offenders.push(`recovery.css: ${m[0]}`);
   assert.deepEqual(offenders, []);
 });
 
@@ -193,11 +196,21 @@ const REQUIRED = [
   "locales/en/index.js",
   "_headers",
   "build.json",
+  // The fonts are licensed under the SIL OFL, which travels with them.
+  "assets/fonts/hanken-grotesk-OFL.txt",
+  "assets/fonts/geist-mono-OFL.txt",
+  "assets/fonts/chakra-petch-OFL.txt",
+  "assets/fonts/silkscreen-OFL.txt",
 ];
-await check("every file a host must receive is in dist/", () => {
-  const missing = REQUIRED.filter((rel) => !existsSync(join(DIST, rel)));
+await check("every file a host must receive is in dist/", async () => {
+  // The stylesheet names its fonts: each file it loads is one a host must receive.
+  const css = await readFile(join(DIST, "recovery.css"), "utf8");
+  const loaded = [...css.matchAll(/url\(\s*["']?\.\/([^"')?#]+)/g)].map((m) => m[1]);
+  assert.ok(loaded.length > 0, "recovery.css loads no files: the fonts are missing from it");
+  const files = [...REQUIRED, ...loaded];
+  const missing = files.filter((rel) => !existsSync(join(DIST, rel)));
   assert.deepEqual(missing, []);
-  return `${REQUIRED.length} files`;
+  return `${files.length} files, ${loaded.length} named by recovery.css`;
 });
 
 await check("no build placeholder survives in dist/", async () => {

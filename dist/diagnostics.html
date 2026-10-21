@@ -3,55 +3,73 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#07070e">
 <title>Ninsei recovery</title>
 <link rel="stylesheet" href="./recovery.css">
 </head>
 <body>
-  <main>
-    <header class="brand">
-      <span class="mark" aria-hidden="true">N</span>
-      <strong>NinseiSwap</strong>
-      <span class="tag">diagnostics</span>
-    </header>
-
-    <div class="bar">
-      <label class="field">
+  <header class="site-head">
+    <div class="wrap">
+      <span class="logo">
+        <span class="glitch" data-text="NINSEI" aria-hidden="true">NINSEI</span>
+        <span class="head-tag" aria-hidden="true">diagnostics</span>
+        <span class="sr-only">Ninsei recovery diagnostics</span>
+      </span>
+      <label class="field lang">
         <span data-i18n="page.lang"></span>
         <select id="lang"></select>
       </label>
     </div>
-    <h1 data-i18n="diagpage.h1"></h1>
-    <p class="note">
-      <span data-i18n="diagpage.lead"></span><a href="./index.html" data-i18n="diagpage.lead.link"></a><span data-i18n="diagpage.lead.tail"></span>
-    </p>
+  </header>
 
-    <section class="step" id="stepNode">
-      <h2 data-i18n="page.node.h"></h2>
-      <label class="field">
-        <span data-i18n="page.node.label"></span>
-        <input id="node" type="text" spellcheck="false" autocomplete="off" data-i18n-placeholder="page.node.placeholder">
-      </label>
-      <p class="hint" data-i18n="page.node.hint"></p>
-    </section>
-
-    <div class="bar">
-      <button id="rerun" type="button" data-i18n="diagpage.btn.rerun"></button>
-      <button id="scan" type="button" data-i18n="diagpage.btn.scan"></button>
-      <span id="state" class="wait" data-i18n="diagpage.state.starting"></span>
+  <!-- THE REPORT IS A TABLE IN MONO, so this page's column is wider than the withdrawal page's. -->
+  <main class="page page-wide">
+    <div class="intro">
+      <h1 data-i18n="diagpage.h1"></h1>
+      <p class="note">
+        <span data-i18n="diagpage.lead"></span><a href="./index.html" data-i18n="diagpage.lead.link"></a><span data-i18n="diagpage.lead.tail"></span>
+      </p>
     </div>
 
-    <pre id="out" class="log" data-i18n="diagpage.state.starting"></pre>
+    <div class="card">
+      <span id="state" class="wait" data-i18n="diagpage.state.starting"></span>
 
-    <h2 data-i18n="diagpage.why"></h2>
-    <ul class="legend">
-      <li data-i18n="diagpage.li1"></li>
-      <li data-i18n="diagpage.li2"></li>
-      <li data-i18n="diagpage.li3"></li>
-      <li data-i18n="diagpage.li4"></li>
-      <li data-i18n="diagpage.li5"></li>
-      <li data-i18n="diagpage.li6"></li>
-    </ul>
+      <section class="step" id="stepNode">
+        <h2 data-i18n="page.node.h"></h2>
+        <label class="field">
+          <span data-i18n="page.node.label"></span>
+          <input id="node" type="text" spellcheck="false" autocomplete="off" data-i18n-placeholder="page.node.placeholder">
+        </label>
+        <p class="hint" data-i18n="page.node.hint"></p>
+      </section>
+
+      <section class="step">
+        <div class="bar">
+          <button id="rerun" type="button" data-i18n="diagpage.btn.rerun"></button>
+          <button id="scan" type="button" data-i18n="diagpage.btn.scan"></button>
+        </div>
+        <pre id="out" class="log" data-i18n="diagpage.state.starting"></pre>
+      </section>
+    </div>
+
+    <section class="aside">
+      <h2 data-i18n="diagpage.why"></h2>
+      <ul class="legend">
+        <li data-i18n="diagpage.li1"></li>
+        <li data-i18n="diagpage.li2"></li>
+        <li data-i18n="diagpage.li3"></li>
+        <li data-i18n="diagpage.li4"></li>
+        <li data-i18n="diagpage.li5"></li>
+        <li data-i18n="diagpage.li6"></li>
+      </ul>
+    </section>
   </main>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <p class="fine"><span>Ninsei recovery</span><a href="https://github.com/Ninsei-Labs/recovery-page" rel="noopener noreferrer">github.com/Ninsei-Labs/recovery-page</a></p>
+    </div>
+  </footer>
   <script src="./coi.js"></script>
   <script type="module" src="./diagnostics.js"></script>
 </body>
