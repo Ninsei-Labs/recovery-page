@@ -40,6 +40,9 @@ async function check(name, fn) {
 // LINE ENDINGS ARE NOT PART OF A SOURCE CHECK. A Windows checkout writes CRLF, and guards that slice a
 // function by "\n}\n" then read the rest of the file instead of one body. Normalise once, here.
 const read = (rel) => readFile(join(ROOT, rel), "utf8").then((text) => text.replace(/\r\n/g, "\n"));
+// THE PAGE'S MODULES, read from the folder the build ships whole (build/build.mjs): every rule over the sources and
+// the list of files a host must receive cover a new module without a second list to remember.
+const LIB = (await readdir(join(ROOT, "lib"))).filter((name) => name.endsWith(".js")).sort().map((name) => `lib/${name}`);
 
 // --- 1. the node address ----------------------------------------------------------------
 const { parseNodeUrl, NODES, DEFAULT_NODE, nodeVerdict, medianHeight, fastestGood, pingNode } = await import(
@@ -221,7 +224,7 @@ await check("every key the HTML asks for exists", async () => {
 
 await check("every literal t() key in the page exists", async () => {
   const missing = [];
-  for (const file of ["recovery.js", "diagnostics.js", "lib/node.js", "lib/settlement.js", "lib/withdrawal.js"]) {
+  for (const file of ["recovery.js", "diagnostics.js", ...LIB]) {
     const text = await read(file);
     for (const m of text.matchAll(/\bt\("([A-Za-z0-9._]+)"/g)) {
       // A key built by concatenation (`"sdk." + code`) is a prefix, not a key: it is covered by the
@@ -427,7 +430,7 @@ await check("the SDK entry names package subpaths, not files inside the package"
 
 await check("no absolute asset paths: the page must work in a subdirectory", async () => {
   const offenders = [];
-  for (const file of ["recovery.js", "diagnostics.js", "index.html", "diagnostics.html", "lib/node.js", "lib/settlement.js", "lib/withdrawal.js"]) {
+  for (const file of ["recovery.js", "diagnostics.js", "index.html", "diagnostics.html", ...LIB]) {
     const text = await read(file);
     for (const m of text.matchAll(/(?:src|href)="\/(?!\/)|from\s+"\/(?!\/)|import\("\/(?!\/)|fetch\("\/[a-z]/g)) {
       offenders.push(`${file}: ${m[0]}`);
@@ -441,7 +444,7 @@ await check("no absolute asset paths: the page must work in a subdirectory", asy
 
 await check("no eval and no new Function in the page's own code", async () => {
   const offenders = [];
-  for (const file of ["recovery.js", "diagnostics.js", "lib/node.js", "lib/codes.js", "lib/settlement.js", "lib/withdrawal.js"]) {
+  for (const file of ["recovery.js", "diagnostics.js", ...LIB]) {
     const text = await read(file);
     if (/\beval\s*\(|new\s+Function\s*\(/.test(text)) offenders.push(file);
   }
@@ -554,10 +557,7 @@ const REQUIRED = [
   "_headers",
   "build.json",
   "favicon.svg",
-  "lib/node.js",
-  "lib/codes.js",
-  "lib/settlement.js",
-  "lib/withdrawal.js",
+  ...LIB,
   // The fonts are licensed under the SIL OFL, which travels with them.
   "assets/fonts/hanken-grotesk-OFL.txt",
   "assets/fonts/geist-mono-OFL.txt",
