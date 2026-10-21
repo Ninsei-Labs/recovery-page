@@ -151,10 +151,12 @@ input::placeholder { color: var(--text-3); opacity: 1; }
 input:hover:not(:disabled), select:hover:not(:disabled) { border-color: var(--line-3); }
 input:focus, select:focus { border-color: var(--accent); }
 input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
-input[type="file"] { display: flex; align-items: center; padding: 0 6px; font-size: var(--t13); color: var(--text-3); cursor: pointer; }
+/* THE FILE PICKER is a native control: browsers differ on flex inside it, so the button is centred by the
+   padding alone (44px box, 1px border, 32px button) and the file name by its line height. */
+input[type="file"] { padding: 5px; font-size: var(--t13); line-height: 32px; color: var(--text-3); cursor: pointer; }
 input[type="file"]::file-selector-button {
   height: 32px;
-  margin-right: 12px;
+  margin: 0 12px 0 0;
   padding: 0 12px;
   border: 1px solid var(--line-strong);
   border-radius: 4px;
