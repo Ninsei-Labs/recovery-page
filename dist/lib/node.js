@@ -17,16 +17,16 @@
 //
 // NOTHING SECRET LIVES HERE. A node address is public by nature; the wallet's keys never leave the tab.
 
-// THE LIST: public community nodes that serve the wallet paths over HTTPS and allow any origin in CORS
-// with the JSON content type, checked from this page's own origin with isolation on. Most public nodes
-// do not: they send no CORS headers, or no Access-Control-Allow-Headers, and fail in a browser while
-// answering curl. The order is the fallback order; the first one is the default where nothing picks.
+// THE LIST: public nodes run by a wallet, a known community member or a named public RPC service, that
+// serve the wallet paths over HTTPS and allow any origin in CORS with the JSON content type, checked
+// from this page's own origin. A node sees the person's IP address and the moment the withdrawal is
+// sent, so a node on a private domain with no named operator is not listed even when it answers. Most public nodes cannot be listed anyway: they send no CORS headers, or
+// no Access-Control-Allow-Headers, and fail in a browser while answering curl. The order is the fallback
+// order; the first one is the default where nothing picks.
 export const NODES = Object.freeze([
   "https://xmr-node.cakewallet.com:18081",
   "https://node.sethforprivacy.com",
   "https://xmr.0xrpc.io",
-  "https://monero.openinternet.io",
-  "https://xmr1.doggett.tech:18089",
 ]);
 export const DEFAULT_NODE = NODES[0];
 

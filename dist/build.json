@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.2.0",
-  "commit": "d44394dfa086931ab27db9020c106b6aa367e94b",
-  "builtAt": "2026-10-21T11:49:31.089Z",
+  "commit": "1999050d20447efcd7642261e05797e647378b71",
+  "builtAt": "2026-10-21T11:49:31.722Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -71,8 +71,8 @@
     },
     {
       "file": "lib/node.js",
-      "bytes": 10977,
-      "sha256": "e09dc97e"
+      "bytes": 11136,
+      "sha256": "03a655ed"
     },
     {
       "file": "lib/codes.js",

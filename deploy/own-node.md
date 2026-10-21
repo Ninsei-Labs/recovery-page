@@ -119,9 +119,9 @@ location ~ ^/(json_rpc|get_blocks_by_height\.bin|get_transactions|send_raw_trans
 }
 
 location @public_node {
-    proxy_pass https://monero.openinternet.io;
+    proxy_pass https://xmr-node.cakewallet.com:18081;
     proxy_ssl_server_name on;
-    proxy_set_header Host monero.openinternet.io;
+    proxy_set_header Host xmr-node.cakewallet.com;
     proxy_http_version 1.1;
     proxy_connect_timeout 5s;
     proxy_read_timeout 120s;

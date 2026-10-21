@@ -67,7 +67,7 @@ await check("a query or a fragment is refused: the page appends its own paths", 
   assert.equal(parseNodeUrl("https://node.example/#top").why, "shape");
 });
 await check("every listed node is https and written the way the parser gives it back", () => {
-  assert.ok(NODES.length >= 5, `only ${NODES.length} nodes listed`);
+  assert.ok(NODES.length >= 3, `only ${NODES.length} nodes listed`);
   assert.equal(new Set(NODES).size, NODES.length, "a node is listed twice");
   assert.equal(DEFAULT_NODE, NODES[0], "the default is not the first listed node");
   for (const url of NODES) {
