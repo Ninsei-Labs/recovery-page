@@ -5,7 +5,7 @@
     "": {
       "name": "@ninsei-labs/sweep",
       "devDependencies": {
-        "@ninsei-labs/sdk": "0.46.1",
+        "@ninsei-labs/sdk": "0.47.0",
         "@noble/curves": "2.4.0",
         "@noble/hashes": "2.4.0",
         "assert": "2.1.0",
@@ -111,11 +111,13 @@
 
     "@jsonjoy.com/util": ["@jsonjoy.com/util@1.9.0", "", { "dependencies": { "@jsonjoy.com/buffers": "^1.0.0", "@jsonjoy.com/codegen": "^1.0.0" }, "peerDependencies": { "tslib": "2" } }, "sha512-pLuQo+VPRnN8hfPqUTLTHk126wuYdXVxE6aDmjSeV4NCAgyxWbiOIeNJVtID3h1Vzpoi9m4jXezf73I6LgabgQ=="],
 
-    "@ninsei-labs/sdk": ["@ninsei-labs/sdk@0.46.1", "", { "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "keccak256": "^1.0.6" } }, "sha512-Lh6i/upqgTpRyI8ZfIqXM0rkiPkkWC5GHKZE203jx0RUiRKFSDHU6IZj/jJNtFNvkAOZsULn/Yra5qNTMWBTFg=="],
+    "@ninsei-labs/sdk": ["@ninsei-labs/sdk@0.47.0", "", { "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "@scure/bip39": "2.4.0", "keccak256": "^1.0.6" } }, "sha512-cxXIpHUnu8wiZ6Wj5V7Pjl2YM50wQuMvdfP9fBL+1J4gIq4bxo+zd1I8Pk85QL0CcqkMzZwUc31iOu5A/r+5SQ=="],
 
     "@noble/curves": ["@noble/curves@2.4.0", "", { "dependencies": { "@noble/hashes": "2.4.0" } }, "sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew=="],
 
     "@noble/hashes": ["@noble/hashes@2.4.0", "", {}, "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="],
+
+    "@scure/bip39": ["@scure/bip39@2.4.0", "", { "dependencies": { "@noble/hashes": "2.4.0" } }, "sha512-82dxFbZUYboyOf0AXiydsQrFQ5Q4h9mX+O2UkE91ROYmsc0BKMGZLwDmy96Jpa2+vrtoxomjUhy1RPIgH/r2nA=="],
 
     "@types/node": ["@types/node@20.19.43", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA=="],
 

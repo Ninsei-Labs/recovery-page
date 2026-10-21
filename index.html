@@ -76,12 +76,38 @@
         </div>
       </section>
 
+      <!-- THE ONE RECOVERY KEY: twelve words (or the key file), one optional address, one search. The key never
+           leaves the tab; only the factory, the OrderCreated topic and the address reach a public RPC. -->
+      <section class="step" id="stepKey">
+        <h2 id="keyHead" data-i18n="page.step.key"></h2>
+        <p class="hint" data-i18n="page.hint.key"></p>
+        <label class="field">
+          <span data-i18n="page.field.words"></span>
+          <textarea id="keyWords" rows="3" spellcheck="false" autocomplete="off" aria-labelledby="keyHead"></textarea>
+        </label>
+        <label class="field">
+          <span data-i18n="page.field.keyFile"></span>
+          <input id="keyFile" type="file" accept=".txt,.json,application/json,text/plain">
+        </label>
+        <label class="field" id="keyPassField" hidden>
+          <span data-i18n="page.field.keyPass"></span>
+          <input id="keyPass" type="password" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field">
+          <span data-i18n="page.field.keyAddress"></span>
+          <input id="keyAddress" type="text" spellcheck="false" autocomplete="off" placeholder="0x… (optional)">
+        </label>
+        <div class="bar">
+          <button id="findSwaps" type="button" class="cta" data-i18n="page.btn.find"></button>
+        </div>
+        <p id="keyError" class="flow-error" role="alert" hidden></p>
+        <ul id="swapList" class="swaps" aria-live="polite" hidden></ul>
+      </section>
+
       <!-- THE WITHDRAWAL IN PLAIN STEPS: open the file, read the state of the money, name your address, one
            button. The button syncs, builds and signs; nothing leaves before "Confirm and send". -->
       <section class="step" id="stepFile">
-        <!-- THE STEP'S HEADING NAMES THE FIELD, and what to look for sits under it, before the button that opens
-             the file dialog. -->
-        <h2 id="fileHead" data-i18n="page.step1"></h2>
+        <h2 id="fileHead" data-i18n="page.step.file"></h2>
         <p id="fileHint" class="hint file-hint" data-i18n="page.hint.file"></p>
         <input id="file" type="file" accept=".enc,.json,application/json" aria-labelledby="fileHead" aria-describedby="fileHint">
         <!-- The password is asked only for an encrypted file; the envelope says so, not the file name. -->

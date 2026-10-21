@@ -17,13 +17,13 @@ import {
   NODES, nodeUrl, nodeSource, nodeLabelKey, nodeLabelParams, setNodeUrl, clearNodeUrl, parseNodeUrl, nodeHost,
   pingNode, medianHeight, nodeVerdict, fastestGood,
 } from "./lib/node.js";
-import { settlementOf, evmCall } from "./lib/settlement.js";
+import { settlementOf, evmCall, evmLogs, evmBlockNumber } from "./lib/settlement.js";
 import { isSell, promisedXmrAddress, fileAmount, moneyState } from "./lib/withdrawal.js";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=cf687c3e";
 const WORKER = "./monero.worker.js?v=fd2e8b51";
-const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=67f5dbca";
+const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=d8cd7866";
 // THIS PAGE TALKS TO NO SERVICE. The SDK's service routes (a height the app remembers, the revealed half's
 // fallback, the "withdrawn" mark) get this fetch, which answers "unavailable" without a request: the height comes
 // from the file or the person, the half from the chain, and a withdrawal needs nobody told. So only the Monero
@@ -63,6 +63,15 @@ const doneEl = $("done");
 const doneInfoEl = $("doneInfo");
 const heightInput = $("restoreHeight");
 const heightBox = $("heightBox");
+const keyWordsInput = $("keyWords");
+const keyFileInput = $("keyFile");
+const keyPassField = $("keyPassField");
+const keyPassInput = $("keyPass");
+const keyAddressInput = $("keyAddress");
+const findSwapsBtn = $("findSwaps");
+const keyErrorEl = $("keyError");
+const swapListEl = $("swapList");
+let keyFileText = null;
 
 let api = null;          // monero-ts namespace
 let mod = null;          // built SDK core
@@ -426,6 +435,140 @@ async function checkNode(isCurrent) {
 }
 
 // --- 1. Opening the file ---
+
+// --- 0d. One recovery key: find the swaps, then open one through the SAME withdrawal path ---
+
+// THE CHAIN A KEY BELONGS TO IS NOT IN THE KEY. A key is derived per chain id, so the page names the live
+// testnet factory from the package registry; the search sends only that factory, the OrderCreated topic and the
+// optional address. Mainnet factories join this list in the package, not in the page.
+function keyChainOf(m) {
+  const chains = Array.isArray(m.CHAINS) ? m.CHAINS : [];
+  return chains.find((c) => c && c.escrow && c.escrow.address && c.escrow.mode === "live") || null;
+}
+
+async function onKeyFileChosen() {
+  const file = keyFileInput.files && keyFileInput.files[0];
+  keyFileText = file ? await file.text() : null;
+  // An encrypted key file is JSON; a plain one starts with its readable header.
+  keyPassField.hidden = !(keyFileText && keyFileText.trim().startsWith("{"));
+  if (!keyFileText) keyPassField.hidden = true;
+}
+
+// FIND OPEN SWAPS BY THE KEY'S COMMITMENTS. The words or the file are used here only; neither is put into the
+// result, the log or window state. A found row is a button: the person chooses which swap to recover.
+async function findKeySwaps() {
+  quiet(keyErrorEl);
+  swapListEl.hidden = true;
+  swapListEl.replaceChildren();
+  let key;
+  try {
+    const m = await sdkBundle();
+    key = keyFileText
+      ? await m.openRecoveryKeyFile(keyFileText, keyPassInput.value)
+      : m.importRecoveryKey(keyWordsInput.value);
+  } catch (e) {
+    log(t("log.key.refused", { words: sdkWords(e) }), "bad");
+    return say(keyErrorEl, "flow.err.key");
+  }
+  const m = await sdkBundle();
+  const chain = keyChainOf(m);
+  if (!chain) return say(keyErrorEl, "flow.err.keyChain");
+  let found;
+  try {
+    // PUBLIC RPCS REFUSE A SPAN OF TENS OF MILLIONS OF BLOCKS (the testnet already has 321M). The factory and
+    // every swap this page can recover are recent, so the search starts inside one allowed window; an older
+    // deployment gets its own start block when the registry names one.
+    let fromBlock = "earliest";
+    try {
+      const latest = await evmBlockNumber(chain.id);
+      if (Number.isFinite(latest) && latest > 0) fromBlock = Math.max(0, latest - 9_000_000);
+    } catch { /* the log call will name the failure */ }
+    found = await m.findSwaps({
+      mnemonic: key.mnemonic,
+      chainId: chain.chainId,
+      factory: chain.escrow.address,
+      address: keyAddressInput.value.trim() || null,
+      evmLogs: (request) => evmLogs(chain.id, request),
+      fromBlock,
+    });
+  } catch (e) {
+    log(t("log.key.searchFailed", { words: String((e && e.message) || e) }), "bad");
+    return say(keyErrorEl, "flow.err.search");
+  }
+  log(t("log.key.found", { n: n(found.swaps.length) }), found.swaps.length ? "ok" : "wait");
+  if (!found.swaps.length) return say(keyErrorEl, "flow.err.noSwaps", {}, "wait");
+  swapListEl.hidden = false;
+  for (const swap of found.swaps) {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "swap-row";
+    const side = swap.side === "locker" ? t("value.side.buy") : t("value.side.sell");
+    button.textContent = t("key.result", { side, escrow: String(swap.escrow).slice(0, 10) + "…" });
+    button.addEventListener("click", () => busy(button, () => openFoundSwap(swap, key.mnemonic, chain, m), keyErrorEl));
+    li.appendChild(button);
+    swapListEl.appendChild(li);
+  }
+  return true;
+}
+
+// OPEN A FOUND SWAP WITHOUT A FILE. The payload is assembled from the key and the on-chain order, written
+// through the same envelope module (unencrypted, in memory), and then the ordinary openFile path runs: plan,
+// height, destination, withdraw. No secret is written to disk.
+async function openFoundSwap(found, mnemonic, chain, m) {
+  quiet(keyErrorEl);
+  settlement = chain.id;
+  // A key names no Monero network; the settlement network decides it. The testnet factory is paired with
+  // stagenet, and the node check later refuses a node of another network instead of silently scanning the wrong chain.
+  network = chain.testnet ? "stagenet" : "mainnet";
+  const halves = m.takerHalves({ mnemonic, chainId: chain.chainId, index: found.index });
+  const ownIsLocker = found.side === "locker";
+  const otherSpendPoint = ownIsLocker ? found.edPointClaimer : found.edPointLocker;
+  const otherViewPoint = ownIsLocker ? halves.makerViewPoint : found.edViewPointLocker;
+  const otherViewHalf = halves.makerViewHalf;
+  const core = await facade();
+  let joint;
+  try {
+    joint = core.order.jointAddress({
+      ownSpendHalf: halves.spendHalf, ownViewHalf: halves.viewHalf,
+      otherSpendPoint, otherViewPoint, network,
+    });
+  } catch (e) {
+    log(t("log.key.addressFailed", { words: String((e && e.message) || e) }), "bad");
+    return say(keyErrorEl, "flow.err.keys");
+  }
+  const payload = m.buildPayload({
+    swap: {
+      id: found.escrow, side: ownIsLocker ? "buy" : "sell", network: chain.id, moneroNetwork: network,
+      createdAt: new Date().toISOString(), payToken: "ETH", payAmount: found.amount, xmrAmount: null,
+      rate: null, maker: null, quoteSignature: null,
+      escrow: { address: found.escrow },
+      timeline: { readyBy: found.readyBy * 1000, t1: found.t1 * 1000 },
+    },
+    swapWallet: {
+      source: "halves", network, address: joint.address,
+      spendHalf: halves.spendHalf, viewHalf: halves.viewHalf,
+      otherSpendPoint, otherViewPoint, otherViewHalf,
+      escrowAddress: found.escrow, restoreHeight: 0,
+    },
+    escrow: { address: found.escrow },
+    receiveAddress: null,
+    restoreHeight: 0,
+  });
+  const text = await m.createRecoveryFile(payload, "");
+  keyWordsInput.value = "";
+  keyFileInput.value = "";
+  keyFileText = null;
+  keyPassInput.value = "";
+  keyPassField.hidden = true;
+  swapListEl.hidden = true;
+  swapListEl.replaceChildren();
+  chosen = { text, envelope: JSON.parse(text), encrypted: false };
+  passInput.value = "";
+  passField.hidden = true;
+  await openFile();
+  return true;
+}
 
 // THE PASSWORD IS ASKED ONLY FOR AN ENCRYPTED FILE, and the SDK's reader of the envelope says which it is: a
 // file written without a password names that fact. Picking another file forgets the open one: two files in one
@@ -1224,6 +1367,8 @@ copyLogBtn.addEventListener("click", async () => {
   setTimeout(() => { copyLogBtn.textContent = t("page.log.copy"); }, 2000);
 });
 
+keyFileInput.addEventListener("change", () => { onKeyFileChosen().catch((e) => log(String((e && e.message) || e), "bad")); });
+findSwapsBtn.addEventListener("click", () => busy(findSwapsBtn, findKeySwaps, keyErrorEl));
 fileInput.addEventListener("change", () => { onFileChosen().catch((e) => log(String((e && e.message) || e), "bad")); });
 openBtn.addEventListener("click", () => busy(openBtn, openFile, openErrorEl));
 withdrawBtn.addEventListener("click", () => busy(withdrawBtn, withdraw, withdrawErrorEl));
