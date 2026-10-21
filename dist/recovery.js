@@ -2,7 +2,7 @@
 // and signs -> confirm -> send.
 //
 // THE WITHDRAWAL RULES LIVE IN @ninsei-labs/sdk: isEncrypted, recovery.open, sweep.plan, sweep.keys, sweep.wallet,
-// sweep.restore, recovery.restoreHeight, sweep.destination, sweep.sign, sweep.relay, formatXmr, probeMoneroNode.
+// sweep.restore, sweep.destination, sweep.sign, sweep.relay, formatXmr, probeMoneroNode.
 //
 // The page keeps the DOM, node address, state, display and texts, and parses the payload for display and OLD
 // mnemonic files. What it says about the money comes from lib/withdrawal.js.
@@ -24,29 +24,17 @@ import { isSell, promisedXmrAddress, fileAmount, moneyState } from "./lib/withdr
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=cf687c3e";
 const WORKER = "./monero.worker.js?v=fd2e8b51";
 const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=67f5dbca";
-// THE APP IS OPTIONAL: a third-party operator has none, so the height is typed by hand. A 404 is not an error.
-const API = "./api";
+// THIS PAGE TALKS TO NO SERVICE. The SDK's service routes (a height the app remembers, the revealed half's
+// fallback, the "withdrawn" mark) get this fetch, which answers "unavailable" without a request: the height comes
+// from the file or the person, the half from the chain, and a withdrawal needs nobody told. So only the Monero
+// node and the settlement chain's RPCs ever hear from this tab, as the page promises.
+const noService = async () => { throw new TypeError("this page talks to no service"); };
 
 const EXPLORER = {
   mainnet: "https://xmrchain.net/tx/",
   stagenet: "https://stagenet.xmrchain.net/tx/",
   testnet: "https://testnet.xmrchain.net/tx/",
 };
-
-// SCAN HEIGHT IS A PACKAGE RULE (recovery.restoreHeight): the service wins, the file is the fallback, "no height" is a named state.
-async function restoreHeightFor(contentsText, pass) {
-  try {
-    const answer = await (await facade()).recovery.restoreHeight({ file: { contents: contentsText }, passphrase: pass });
-    const height = Number(answer && answer.height) || 0;
-    if (height > 0) log(t("log.height.source", { height: n(height), source: String(answer.source || "?") }), "wait");
-    else log(t("log.height.none"), "wait");
-    return height;
-  } catch (e) {
-    // A refusal here does not close the way: the height can be typed by hand.
-    log(t("log.height.failed", { words: sdkWords(e) }), "wait");
-    return 0;
-  }
-}
 
 const $ = (id) => document.getElementById(id);
 const preflightEl = $("preflight");
@@ -268,9 +256,8 @@ async function sdkBundle() {
 // a file is open, so nothing can run against a chain the file did not name.
 //
 // THE CHAIN READ IS REAL: `evmCall` is an eth_call over the settlement network's public RPCs (lib/settlement.js),
-// and a failed read throws instead of answering "0x". sweep.plan reads the revealed half through it; the app
-// route under ./api is only its fallback, and on a static host it answers 404, which the plan reads as "not
-// revealed", the same answer the chain gave.
+// and a failed read throws instead of answering "0x". sweep.plan reads the revealed half through it; its app
+// route fallback meets `noService`, which the plan reads as "not revealed", the same answer the chain gave.
 async function facade() {
   const m = await sdkBundle();
   if (!settlement || !network) throw new Error("no recovery file is open");
@@ -281,7 +268,7 @@ async function facade() {
       settlement: { chain },
       xmrNetwork: network,
       mode: "live",
-      apiBase: API,
+      fetch: noService,
       storage: m.memoryAdapter(),
       evmCall: (request) => evmCall(chain, request),
     });
@@ -443,11 +430,7 @@ async function openFile() {
 
   window.__sweepFlow.network = network;
   window.__sweepFlow.address = payload.moneroWallet.address;
-  let fileHeight = Number(payload.moneroWallet.restoreHeight) || 0;
-  if (!fileHeight) {
-    const fromApp = await restoreHeightFor(text, pass);
-    if (fromApp) fileHeight = fromApp;
-  }
+  const fileHeight = Number(payload.moneroWallet.restoreHeight) || 0;
   // THE HEIGHT FROM THE PLAN WINS; the file value is the fallback when the plan is silent.
   const height = Number(plan.restoreHeight) > 0 ? Number(plan.restoreHeight) : fileHeight;
   heightInput.value = String(height);
@@ -763,7 +746,7 @@ async function sendTx() {
   showProgress("flow.progress.send");
   let out;
   try {
-    // SENDING AND REPORTING ARE THE CORE'S (sweep.relay): the signed transaction goes out and the service is told.
+    // SENDING IS THE CORE'S (sweep.relay). Its "withdrawn" mark for a service meets `noService` and goes nowhere.
     out = await (await facade()).sweep.relay({ token: signedToken });
   } catch (e) {
     hideProgress();
@@ -774,15 +757,8 @@ async function sendTx() {
   signedToken = null;
   const hashes = Array.isArray(out.txids) ? out.txids : [];
   log(t("log.sent", { txids: hashes.join(", ") }), "ok");
-  window.__sweepFlow.report = { attempted: true, ok: Boolean(out.reported), txid: hashes[0] || null };
   confirmEl.hidden = true;
   showDone(hashes[0] || null);
-  if (out.reported) {
-    log(t("log.report.accepted"), "ok");
-  } else {
-    log(t("log.report.failed"), "warn");
-    showReportRetry(hashes[0]);
-  }
   // THE WALLET IS EMPTY NOW: the button would only sign for zero.
   withdrawBtn.disabled = true;
   log(t("log.done"), "ok");
@@ -798,22 +774,10 @@ function showDone(txid) {
   updateButtons();
 }
 
-// RETRY REPORT IS THE CORE'S (sweep.report), same path as relay; it does not affect the transfer.
-function showReportRetry(txid) {
-  if (!txid || $("reportRetry")) return;
-  const btn = h("button", { id: "reportRetry", class: "ghost", type: "button", text: t("btn.report.retry") });
-  btn.addEventListener("click", () => busy(btn, async () => {
-    const r = await (await facade()).sweep.report({ swapId: plan && plan.swapId, txid });
-    window.__sweepFlow.report.ok = Boolean(r && r.reported);
-    log(r && r.reported ? t("log.report.retry.ok") : t("log.report.retry.failed"), r && r.reported ? "ok" : "warn");
-  }));
-  doneInfoEl.appendChild(btn);
-}
-
 // FORGET: the wallet closes, every value from the file goes, and the page is back at "choose a file". The node
 // choice opens again.
 async function forget({ keepFile = false } = {}) {
-  try { if (adapter) await adapter.close(); } catch { /* closing must not break the report */ }
+  try { if (adapter) await adapter.close(); } catch { /* a failed close must not keep the rest in memory */ }
   adapter = null;
   wallet = null;
   updateNodeLock();
@@ -834,8 +798,6 @@ async function forget({ keepFile = false } = {}) {
   quiet(openErrorEl);
   quiet(withdrawErrorEl);
   hideProgress();
-  const retry = $("reportRetry");
-  if (retry) retry.remove();
   withdrawBtn.disabled = false;
   destInput.value = "";
   heightInput.value = "0";

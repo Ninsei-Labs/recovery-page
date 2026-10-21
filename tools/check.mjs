@@ -448,6 +448,20 @@ await check("no eval and no new Function in the page's own code", async () => {
   assert.deepEqual(offenders, []);
 });
 
+// THE PAGE TALKS TO NO SERVICE: its promise is that only the Monero node and the settlement chain hear from the tab.
+// The SDK's service routes (height, the revealed half's fallback, the "withdrawn" mark) get a fetch that refuses
+// without a request.
+await check("the page talks to no service, so only the node and the chain hear from the tab", async () => {
+  const page = await read("recovery.js");
+  assert.ok(!/["']\.\/api["']|apiBase/.test(page), "the page names a service base");
+  const build = page.slice(page.indexOf("sdk = m.createNinsei({"), page.indexOf("sdkFor = key;"));
+  assert.match(build, /fetch: noService,/, "the SDK gets the browser's fetch for its service routes");
+  const body = page.slice(page.indexOf("const noService ="), page.indexOf("\n", page.indexOf("const noService =")));
+  assert.match(body, /throw new TypeError/, "noService does not refuse");
+  assert.ok(!/fetch\(/.test(body), "noService sends a request");
+  assert.ok(!/sweep\.report|restoreHeight\(\{|reportRetry/.test(page), "the page still asks a service for the height or reports the withdrawal");
+});
+
 await check("the page never writes the recovery file or the password anywhere", async () => {
   for (const file of ["recovery.js"]) {
     const text = await read(file);
