@@ -201,8 +201,8 @@ async function logWindow(network, chain, filter, fetchImpl) {
 }
 
 
-// THE TIME OF ONE BLOCK, in seconds: the block that holds a found order's OrderCreated, from which the swap's
-// Monero start height is derived (lib/start-height.js). The request names a block number, never a key. A transport
+// THE TIME OF ONE BLOCK, in seconds: the block that holds a found order's OrderCreated, from which the SDK derives
+// the swap's Monero start height (findSwaps). The request names a block number, never a key. A transport
 // failure or an answer without a time moves on to the next RPC; when none answers, the read throws: a missing time
 // is unknown, never 0.
 export async function evmBlockTime(network, blockNumber, fetchImpl = globalThis.fetch) {
@@ -238,6 +238,7 @@ export async function evmBlockTime(network, blockNumber, fetchImpl = globalThis.
   throw new Error(`no ${network} RPC answered the time of block ${blockNumber} (${failures.join("; ")})`);
 }
 
+// THE CURRENT HEIGHT, for bounding a log search: public RPCs refuse a query that spans tens of millions of blocks.
 export async function evmBlockNumber(network, fetchImpl = globalThis.fetch) {
   const chain = settlementOf(network);
   if (!chain) throw new Error(`unknown settlement network: ${network}`);

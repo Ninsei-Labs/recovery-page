@@ -7,7 +7,8 @@
 // memory (lib/found-swap.js), because the sweep takes no other form yet.
 //
 // The page keeps the DOM, the node address, state, display and texts. What it says about a swap and its money
-// comes from lib/withdrawal.js; the start height of a found swap from lib/start-height.js.
+// comes from lib/withdrawal.js. A found swap's start height is the SDK's (findSwaps), from the page's readers of the
+// settlement chain and the Monero node (lib/settlement.js, lib/node.js).
 //
 // Keys never leave the tab: only requests for public chain data go out (the Monero node, the settlement chain's
 // RPCs). The 12 words are never logged, never put into window state and never kept in a field after the search;
@@ -17,11 +18,10 @@
 import { t, n, d, init as initLocale } from "./locales/index.js";
 import {
   NODES, STAGENET_NODE, nodeUrl, nodeSource, nodeLabelKey, nodeLabelParams, setNodeUrl, clearNodeUrl, parseNodeUrl, nodeHost,
-  pingNode, medianHeight, nodeVerdict, fastestGood, moneroHeaderTime,
+  pingNode, medianHeight, nodeVerdict, fastestGood, moneroReaders, nodeFor,
 } from "./lib/node.js";
 import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
 import { restoreWindow } from "./lib/window.js";
-import { startHeightAt } from "./lib/start-height.js";
 import { sideOf, partsOf, payloadOf } from "./lib/found-swap.js";
 import { swapState, moneyState } from "./lib/withdrawal.js";
 
@@ -544,6 +544,10 @@ async function findKeySwaps() {
         evmLogs: (request) => evmLogs(net.id, request),
         fromBlock: net.since,
         toBlock: latest,
+        // THE START HEIGHT IS THE SDK'S RULE: the page hands it the order's block time and a Monero node's tip and
+        // headers, read the way a node answers them (lib/node.js), from the node a swap of this network uses.
+        evmBlockTime: (block) => evmBlockTime(net.id, block),
+        ...(await moneroReaders(nodeFor(net.monero, nodeNetwork), net.monero, m.probeMoneroNode)),
       });
     } catch (e) {
       log(t("log.key.searchFailed", { network: net.name, words: errorWords(e) }), "bad");
@@ -643,25 +647,6 @@ function swapRow(row) {
 
 // --- 2. One swap: its keys, its start height, the SDK's plan ---
 
-// THE START HEIGHT OF A FOUND SWAP (lib/start-height.js): the time of the settlement block that holds its order,
-// then the chosen node's headers. The node must be on the swap's Monero network, or its headers would give a height
-// on another chain. Any failure is null, said in the log, and the step asks the person for a height.
-async function foundStartHeight(row, xmrNetwork) {
-  try {
-    if (!row.time) throw new Error("the order's block time is unknown");
-    const url = nodeUrl();
-    const probe = url ? await (await sdkBundle()).probeMoneroNode({ url }) : null;
-    if (!probe || !probe.ok) throw new Error("the node did not answer");
-    if (probe.network !== xmrNetwork) throw new Error(`the node is on ${probe.network}, the swap on ${xmrNetwork}`);
-    const height = await startHeightAt(row.time, { tip: async () => probe.height - 1, headerTime: (at) => moneroHeaderTime(url, at) });
-    log(t("log.height.found", { height: n(height), block: n(row.swap.blockNumber) }));
-    return height;
-  } catch (e) {
-    log(t("log.height.failed", { why: String((e && e.message) || e) }), "wait");
-    return null;
-  }
-}
-
 // OPEN ONE SWAP FOR THE WITHDRAWAL. The halves of its number come from the key, the other side's points from the
 // order, checked against the chain (lib/found-swap.js); the SDK builds the joint address and reads the plan from
 // the payload written in memory. Nothing is written to disk.
@@ -708,7 +693,10 @@ async function openSwap(row) {
     return say(openErrorEl, "flow.err.keys");
   }
   log(t(parts.viewChecked ? "log.swap.address.checked" : "log.swap.address.unchecked", { address: joint.address, escrow: row.swap.escrow }));
-  const startHeight = await foundStartHeight(row, network);
+  // THE START HEIGHT CAME WITH THE SEARCH (findSwaps). None is said with the SDK's reason, and the step asks for one.
+  const startHeight = Number(row.swap.startHeight) > 0 ? Number(row.swap.startHeight) : null;
+  if (startHeight) log(t("log.height.found", { height: n(startHeight), block: n(row.swap.blockNumber) }));
+  else log(t("log.height.failed", { why: row.swap.startHeightReason || "?" }), "wait");
   const payload = payloadOf({
     buildPayload: m.buildPayload, found: row.swap, settlement, network, halves, parts,
     address: joint.address, startHeight, createdAt: row.time ? row.time * 1000 : null,
@@ -892,18 +880,22 @@ async function syncWallet() {
 
   // RESTORE IS A PACKAGE RULE (sweep.restore): the blocks around the lock first, then the full scan only if
   // that window holds nothing. The window ends at the Monero block at or after the order's t1, plus ten.
-  let window = null;
+  // THE WINDOW HAS ITS OWN NAME: a local `window` would hide the browser's, and this function still writes
+  // window.__sweepFlow after the scan.
+  let lockWindow = null;
   try {
     const tipHeight = Number(await wallet.getDaemonHeight());
-    const rawT1 = Number((payload.escrow && payload.escrow.t1) ?? (payload.deadlines && payload.deadlines.t1));
-    const t1Sec = Number.isFinite(rawT1) && rawT1 > 0 ? Math.floor(rawT1 >= 1e12 ? rawT1 / 1000 : rawT1) : 0;
-    window = await restoreWindow({ nodeUrl: nodeUrl(), t1Sec, startHeight: height, tipHeight });
-  } catch { window = null; }
+    // The found order's deadline, by the SDK's one conversion (deadlineOf); a deadline of the wrong scale is no
+    // window. The swap is `current`: this page holds no per-swap payload outside the SDK's envelope text.
+    const deadline = deadlineOf(current.swap);
+    const t1Sec = deadline ? Math.floor(deadline / 1000) : 0;
+    lockWindow = await restoreWindow({ nodeUrl: nodeUrl(), t1Sec, startHeight: height, tipHeight });
+  } catch { lockWindow = null; }
   const t0 = performance.now();
   let restored;
   try {
     log(t("log.scan.start", { from: n(scanFrom), height: n(height) }));
-    restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10, window });
+    restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10, window: lockWindow });
   } catch (e) {
     log(t("log.rescan.failed", { why: (e && e.message) || e }), "bad");
     return "flow.err.sync";
@@ -924,7 +916,7 @@ async function syncWallet() {
   log(t("log.restored.passes", { passes: n(restored.passes), locked: restored.lockedPass ? t("value.yes") : t("value.no") }), "ok");
   if (restored.window && restored.window.used) {
     log(t("log.scan.window", { from: n(restored.window.fromHeight), to: n(restored.window.toHeight), txs: n(restored.window.txs) }), "ok");
-  } else if (window) {
+  } else if (lockWindow) {
     log(t("log.scan.window.skipped", { why: restored.window && restored.window.skipped ? restored.window.skipped : t("value.no") }), "wait");
   }
 
