@@ -60,20 +60,28 @@
         <p class="hint" data-i18n="page.node.own.hint"></p>
       </section>
 
-      <section class="step">
+      <!-- THE WITHDRAWAL IN PLAIN STEPS: open the file, read the state of the money, name your address, one
+           button. The button syncs, builds and signs; nothing leaves before "Confirm and send". -->
+      <section class="step" id="stepFile">
         <h2 data-i18n="page.step1"></h2>
         <label class="field">
           <span data-i18n="page.field.file"></span>
           <input id="file" type="file" accept=".enc,.json,application/json">
         </label>
-        <label class="field">
+        <!-- The password is asked only for an encrypted file; the envelope says so, not the file name. -->
+        <label class="field" id="passField" hidden>
           <span data-i18n="page.field.pass"></span>
           <input id="pass" type="password" autocomplete="off" spellcheck="false">
         </label>
         <div class="bar">
           <button id="unlock" type="button" class="cta" data-i18n="page.btn.unlock"></button>
         </div>
-        <div id="fileInfo" class="info" hidden></div>
+        <p id="openError" class="flow-error" role="alert" hidden></p>
+        <!-- THE STATE OF THE MONEY, in words: ready, not yet, nothing there. -->
+        <div id="moneyState" class="money" data-state="" hidden>
+          <p class="money-head" id="moneyHead"></p>
+          <div id="fileInfo" class="money-facts"></div>
+        </div>
       </section>
 
       <section class="step" id="stepTransfer" hidden>
@@ -83,28 +91,39 @@
           <input id="dest" type="text" spellcheck="false" data-i18n-placeholder="page.field.dest.placeholder">
         </label>
         <p id="destWarn" class="hint warn" hidden></p>
+        <div class="bar">
+          <button id="withdraw" type="button" class="cta" data-i18n="page.btn.withdraw"></button>
+        </div>
+        <p id="progress" class="progress" aria-live="polite" hidden></p>
+        <p id="withdrawError" class="flow-error" role="alert" hidden></p>
+        <!-- CONFIRM: what leaves, what it costs and where it goes, before anything is sent. -->
+        <div id="confirm" class="confirm" hidden>
+          <h3 data-i18n="page.confirm.h"></h3>
+          <div id="txInfo" class="info"></div>
+          <div class="bar">
+            <button id="send" type="button" class="cta ready" data-i18n="page.btn.send"></button>
+          </div>
+        </div>
+        <div id="done" class="done" hidden>
+          <p class="done-head" data-i18n="page.done.h"></p>
+          <div id="doneInfo" class="info"></div>
+          <p class="hint" data-i18n="page.done.close"></p>
+        </div>
+      </section>
+
+      <!-- DETAILS: the scan height, the log and "Forget the wallet", out of the way until needed. -->
+      <details class="details" id="details">
+        <summary data-i18n="page.details"></summary>
         <label class="field">
           <span data-i18n="page.field.height"></span>
           <input id="restoreHeight" type="text" inputmode="numeric" value="0">
         </label>
         <p class="hint" data-i18n="page.hint.height"></p>
+        <pre id="log" class="log" data-i18n="page.log.placeholder"></pre>
         <div class="bar">
-          <button id="sync" type="button" class="cta" data-i18n="page.btn.sync"></button>
-          <button id="forget" type="button" class="ghost" data-i18n="page.btn.forget"></button>
+          <button id="forget" type="button" class="ghost small" data-i18n="page.btn.forget"></button>
         </div>
-        <div id="balance" class="info" hidden></div>
-      </section>
-
-      <section class="step" id="stepSend" hidden>
-        <h2 data-i18n="page.step3"></h2>
-        <div class="bar">
-          <button id="build" type="button" class="cta" data-i18n="page.btn.build"></button>
-          <button id="send" type="button" class="cta" hidden data-i18n="page.btn.send"></button>
-        </div>
-        <div id="txInfo" class="info" hidden></div>
-      </section>
-
-      <pre id="log" class="log" data-i18n="page.log.placeholder"></pre>
+      </details>
     </div>
 
     <section class="aside">

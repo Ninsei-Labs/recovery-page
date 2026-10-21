@@ -219,9 +219,9 @@ await check("every key the HTML asks for exists", async () => {
 
 await check("every literal t() key in the page exists", async () => {
   const missing = [];
-  for (const file of ["recovery.js", "diagnostics.js", "lib/node.js"]) {
+  for (const file of ["recovery.js", "diagnostics.js", "lib/node.js", "lib/settlement.js", "lib/withdrawal.js"]) {
     const text = await read(file);
-    for (const m of text.matchAll(/\bt\("([a-z0-9._]+)"/g)) {
+    for (const m of text.matchAll(/\bt\("([A-Za-z0-9._]+)"/g)) {
       // A key built by concatenation (`"sdk." + code`) is a prefix, not a key: it is covered by the
       // dictionary checks on the SDK side and cannot be resolved here.
       if (m[1].endsWith(".")) continue;
@@ -257,6 +257,151 @@ await check("the node list has no check button, and its rows are radios of one g
   assert.match(page, /h\("input", \{ type: "radio", name: "node"/, "the listed rows are not radios of the same group");
 });
 
+// --- 2b. the withdrawal: the file, the state of the money, the settlement read ---------------
+const { fileIsEncrypted, isSell, promisedXmrAddress, moneyState } = await import(pathToFileURL(join(ROOT, "lib", "withdrawal.js")).href);
+const { SETTLEMENT, settlementOf, evmCall } = await import(pathToFileURL(join(ROOT, "lib", "settlement.js")).href);
+
+await check("an encrypted file is told by its envelope, not its name", () => {
+  // The envelope as the SDK writes it (recoveryFile.js encryptPayload), with example values.
+  const envelope = { v: 2, alg: "AES-GCM-256/PBKDF2-SHA256", iter: 600000, salt: "c2FsdA==", iv: "aXY=", ciphertext: "Y2lwaGVy", meta: { id: "example", side: "buy" } };
+  assert.equal(fileIsEncrypted(envelope), true);
+  assert.equal(fileIsEncrypted({ magic: "NINSEI-SWAP-RECOVERY", version: 3, swapId: "example" }), false);
+  assert.equal(fileIsEncrypted({ ...envelope, ciphertext: undefined }), false);
+  for (const odd of [null, undefined, "text", 42, []]) assert.equal(fileIsEncrypted(odd), false);
+});
+
+// A PAYLOAD as buildPayload writes it, cut to the fields the rules read; addresses and amounts are examples.
+const XMR_EXAMPLE = "4" + "A".repeat(94);
+const filePayload = ({ side = "buy", halves = true, t1 = null, amount = 1.25 } = {}) => ({
+  side,
+  network: "arbitrum-sepolia",
+  receive: { token: "XMR", amount, address: side === "buy" ? XMR_EXAMPLE : "0x" + "1".repeat(40) },
+  escrow: t1 === null ? { address: "0x" + "2".repeat(40) } : { address: "0x" + "2".repeat(40), t1 },
+  moneroWallet: halves ? { spendHalf: "0x01", address: XMR_EXAMPLE } : { mnemonic: "example", address: XMR_EXAMPLE },
+});
+// [what it is, request, expected state, expected params]
+const STATES = [
+  ["an old file carries the whole key", { payload: filePayload({ halves: false }), plan: { revealedHalf: false } }, "ready", { amount: 1.25 }],
+  ["a halves file once the half is revealed", { payload: filePayload(), plan: { revealedHalf: true } }, "ready", { amount: 1.25 }],
+  ["a file that names no amount", { payload: filePayload({ amount: null }), plan: { revealedHalf: true } }, "ready", { amount: null }],
+  ["a buy before the maker took the ETH", { payload: filePayload(), plan: { revealedHalf: false } }, "waitBuy", {}],
+  ["a buy whose plan is missing", { payload: filePayload(), plan: null }, "waitBuy", {}],
+  ["a sell with the deadline in the file", { payload: filePayload({ side: "reverse", t1: 1_800_000_000 }), plan: { revealedHalf: false } }, "waitSell", { deadline: 1_800_000_000_000 }],
+  ["a sell without a deadline", { payload: filePayload({ side: "reverse" }), plan: { revealedHalf: false } }, "waitSell", { deadline: null }],
+  ["synced and nothing there", { payload: filePayload(), plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n } }, "empty", {}],
+  ["synced, nothing there, half not revealed", { payload: filePayload({ halves: false }), plan: null, balance: { total: 0n, unlocked: 0n } }, "empty", {}],
+  ["synced, the XMR still locked", { payload: filePayload(), plan: { revealedHalf: true }, balance: { total: 5n, unlocked: 0n } }, "locked", {}],
+  ["synced and spendable", { payload: filePayload(), plan: { revealedHalf: true }, balance: { total: 5n, unlocked: 5n } }, "ready", { amount: 1.25 }],
+];
+await check("the state of the money: ready, not yet on a buy or a sell, nothing there, locked", () => {
+  for (const [what, request, state, params] of STATES) {
+    assert.deepEqual(moneyState(request), { state, params }, what);
+  }
+  return `${STATES.length} cases`;
+});
+
+await check("only a buy promised an XMR address; a sell's recipient is on the settlement chain", () => {
+  assert.equal(promisedXmrAddress(filePayload()), XMR_EXAMPLE);
+  assert.equal(promisedXmrAddress(filePayload({ side: "reverse" })), null);
+  assert.equal(isSell("reverse"), true);
+  assert.equal(isSell("buy"), false);
+});
+
+await check("every word the state of the money and the flow's stops can show exists", async () => {
+  const keys = new Set(STATES.map((s) => "money." + s[2]));
+  keys.add("money.ready.unknown");
+  keys.add("money.waitSell.deadline");
+  // The flow's keys are written as data (say(el, key), STATE_KEYS), not as t() calls.
+  for (const m of (await read("recovery.js")).matchAll(/"((?:money|flow)\.[A-Za-z.]+)"/g)) keys.add(m[1]);
+  const missing = [...keys].filter((key) => !(key in strings));
+  assert.deepEqual(missing, []);
+  return `${keys.size} keys`;
+});
+
+await check("the open button says what it does, and nothing is sent before the confirmation", async () => {
+  const html = await read("index.html");
+  const page = await read("recovery.js");
+  assert.match(html, /<button id="unlock" [^>]*data-i18n="page\.btn\.unlock"/, "no open button");
+  assert.ok(!/decrypt/i.test(strings["page.btn.unlock"]), `the open button reads "${strings["page.btn.unlock"]}"`);
+  // The send button lives inside the confirmation, and the confirmation names what leaves.
+  const confirm = /<div id="confirm"[^>]*>([\s\S]*?)<\/div>\s*<div id="done"/.exec(html);
+  assert.ok(confirm, "no confirmation step");
+  assert.match(confirm[1], /id="txInfo"/, "the confirmation does not show the transfer");
+  assert.match(confirm[1], /<button id="send" [^>]*data-i18n="page\.btn\.send"/, "the send button is not in the confirmation");
+  // The one button signs and never relays; only the send button's step relays.
+  const body = (name) => {
+    const at = page.indexOf(`async function ${name}(`);
+    assert.ok(at >= 0, `no ${name}()`);
+    return page.slice(at, page.indexOf("\n}\n", at));
+  };
+  for (const name of ["withdraw", "syncWallet", "buildTx"]) {
+    assert.ok(!/sweep\.relay|sendTx\(/.test(body(name)), `${name}() can send`);
+  }
+  assert.match(body("sendTx"), /sweep\.relay\(/);
+  assert.equal([...page.matchAll(/sweep\.relay\(/g)].length, 1, "sweep.relay is called from more than one place");
+  assert.match(page, /sendBtn\.addEventListener\("click", \(\) => busy\(sendBtn, sendTx/, "the send button does not send");
+});
+
+await check("the chain read is a real eth_call, never the \"0x\" stub", async () => {
+  const page = await read("recovery.js");
+  assert.ok(!/evmCall:\s*(?:async\s*)?\([^)]*\)\s*=>\s*["']0x["']/.test(page), "evmCall answers a constant");
+  assert.match(page, /evmCall: \(request\) => evmCall\(chain, request\)/, "the facade does not read the chain through lib/settlement.js");
+  const to = "0x" + "a".repeat(40);
+  const data = "0x12345678";
+  const fake = (answers) => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, init });
+      const next = answers[calls.length - 1];
+      if (next instanceof Error) throw next;
+      return { ok: next.status === 200, status: next.status, json: async () => next.body };
+    };
+    return { calls, fetchImpl };
+  };
+  const [first, second, third] = SETTLEMENT["arbitrum-sepolia"].rpcs;
+  // The first RPC answers: one POST, JSON, eth_call on the latest block with exactly the request.
+  const ok = fake([{ status: 200, body: { jsonrpc: "2.0", id: 1, result: "0xbeef" } }]);
+  assert.equal(await evmCall("arbitrum-sepolia", { to, data }, ok.fetchImpl), "0xbeef");
+  assert.equal(ok.calls.length, 1);
+  assert.equal(ok.calls[0].url, first);
+  assert.equal(ok.calls[0].init.method, "POST");
+  assert.equal(ok.calls[0].init.headers["content-type"], "application/json");
+  assert.deepEqual(JSON.parse(ok.calls[0].init.body), { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] });
+  // A failed transport moves on; the next RPC's answer counts.
+  const moves = fake([{ status: 503, body: null }, new TypeError("Failed to fetch"), { status: 200, body: { result: "0x" } }]);
+  assert.equal(await evmCall("arbitrum-sepolia", { to, data }, moves.fetchImpl), "0x");
+  assert.deepEqual(moves.calls.map((c) => c.url), [first, second, third]);
+  // A revert is the chain's answer: thrown at once, the next RPC is not asked.
+  const reverts = fake([{ status: 200, body: { error: { code: 3, message: "execution reverted" } } }]);
+  await assert.rejects(evmCall("arbitrum-sepolia", { to, data }, reverts.fetchImpl), /reverted/);
+  assert.equal(reverts.calls.length, 1);
+  // Nobody answers: unknown, thrown, never "0x".
+  const none = fake([new TypeError("Failed to fetch"), { status: 429, body: null }, { status: 200, body: { error: { code: -32005, message: "limit" } } }]);
+  await assert.rejects(evmCall("arbitrum-sepolia", { to, data }, none.fetchImpl), /no arbitrum-sepolia RPC answered/);
+  assert.equal(none.calls.length, 3);
+  // An unknown network or a malformed request is refused before any request.
+  const idle = fake([]);
+  await assert.rejects(evmCall("base", { to, data }, idle.fetchImpl), /unknown settlement network/);
+  await assert.rejects(evmCall("arbitrum", { to: "0x12", data }, idle.fetchImpl), /bad address/);
+  assert.equal(idle.calls.length, 0);
+});
+
+await check("every settlement network is one the SDK knows, with its chain id and https RPCs", async () => {
+  const { CHAINS } = await import("@ninsei-labs/sdk/networks");
+  const names = Object.keys(SETTLEMENT);
+  assert.ok(names.length > 0, "no settlement network listed");
+  for (const name of names) {
+    const chain = CHAINS.find((c) => c.id === name);
+    assert.ok(chain, `${name} is not a chain the SDK knows`);
+    assert.equal(SETTLEMENT[name].chainId, chain.chainId, `${name}: chain id`);
+    assert.ok(SETTLEMENT[name].rpcs.length >= 2, `${name}: one RPC is one point of failure`);
+    for (const url of SETTLEMENT[name].rpcs) assert.match(url, /^https:\/\/[^/?#]+\/?[^?#]*$/, `${name}: ${url}`);
+  }
+  assert.equal(settlementOf("base"), null);
+  assert.equal(settlementOf("__proto__"), null);
+  return names.join(", ");
+});
+
 // --- 3. the page's own rules ------------------------------------------------------------
 await check("the SDK entry names package subpaths, not files inside the package", async () => {
   const text = await read("sdk-entry.js");
@@ -271,7 +416,7 @@ await check("the SDK entry names package subpaths, not files inside the package"
 
 await check("no absolute asset paths: the page must work in a subdirectory", async () => {
   const offenders = [];
-  for (const file of ["recovery.js", "diagnostics.js", "index.html", "diagnostics.html", "lib/node.js"]) {
+  for (const file of ["recovery.js", "diagnostics.js", "index.html", "diagnostics.html", "lib/node.js", "lib/settlement.js", "lib/withdrawal.js"]) {
     const text = await read(file);
     for (const m of text.matchAll(/(?:src|href)="\/(?!\/)|from\s+"\/(?!\/)|import\("\/(?!\/)|fetch\("\/[a-z]/g)) {
       offenders.push(`${file}: ${m[0]}`);
@@ -285,7 +430,7 @@ await check("no absolute asset paths: the page must work in a subdirectory", asy
 
 await check("no eval and no new Function in the page's own code", async () => {
   const offenders = [];
-  for (const file of ["recovery.js", "diagnostics.js", "lib/node.js", "lib/codes.js", "coi.js", "sw.js"]) {
+  for (const file of ["recovery.js", "diagnostics.js", "lib/node.js", "lib/codes.js", "lib/settlement.js", "lib/withdrawal.js", "coi.js", "sw.js"]) {
     const text = await read(file);
     if (/\beval\s*\(|new\s+Function\s*\(/.test(text)) offenders.push(file);
   }
@@ -322,6 +467,10 @@ const REQUIRED = [
   "_headers",
   "build.json",
   "favicon.svg",
+  "lib/node.js",
+  "lib/codes.js",
+  "lib/settlement.js",
+  "lib/withdrawal.js",
   // The fonts are licensed under the SIL OFL, which travels with them.
   "assets/fonts/hanken-grotesk-OFL.txt",
   "assets/fonts/geist-mono-OFL.txt",

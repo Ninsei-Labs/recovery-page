@@ -75,7 +75,8 @@ this page can make about itself: the bytes that handle a spend key are the bytes
    reports its height and network.
    A `stagenet` node and a `mainnet` recovery file do not match; the page says so before anything is
    signed.
-4. A recovery file from a real deal decrypts and the promised address is shown.
+4. A recovery file from a real deal opens, and the page says what the money is doing: ready, not yet, or
+   nothing there.
 5. Only then does a real withdrawal make sense.
 
 ## Things not to do

@@ -277,6 +277,52 @@ button.ghost:hover:not(:disabled) { border-color: var(--line-strong); color: var
 .status.wait::before, #state.wait::before { animation: blink 1.6s infinite steps(1, end); }
 @keyframes blink { 0%, 100% { opacity: 1; } 55% { opacity: 0.2; } }
 
+/* THE STATE OF THE MONEY: one sentence in plain words, then the deal's facts. The square and the edge carry the
+   state: lime when the XMR can be withdrawn, amber while the deal says "not yet", neutral when nothing is there. */
+.money { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--bg-sunken); }
+.money-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; font: 500 var(--t15)/1.5 var(--sans); color: var(--text-hi); }
+.money-head::before { content: ""; flex: none; width: 7px; height: 7px; transform: translateY(-2px); background: var(--text-3); }
+.money[data-state="ok"] { border-color: #4f6b1f; }
+.money[data-state="ok"] .money-head::before { background: var(--lime); }
+.money[data-state="wait"] { border-color: #6a4a1c; }
+.money[data-state="wait"] .money-head::before { background: var(--amber); }
+.money-facts dl { margin: 0; display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr); gap: 6px 16px; align-items: baseline; font-size: var(--t13); }
+.money-facts dt { color: var(--text-3); }
+.money-facts dd { margin: 0; font: 400 var(--m12)/1.5 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+
+/* ONE PLAIN LINE when a step stops: red for an error, amber for "not yet"; the detail is in the log. */
+.flow-error { margin: 12px 0 0; padding: 10px 12px; border: 1px solid #6b2a33; border-radius: 6px; background: #1f0b10; font-size: var(--t13); line-height: 1.5; color: var(--red); overflow-wrap: anywhere; }
+.flow-error[data-tone="wait"] { border-color: #6a4a1c; background: #1f1508; color: var(--amber); }
+
+/* PROGRESS under the button: what the page is doing now, with the waiting square of the status line. */
+.progress { display: flex; align-items: baseline; gap: 10px; margin: 12px 0 0; font: 400 var(--m12)/1.5 var(--mono); color: var(--text-2); }
+.progress::before { content: ""; flex: none; width: 6px; height: 6px; transform: translateY(-1px); background: var(--accent); animation: blink 1.6s infinite steps(1, end); }
+
+/* CONFIRM: what leaves, the fee and where it goes, framed in the accent because it is the next action. */
+.confirm { margin-top: 16px; padding: 14px 16px 16px; border: 1px solid var(--accent); border-radius: 8px; background: #11102a; }
+.confirm h3, .done-head { margin: 0; font: 500 var(--m11)/1.3 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; }
+.confirm h3 { color: var(--accent-hi); }
+.confirm .info { margin-top: 12px; }
+.confirm .bar { margin-top: 14px; }
+
+/* SENT: the transaction, the explorer and "you can close this tab". */
+.done { margin-top: 16px; padding: 14px 16px; border: 1px solid #4f6b1f; border-radius: 8px; background: #121a08; }
+.done-head { color: var(--lime); }
+.done .info { margin-top: 12px; background: var(--bg); }
+.done .hint { margin: 12px 0 0; color: var(--text-2); }
+
+/* DETAILS: the scan height, the log and "Forget the wallet", folded under one line until needed. */
+.details { padding: 14px 0 0; border-top: 1px solid var(--line-2); }
+.details > summary { display: flex; align-items: center; gap: 10px; width: fit-content; padding: 4px 0; cursor: pointer; list-style: none; font: 500 var(--m11)/1.3 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-2); }
+.details > summary::-webkit-details-marker { display: none; }
+.details > summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform 0.15s; }
+.details[open] > summary::before { transform: rotate(45deg); }
+.details > summary:hover { color: var(--text); }
+.details[open] > summary { margin-bottom: 14px; }
+.details .log { margin-top: 4px; }
+.details .bar { margin-top: 12px; }
+button.small { height: 36px; padding: 0 12px; font-size: var(--t13); }
+
 /* THE LOG: every step in words, newest at the bottom. */
 .log {
   margin: 4px 0 0;
@@ -317,8 +363,8 @@ button.ghost:hover:not(:disabled) { border-color: var(--line-strong); color: var
   .page { padding-top: 28px; padding-bottom: 48px; }
   .intro { margin-bottom: 22px; }
   .card { padding: 14px 14px 16px; }
-  .info dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-  .info dd + dt { margin-top: 8px; }
+  .info dl, .money-facts dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .info dd + dt, .money-facts dd + dt { margin-top: 8px; }
   .bar > button { flex: 1 1 auto; }
   /* Narrow rows always stack the name over its state, so a short word and a long one look the same. */
   .node-text { flex-direction: column; align-items: flex-start; }
@@ -329,6 +375,6 @@ button.ghost:hover:not(:disabled) { border-color: var(--line-strong); color: var
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .glitch::before, .glitch::after, .status.wait::before, #state.wait::before, .node[data-state="checking"] .node-dot { animation: none; }
+  .glitch::before, .glitch::after, .status.wait::before, #state.wait::before, .node[data-state="checking"] .node-dot, .progress::before { animation: none; }
   * { transition: none !important; }
 }

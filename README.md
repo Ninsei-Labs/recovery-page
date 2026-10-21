@@ -125,6 +125,9 @@ archive itself against the published `.sha256`.
 - **The keys stay in the tab.** The page sends the node only what a wallet sends a node: height,
   block requests, the signed transaction. It never sends the recovery file, the password, the spend
   key or a seed.
+- **The settlement chain is read, never written.** The file names the network the deal settled on; the
+  page reads it with `eth_call` through public RPCs that pass CORS (`lib/settlement.js`) and refuses a
+  file whose network it does not know. It holds no EVM key and sends no EVM transaction.
 - **The file is decrypted in the browser**, with the same code path the SDK uses; the page does not
   carry a second implementation of the format.
 - **Verify what you serve.** `dist/build.json` lists a SHA-256 for every file, and a release archive

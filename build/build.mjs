@@ -163,7 +163,7 @@ const STAMP = {
 
 console.log("\npage:");
 const PAGE_TEXT = ["recovery.js", "diagnostics.js"];
-const PAGE_COPY = ["index.html", "recovery.css", "diagnostics.html", "favicon.svg", "coi.js", "sw.js", "lib/node.js", "lib/codes.js"];
+const PAGE_COPY = ["index.html", "recovery.css", "diagnostics.html", "favicon.svg", "coi.js", "sw.js", "lib/node.js", "lib/codes.js", "lib/settlement.js", "lib/withdrawal.js"];
 
 // The locale list is derived from the folders, not edited by hand: a third language is one folder.
 const localesDir = join(ROOT, "locales");
