@@ -37,7 +37,6 @@ const EXPLORER = {
 };
 
 const $ = (id) => document.getElementById(id);
-const preflightEl = $("preflight");
 const logEl = $("log");
 const fileInput = $("file");
 const passField = $("passField");
@@ -52,14 +51,18 @@ const destInput = $("dest");
 const destWarnEl = $("destWarn");
 const withdrawBtn = $("withdraw");
 const progressEl = $("progress");
+const progressHeadEl = $("progressHead");
+const progressBarEl = progressEl.querySelector(".progress-bar");
+const progressFillEl = $("progressFill");
+const progressSubEl = $("progressSub");
 const withdrawErrorEl = $("withdrawError");
 const confirmEl = $("confirm");
 const txInfoEl = $("txInfo");
 const sendBtn = $("send");
 const doneEl = $("done");
 const doneInfoEl = $("doneInfo");
-const forgetBtn = $("forget");
 const heightInput = $("restoreHeight");
+const heightBox = $("heightBox");
 
 let api = null;          // monero-ts namespace
 let mod = null;          // built SDK core
@@ -73,7 +76,7 @@ let plan = null;         // core plan: height, missing, revealed half
 let contents = null;     // recovery file text, needed at every step
 let passphrase = null;   // file password: needed by the core, never left in the input
 let network = null;      // Monero network from the file
-let nodeNetwork = null;  // Monero network the chosen node answered with (preflight)
+let nodeNetwork = null;  // Monero network the chosen node answered with (checkNode)
 let settlement = null;   // settlement network from the file, one lib/settlement.js knows
 let balance = null;      // { total, unlocked } in atomic units after a sync, null before one
 let signedToken = null;  // signing token (sweep.sign -> sweep.relay)
@@ -118,7 +121,7 @@ function updateButtons() {
     && !signedToken && doneEl.hidden);
 }
 
-// ONE PLAIN LINE PER STEP for a stop; the detail is in the log under Details. `tone` is "bad" for an error and
+// ONE PLAIN LINE PER STEP for a stop; the detail is in the technical log. `tone` is "bad" for an error and
 // "wait" for a stop that is not one (nothing there yet).
 const said = new Map();
 function say(el, key, params = {}, tone = "bad") {
@@ -133,12 +136,41 @@ function quiet(el) {
   el.textContent = "";
   el.hidden = true;
 }
-function showProgress(key, params = {}) {
-  said.set(progressEl, [key, params]);
-  progressEl.textContent = t(key, params);
+// PROGRESS IS A STAGE AND A BAR. `fraction` fills the bar (the scan, block by block); null runs it without an
+// end (connecting, signing, sending). `sub` returns the line under the bar. Drawn from this state, so a language
+// change redraws the same numbers.
+let progress = null;
+function drawProgress() {
+  if (!progress) {
+    progressEl.hidden = true;
+    return;
+  }
+  const { key, params, fraction, sub } = progress;
+  const percent = fraction === null ? null : Math.max(0, Math.min(100, Math.floor(fraction * 100)));
+  progressHeadEl.textContent = t(key, { ...params, percent: percent === null ? "" : n(percent) });
+  progressEl.dataset.mode = percent === null ? "busy" : "fill";
+  progressFillEl.style.width = percent === null ? "" : percent + "%";
+  if (percent === null) progressBarEl.removeAttribute("aria-valuenow");
+  else progressBarEl.setAttribute("aria-valuenow", String(percent));
+  const words = sub ? sub() : "";
+  progressSubEl.textContent = words;
+  progressSubEl.hidden = !words;
   progressEl.hidden = false;
 }
-const hideProgress = () => quiet(progressEl);
+function showProgress(key, { params = {}, fraction = null, sub = null } = {}) {
+  progress = { key, params, fraction, sub };
+  drawProgress();
+}
+function hideProgress() {
+  progress = null;
+  drawProgress();
+}
+
+// TIME LEFT OF A SCAN, from its own pace so far: said only once there is a pace to go by.
+function timeLeft(seconds) {
+  if (!(seconds > 0) || !Number.isFinite(seconds)) return "";
+  return seconds < 90 ? t("flow.time.sec", { n: n(Math.max(1, Math.round(seconds))) }) : t("flow.time.min", { n: n(Math.round(seconds / 60)) });
+}
 
 // A SIGNED TRANSFER BELONGS TO THE ADDRESS IT WAS SIGNED FOR: a changed address puts the confirmation away, and the
 // button signs again.
@@ -173,9 +205,33 @@ function log(text, cls = "") {
   window.__sweepFlow.steps.push(text);
 }
 
-function setStatus(node, text, cls) {
-  node.className = "status" + (cls ? " " + cls : "");
-  node.textContent = text;
+// WHAT THE PAGE CHECKED: the wallet in this tab, the chosen node and a secure connection, each a line with its
+// state and, when it failed, the reason. Drawn from this record, so a language change redraws it.
+const checks = {
+  wallet: { el: $("checkWallet"), state: "wait", why: null },
+  node: { el: $("checkNode"), state: "wait", why: null },
+  secure: { el: $("checkSecure"), state: "wait", why: null },
+};
+function setCheck(name, state, why = null) {
+  checks[name].state = state;
+  checks[name].why = why;
+  drawChecks();
+}
+const checksHelp = $("checksHelp");
+const nodeLine = $("nodeLine");
+const LINE_STATES = { wait: "checking", ok: "good", bad: "bad" };
+function drawChecks() {
+  for (const [name, c] of Object.entries(checks)) {
+    c.el.dataset.state = c.state;
+    c.el.querySelector(".check-text").textContent = t(`check.${name}.${c.state}`);
+    c.el.querySelector(".check-why").textContent = c.state === "bad" && c.why ? c.why() : "";
+  }
+  // A BROWSER THAT FAILS is pointed to the check of this browser; a node that fails opens the list, since then
+  // the person has to choose another one. Nothing else opens by itself.
+  checksHelp.hidden = checks.wallet.state !== "bad" && checks.secure.state !== "bad";
+  if (checks.node.state === "bad" && !panelOpen) setPanel(true);
+  // The node line under the checks burns with the same answer.
+  nodeLine.dataset.state = LINE_STATES[checks.node.state];
 }
 
 function h(tag, attrs = {}, children = []) {
@@ -217,6 +273,8 @@ document.addEventListener("i18n:applied", () => {
   for (const [el, [key, params]] of said) el.textContent = t(key, params);
   if (payload) drawMoney();
   updateDestWarning();
+  drawChecks();
+  drawProgress();
 });
 
 // XMR AMOUNTS ARE A PACKAGE RULE (formatXmr, BigInt): one atomic unit is "0.000000000001", and above 9007 XMR
@@ -279,30 +337,30 @@ async function facade() {
 
 // --- 0b. Environment: without these checks nothing makes sense ---
 
-// `isCurrent` is false once a newer run has started (the person picked another node meanwhile): an older
-// run's answer must not paint the status line or set the network for a node that is no longer chosen.
-async function preflight(isCurrent = () => true) {
+// THE WALLET IN THIS TAB: the monero-ts bundle, the built SDK core and the worker file. Checked once: they do not
+// change when the person picks another node, and loading them again would only repeat the same lines.
+let walletCheck = null;
+function checkWallet() {
+  if (!walletCheck) walletCheck = loadWallet();
+  return walletCheck;
+}
+async function loadWallet() {
+  setCheck("wallet", "wait");
   const failed = [];
-  // ISOLATION IS NOT A REQUIREMENT. monero-ts 0.11.20 has no pthreads and needs no SharedArrayBuffer; the
-  // headers are still served when the host has them, and the diagnostics report the fact. A host without them
-  // runs the same wallet.
-  if (!self.isSecureContext) failed.push(t("preflight.fail.https"));
-
   try {
     const m = await import(BUNDLE);
     api = m.default || m;
     log(t("log.lib.loaded", { version: api.getVersion?.() ?? "?" }));
   } catch (e) {
-    failed.push(t("preflight.fail.bundle", { message: e.message }));
+    failed.push(["preflight.fail.bundle", { message: e.message }]);
   }
 
   // CORE. A load failure is named in the log, never swallowed.
-  let core = null;
   try {
-    core = await sdkBundle();
+    await sdkBundle();
     log(t("log.core.loaded", { file: SDK_BUNDLE.split("/").pop() }));
   } catch (e) {
-    failed.push(t("preflight.fail.core", { message: (e && e.message) || e }));
+    failed.push(["preflight.fail.core", { message: (e && e.message) || e }]);
   }
 
   if (api) {
@@ -313,35 +371,57 @@ async function preflight(isCurrent = () => true) {
       if (r.status !== 200 || buf.byteLength < 1_000_000) throw new Error(t("preflight.fail.workerBytes", { bytes: n(buf.byteLength) }));
       log(t("log.worker.ok", { mb: n(buf.byteLength / 1048576, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }));
     } catch (e) {
-      failed.push(t("preflight.fail.worker", { message: e.message }));
+      failed.push(["preflight.fail.worker", { message: e.message }]);
     }
   }
 
-  // NODE IS A PACKAGE RULE (probeMoneroNode): one get_info, height, network, named refusal reason.
-  // No node chosen is a failure in its own words, never a silent fallback to one nobody chose.
-  if (!nodeUrl()) {
-    nodeNetwork = null;
-    failed.push(t("preflight.fail.noNode"));
-  } else if (core) {
-    const probe = await core.probeMoneroNode({ url: nodeUrl() });
-    if (!isCurrent()) return false;
-    nodeNetwork = probe.ok ? probe.network || null : null;
-    if (!probe.ok) {
-      failed.push(t("preflight.fail.node", { message: probe.why }));
-    } else {
-      log(t("log.node.answering", { height: n(probe.height), sync: probe.synchronized, nettype: probe.nettype, node: t(nodeLabelKey(), nodeLabelParams()) }));
-    }
-  }
-
-  if (!isCurrent()) return false;
+  const why = () => failed.map(([key, params]) => t(key, params)).join("; ");
   if (failed.length) {
-    setStatus(preflightEl, t("preflight.status.bad", { list: failed.join("; ") }), "bad");
-    log(t("log.env.notready", { list: failed.join("; ") }), "bad");
-    window.__sweepFlow.ready = false;
+    log(t("log.env.notready", { list: why() }), "bad");
+    setCheck("wallet", "bad", why);
     return false;
   }
-  setStatus(preflightEl, t("preflight.status.ok"), "ok");
-  window.__sweepFlow.ready = true;
+  setCheck("wallet", "ok");
+  return true;
+}
+
+// THE CHOSEN NODE: one get_info through the package rule (probeMoneroNode), its height and network. This is the one
+// check a change of node runs again. No node chosen is a failure in its own words, never a silent fallback to one
+// nobody chose. `isCurrent` is false once a newer check has started: an older answer must not paint the line or
+// set the network for a node that is no longer chosen.
+async function checkNode(isCurrent) {
+  setCheck("node", "wait");
+  if (!nodeUrl()) {
+    nodeNetwork = null;
+    setCheck("node", "bad", () => t("preflight.fail.noNode"));
+    return false;
+  }
+  let core = null;
+  try {
+    core = await sdkBundle();
+  } catch {
+    // Without the core there is no probe; the wallet line names the failure.
+  }
+  if (!isCurrent()) return false;
+  if (!core) {
+    nodeNetwork = null;
+    setCheck("node", "bad", () => t("node.state.unchecked"));
+    return false;
+  }
+  const probe = await core.probeMoneroNode({ url: nodeUrl() });
+  if (!isCurrent()) return false;
+  nodeNetwork = probe.ok ? probe.network || null : null;
+  if (!probe.ok) {
+    // THE REASON IN THE NODE LIST'S OWN WORDS (nodeVerdict), with the node's name.
+    const verdict = nodeVerdict(probe, null);
+    const host = nodeHost(nodeUrl());
+    const why = () => host + ": " + t("node.state." + verdict.why, verdict.params);
+    log(t("preflight.fail.node", { message: why() }), "bad");
+    setCheck("node", "bad", why);
+    return false;
+  }
+  log(t("log.node.answering", { height: n(probe.height), sync: probe.synchronized, nettype: probe.nettype, node: t(nodeLabelKey(), nodeLabelParams()) }));
+  setCheck("node", "ok");
   return true;
 }
 
@@ -433,8 +513,11 @@ async function openFile() {
   const fileHeight = Number(payload.moneroWallet.restoreHeight) || 0;
   // THE HEIGHT FROM THE PLAN WINS; the file value is the fallback when the plan is silent.
   const height = Number(plan.restoreHeight) > 0 ? Number(plan.restoreHeight) : fileHeight;
-  heightInput.value = String(height);
+  heightInput.value = height > 0 ? String(height) : "";
   window.__sweepFlow.restoreHeight = height;
+  // NO HEIGHT IS A NAMED STATE: the scan would start from Monero's first block and take hours, so the step says it
+  // and shows the field for the person to fill. A known height stays out of sight.
+  heightBox.hidden = height > 0;
   for (const w of warnings) log(t("log.warning", { text: w }), "wait");
   // "revealed half" is a state of the money, not a breakage.
   for (const miss of plan.missing) {
@@ -586,32 +669,52 @@ async function syncWallet() {
   wallet = adapter.driver();
   log(t("log.wallet.restored"), "ok");
 
-  // PROGRESS IS SHOWN, NOT NEEDED: the library tells its listeners how far the scan is; a wallet that cannot is
-  // still synced, only without the percentage.
+  // PROGRESS IS SHOWN, NOT NEEDED. The scan is sweep.restore's rescanBlockchain, which tells no listener how far it
+  // is, so the bar runs without an end over the start block and the time so far. The count of new blocks is not
+  // shown: measured on stagenet, 321 blocks and 4,015 blocks both took about three minutes, spent fetching the
+  // chain's block hashes. A wallet that does report (a sync pass) fills the bar and says the time left.
+  const scanStarted = performance.now();
+  const scanFrom = Math.max(0, Number(height) - 10);
+  const soFar = () => {
+    const sec = Math.floor((performance.now() - scanStarted) / 1000);
+    const clock = Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+    return t("flow.progress.since", { from: n(scanFrom), time: clock });
+  };
   let listener = null;
   try {
     listener = new (class extends api.MoneroWalletListener {
       async onSyncProgress(at, start, end, done) {
-        showProgress("flow.progress.scan", { percent: n(Math.min(100, Math.floor(Number(done) * 100)) || 0) });
+        const fraction = Math.min(1, Math.max(0, Number(done) || 0));
+        const elapsed = (performance.now() - scanStarted) / 1000;
+        const left = fraction >= 0.03 && elapsed > 3 ? timeLeft((elapsed * (1 - fraction)) / fraction) : "";
+        showProgress("flow.progress.scan", {
+          fraction,
+          sub: () => {
+            const blocks = t("flow.progress.blocks", { at: n(Number(at)), end: n(Number(end)) });
+            return left ? blocks + " · " + t("flow.progress.left", { time: left }) : blocks;
+          },
+        });
       }
     })();
     await wallet.addListener(listener);
   } catch {
     listener = null;
   }
-  showProgress("flow.progress.scan", { percent: n(0) });
+  showProgress("flow.progress.scanning", { sub: soFar });
+  const ticker = setInterval(() => { if (progress && progress.sub === soFar) drawProgress(); }, 1000);
 
   // RESTORE IS A PACKAGE RULE (sweep.restore): height with a downward margin, a rescan, and a SECOND pass
   // (rescanSpent + sync) when coins exist but are locked.
   const t0 = performance.now();
   let restored;
   try {
-    log(t("log.scan.start", { from: n(Math.max(0, Number(height) - 10)), height: n(height) }));
+    log(t("log.scan.start", { from: n(scanFrom), height: n(height) }));
     restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10 });
   } catch (e) {
     log(t("log.rescan.failed", { why: (e && e.message) || e }), "bad");
     return "flow.err.sync";
   } finally {
+    clearInterval(ticker);
     if (listener) {
       try { await wallet.removeListener(listener); } catch { /* the wallet may be closing; progress is display only */ }
     }
@@ -759,13 +862,15 @@ async function sendTx() {
   log(t("log.sent", { txids: hashes.join(", ") }), "ok");
   confirmEl.hidden = true;
   showDone(hashes[0] || null);
-  // THE WALLET IS EMPTY NOW: the button would only sign for zero.
+  // THE WALLET IS EMPTY NOW: the button would only sign for zero. The keys have done their job, so they leave the
+  // tab's memory at once instead of waiting for the tab to close; the sent view and the txid stay.
   withdrawBtn.disabled = true;
+  await dropKeys();
   log(t("log.done"), "ok");
   return true;
 }
 
-// SENT: the transaction and where to see it. The keys go when the tab closes.
+// SENT: the transaction and where to see it.
 function showDone(txid) {
   const rows = [["info.txid", txid || t("value.txid.none")]];
   if (txid) rows.push(["info.explorer", () => explorerLink(txid)]);
@@ -774,9 +879,10 @@ function showDone(txid) {
   updateButtons();
 }
 
-// FORGET: the wallet closes, every value from the file goes, and the page is back at "choose a file". The node
-// choice opens again.
-async function forget({ keepFile = false } = {}) {
+// THE KEYS LEAVE: the wallet closes and the file's contents, its password and the signed transaction go. The node
+// choice opens again. `plan` stays: it holds the public facts the sent view reads. `keepFile`
+// keeps the file just picked: onFileChosen calls this before it reads the input.
+async function dropKeys({ keepFile = false } = {}) {
   try { if (adapter) await adapter.close(); } catch { /* a failed close must not keep the rest in memory */ }
   adapter = null;
   wallet = null;
@@ -784,9 +890,21 @@ async function forget({ keepFile = false } = {}) {
   signedToken = null;
   lastTx = null;
   payload = null;
-  plan = null;
   contents = null;
   passphrase = null;
+  passInput.value = "";
+  if (!keepFile) {
+    chosen = null;
+    fileInput.value = "";
+  }
+  log(t("log.forgotten"), "ok");
+}
+
+// FORGET: the keys go (dropKeys), and the page is back at "choose a file". Picking another file does this, so two
+// files never share a tab.
+async function forget({ keepFile = false } = {}) {
+  await dropKeys({ keepFile });
+  plan = null;
   network = null;
   settlement = null;
   balance = null;
@@ -800,16 +918,11 @@ async function forget({ keepFile = false } = {}) {
   hideProgress();
   withdrawBtn.disabled = false;
   destInput.value = "";
-  heightInput.value = "0";
-  passInput.value = "";
-  if (!keepFile) {
-    chosen = null;
-    fileInput.value = "";
-  }
+  heightInput.value = "";
+  heightBox.hidden = true;
   passField.hidden = !(chosen && chosen.encrypted);
   updateDestWarning();
   updateButtons();
-  log(t("log.forgotten"), "ok");
 }
 
 // --- events ---
@@ -824,6 +937,28 @@ const nodeInput = $("node");
 const nodeNote = $("nodeNote");
 const ownRow = nodeList.querySelector(".node-own");
 const ownRadio = ownRow.querySelector('input[type="radio"]');
+const nodePanel = $("nodePanel");
+const nodeCurrentEl = $("nodeCurrent");
+const nodeChangeBtn = $("nodeChange");
+
+// THE LIST IS FOLDED INTO ONE LINE: the chosen node and how fast it answered. "Change" opens the list; the page
+// opens it by itself only when no node answers well, since then the person has to choose.
+let panelOpen = false;
+function setPanel(open) {
+  panelOpen = open;
+  nodePanel.hidden = !open;
+  nodeChangeBtn.setAttribute("aria-expanded", String(open));
+  drawCurrent();
+}
+nodeChangeBtn.addEventListener("click", () => setPanel(!panelOpen));
+
+function drawCurrent() {
+  const url = nodeUrl();
+  const row = url ? rowFor(url) : null;
+  const ms = row && row.answer && row.answer.ok ? " · " + t("node.ms", { ms: n(row.answer.ms) }) : "";
+  nodeCurrentEl.textContent = url ? nodeHost(url) + ms : t("node.current.none");
+  nodeChangeBtn.textContent = t(panelOpen ? "page.node.hide" : "page.node.change");
+}
 
 // A HIDDEN TAB IS ASKED AGAIN when it comes back after this long: a node that answered an hour ago may not now.
 const RECHECK_AFTER_MS = 60_000;
@@ -883,6 +1018,7 @@ function drawRows() {
     row.el.querySelector(".node-why").textContent = why;
     row.el.querySelector(".node-ms").textContent = row.answer && row.answer.ok ? t("node.ms", { ms: n(row.answer.ms) }) : "";
   }
+  drawCurrent();
 }
 
 function drawNote() {
@@ -890,6 +1026,7 @@ function drawNote() {
   const words = locked ? t("log.node.locked") : note ? t(note[0], note[1]) : "";
   nodeNote.textContent = words;
   nodeNote.hidden = !words;
+  drawCurrent();
 }
 
 function updateNodeLock() {
@@ -909,7 +1046,7 @@ async function pingRows(rows) {
   try {
     core = await sdkBundle();
   } catch {
-    // Without the core there is no probe: the rows say "not checked" and the preflight names the failure.
+    // Without the core there is no probe: the rows say "not checked" and the wallet line names the failure.
   }
   const asked = rows.map((row) => {
     row.ask += 1;
@@ -1045,16 +1182,26 @@ async function startNode() {
   await runPreflight();
 }
 
-// ONE PREFLIGHT AT A TIME COUNTS: a person who clicks through the rows gets the answer for the last one.
+// ONE CHECK AT A TIME COUNTS: a person who clicks through the rows gets the answer for the last one. The wallet is
+// loaded once; a change of node asks only the node.
 let preflightRun = 0;
+let announced = false;
 async function runPreflight() {
   const mine = ++preflightRun;
+  const isCurrent = () => mine === preflightRun;
   openBtn.disabled = true;
-  setStatus(preflightEl, t("page.preflight"), "wait");
-  const ready = await preflight(() => mine === preflightRun);
-  if (mine !== preflightRun) return false;
+  // ISOLATION IS NOT A REQUIREMENT. monero-ts 0.11.20 has no pthreads and needs no SharedArrayBuffer; the headers
+  // are still served when the host has them, and the diagnostics report the fact. WebCrypto needs a secure context.
+  setCheck("secure", self.isSecureContext ? "ok" : "bad", () => t("preflight.fail.https"));
+  const [walletOk, nodeOk] = await Promise.all([checkWallet(), checkNode(isCurrent)]);
+  if (!isCurrent()) return false;
+  const ready = walletOk && nodeOk && self.isSecureContext;
+  window.__sweepFlow.ready = ready;
   openBtn.disabled = !ready;
-  if (ready) log(t("log.ready"));
+  if (ready && !announced) {
+    announced = true;
+    log(t("log.ready"));
+  }
   return ready;
 }
 function checkEnvironment() {
@@ -1063,11 +1210,24 @@ function checkEnvironment() {
 
 document.addEventListener("i18n:applied", () => { drawRows(); drawNote(); });
 
+// THE LOG LEAVES ONLY BY HAND: the person copies it for whoever helps. It holds no key and no password, but it
+// names addresses, so sharing it is their choice.
+const copyLogBtn = $("copyLog");
+copyLogBtn.addEventListener("click", async () => {
+  let key = "page.log.copied";
+  try {
+    await navigator.clipboard.writeText(logEl.textContent);
+  } catch {
+    key = "page.log.copyFailed";
+  }
+  copyLogBtn.textContent = t(key);
+  setTimeout(() => { copyLogBtn.textContent = t("page.log.copy"); }, 2000);
+});
+
 fileInput.addEventListener("change", () => { onFileChosen().catch((e) => log(String((e && e.message) || e), "bad")); });
 openBtn.addEventListener("click", () => busy(openBtn, openFile, openErrorEl));
 withdrawBtn.addEventListener("click", () => busy(withdrawBtn, withdraw, withdrawErrorEl));
 sendBtn.addEventListener("click", () => busy(sendBtn, sendTx, withdrawErrorEl));
-forgetBtn.addEventListener("click", () => busy(forgetBtn, () => forget()));
 
 // AN OLDER BUILD OF THIS PAGE REGISTERED A SERVICE WORKER (sw.js) that added COEP to every answer. The wallet
 // needs no isolation, and a worker outlives its file, so a tab that met the old build stays under require-corp

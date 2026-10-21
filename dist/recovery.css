@@ -128,6 +128,7 @@ h2 { font: 500 var(--m11)/1.3 var(--mono); letter-spacing: 0.16em; text-transfor
 
 .field { display: block; margin: 0 0 12px; }
 .field > span { display: block; margin-bottom: 6px; font-size: var(--t13); color: var(--text-2); }
+.step h2 + .file-hint { margin: -6px 0 10px; }
 
 input[type="text"],
 input[type="password"],
@@ -189,7 +190,10 @@ input[type="file"]:hover::file-selector-button { border-color: var(--accent); }
 .node-signal { display: inline-flex; align-items: center; gap: 8px; font: 400 var(--m12)/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--text-2); white-space: nowrap; }
 .node-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
 .node[data-state="checking"] .node-dot { animation: node-pulse 1.4s ease-in-out infinite; }
-.node[data-state="good"] .node-dot { background: var(--lime); }
+.node[data-state="good"] .node-dot, .node-current[data-state="good"] .node-dot { background: var(--lime); box-shadow: 0 0 6px var(--lime); }
+.node-current[data-state="bad"] .node-dot { background: var(--red); }
+.node-current[data-state="checking"] .node-dot { animation: node-pulse 1.4s ease-in-out infinite; }
+.node-current .node-dot { flex: none; align-self: center; }
 .node[data-state="good"] .node-ms { color: var(--text); }
 .node[data-state="bad"] .node-dot { background: var(--red); }
 .node[data-state="bad"] .node-why { color: var(--red); opacity: 0.85; }
@@ -279,6 +283,23 @@ button.ghost:hover:not(:disabled) { border-color: var(--line-strong); color: var
 .status.wait::before, #state.wait::before { animation: blink 1.6s infinite steps(1, end); }
 @keyframes blink { 0%, 100% { opacity: 1; } 55% { opacity: 0.2; } }
 
+/* WHAT THE PAGE CHECKED: a short line each, with a blinking square while it asks, a tick when it is fine and a
+   cross with the reason under it when it is not. The frame turns lime once every line is fine. */
+.checks { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0; padding: 10px 12px; list-style: none; border: 1px solid var(--line-2); border-radius: 6px; background: var(--bg-sunken); font: 400 var(--m12)/1.5 var(--mono); color: var(--text-2); }
+.checks:not(:has(li:not([data-state="ok"]))) { border-color: #4f6b1f; background: #121a08; }
+.checks li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.checks li::before { content: ""; flex: none; align-self: center; width: 9px; height: 9px; border: 1.5px solid var(--line-strong); border-top-color: var(--accent-hi); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.checks li[data-state="ok"] { color: var(--text); }
+.checks li[data-state="ok"]::before, .checks li[data-state="bad"]::before { align-self: auto; width: auto; height: auto; border: 0; border-radius: 0; animation: none; font-weight: 500; }
+.checks li[data-state="ok"]::before { content: "\2713"; color: var(--lime); }
+.checks li[data-state="bad"] { flex-basis: 100%; color: var(--red); }
+.checks li[data-state="bad"]::before { content: "\2715"; color: var(--red); }
+.check-why { flex-basis: 100%; padding-left: 18px; color: var(--text-2); overflow-wrap: anywhere; }
+.check-why:empty { display: none; }
+.checks-help { margin: 8px 0 0; }
+.checks-help a { color: var(--accent-hi); }
+
 /* THE STATE OF THE MONEY: one sentence in plain words, then the deal's facts. The square and the edge carry the
    state: lime when the XMR can be withdrawn, amber while the deal says "not yet", neutral when nothing is there. */
 .money { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--bg-sunken); }
@@ -296,9 +317,19 @@ button.ghost:hover:not(:disabled) { border-color: var(--line-strong); color: var
 .flow-error { margin: 12px 0 0; padding: 10px 12px; border: 1px solid #6b2a33; border-radius: 6px; background: #1f0b10; font-size: var(--t13); line-height: 1.5; color: var(--red); overflow-wrap: anywhere; }
 .flow-error[data-tone="wait"] { border-color: #6a4a1c; background: #1f1508; color: var(--amber); }
 
-/* PROGRESS under the button: what the page is doing now, with the waiting square of the status line. */
-.progress { display: flex; align-items: baseline; gap: 10px; margin: 12px 0 0; font: 400 var(--m12)/1.5 var(--mono); color: var(--text-2); }
-.progress::before { content: ""; flex: none; width: 6px; height: 6px; transform: translateY(-1px); background: var(--accent); animation: blink 1.6s infinite steps(1, end); }
+/* A FILE WITHOUT A START HEIGHT: the warning and the field, inside the step. */
+.height-box { margin-top: 12px; }
+.height-box .hint.warn { margin-bottom: 12px; }
+
+/* PROGRESS under the button: the stage in words, a bar and the line under it. The scan fills the bar; the other
+   stages run a short piece of it from side to side. */
+.progress { margin: 16px 0 0; }
+.progress-head { font: 400 var(--m12)/1.5 var(--mono); color: var(--text); }
+.progress-bar { position: relative; height: 6px; margin-top: 8px; overflow: hidden; border-radius: 3px; background: var(--line-2); }
+.progress-bar > span { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-radius: 3px; background: var(--accent); box-shadow: 0 0 8px rgba(139, 128, 255, 0.6); transition: width 0.3s ease; }
+.progress[data-mode="busy"] .progress-bar > span { width: 30%; animation: progress-busy 1.4s ease-in-out infinite; }
+@keyframes progress-busy { 0% { left: -30%; } 100% { left: 100%; } }
+.progress-sub { margin-top: 6px; font: 400 var(--m11)/1.5 var(--mono); font-variant-numeric: tabular-nums; color: var(--text-3); }
 
 /* CONFIRM: what leaves, the fee and where it goes, framed in the accent because it is the next action. */
 .confirm { margin-top: 16px; padding: 14px 16px 16px; border: 1px solid var(--accent); border-radius: 8px; background: #11102a; }
@@ -313,16 +344,25 @@ button.ghost:hover:not(:disabled) { border-color: var(--line-strong); color: var
 .done .info { margin-top: 12px; background: var(--bg); }
 .done .hint { margin: 12px 0 0; color: var(--text-2); }
 
-/* DETAILS: the scan height, the log and "Forget the wallet", folded under one line until needed. */
-.details { padding: 14px 0 0; border-top: 1px solid var(--line-2); }
-.details > summary { display: flex; align-items: center; gap: 10px; width: fit-content; padding: 4px 0; cursor: pointer; list-style: none; font: 500 var(--m11)/1.3 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-2); }
-.details > summary::-webkit-details-marker { display: none; }
-.details > summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform 0.15s; }
-.details[open] > summary::before { transform: rotate(45deg); }
-.details > summary:hover { color: var(--text); }
-.details[open] > summary { margin-bottom: 14px; }
-.details .log { margin-top: 4px; }
-.details .bar { margin-top: 12px; }
+/* THE NODE, folded into one line under the checks; "Change" opens the list under it. */
+.node-line { padding: 14px 0; border-bottom: 1px solid var(--line-2); }
+.node-current { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.node-label { font: 500 var(--m11)/1.3 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-3); }
+.node-now { min-width: 0; font: 400 var(--m12)/1.5 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+button.link { height: auto; padding: 0; border: 0; background: none; font: 500 var(--t13)/1.5 var(--sans); color: var(--accent-hi); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+button.link:hover:not(:disabled) { border: 0; color: var(--text-hi); text-decoration-color: currentColor; }
+.node-panel { margin-top: 14px; }
+.node-panel > .hint:last-child { margin-bottom: 0; }
+
+/* THE TECHNICAL LOG: under the card, folded, for whoever helps when something fails. */
+.techlog { margin-top: 18px; }
+.techlog > summary { display: flex; align-items: center; gap: 10px; width: fit-content; padding: 4px 0; cursor: pointer; list-style: none; font: 500 var(--m11)/1.3 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-3); }
+.techlog > summary::-webkit-details-marker { display: none; }
+.techlog > summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform 0.15s; }
+.techlog[open] > summary::before { transform: rotate(45deg); }
+.techlog > summary:hover { color: var(--text); }
+.techlog[open] > summary { margin-bottom: 10px; }
+.techlog .bar { margin-top: 10px; }
 button.small { height: 36px; padding: 0 12px; font-size: var(--t13); }
 
 /* THE LOG: every step in words, newest at the bottom. */
@@ -377,6 +417,7 @@ button.small { height: 36px; padding: 0 12px; font-size: var(--t13); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .glitch::before, .glitch::after, .status.wait::before, #state.wait::before, .node[data-state="checking"] .node-dot, .progress::before { animation: none; }
+  .glitch::before, .glitch::after, .status.wait::before, #state.wait::before, .node[data-state="checking"] .node-dot, .node-current .node-dot, .checks li::before { animation: none; }
+  .progress[data-mode="busy"] .progress-bar > span { left: 0; width: 100%; opacity: 0.5; animation: none; }
   * { transition: none !important; }
 }

@@ -448,6 +448,51 @@ await check("no eval and no new Function in the page's own code", async () => {
   assert.deepEqual(offenders, []);
 });
 
+// THE KEYS LEAVE WITH THE TRANSFER. There is no "Forget" button: once the transaction is relayed the wallet closes
+// and the file, its password and the signed transaction leave memory, while the txid stays on screen.
+await check("the keys leave the tab once the transfer is sent", async () => {
+  const page = await read("recovery.js");
+  const html = await read("index.html");
+  const send = page.slice(page.indexOf("async function sendTx()"), page.indexOf("function showDone("));
+  assert.ok(send.length > 0, "no sendTx in recovery.js");
+  assert.ok(/sweep\.relay\([\s\S]*await dropKeys\(\)/.test(send), "sendTx does not drop the keys after relaying");
+  const drop = page.slice(page.indexOf("async function dropKeys("), page.indexOf("async function forget("));
+  for (const name of ["adapter.close()", "passphrase = null", "contents = null", "signedToken = null", "payload = null"]) {
+    assert.ok(drop.includes(name), `dropKeys leaves ${name} out`);
+  }
+  assert.ok(!/id="forget"/.test(html), "index.html still has a Forget button");
+});
+
+// THE START HEIGHT IS NEVER SHOWN AS 0: zero means "scan from Monero's first block", hours of work. The field is empty
+// until a file fills it, and a file without a height is said in the step, with the field beside the warning.
+await check("the start height is empty until a file fills it, and a missing one is asked for in the step", async () => {
+  const page = await read("recovery.js");
+  const html = await read("index.html");
+  assert.match(html, /<input id="restoreHeight"[^>]*value=""/, "the height field starts with a value");
+  assert.ok(!/heightInput\.value = "0"/.test(page), "the page writes 0 into the height field");
+  const box = html.slice(html.indexOf('<div id="heightBox"'), html.indexOf('<section class="step" id="stepTransfer"'));
+  assert.match(box, /data-i18n="page\.warn\.height"/, "no warning for a file without a height");
+  assert.match(box, /<input id="restoreHeight"/, "the height field is not beside the warning");
+  assert.match(page, /heightBox\.hidden = height > 0/, "the field and the warning do not follow the height");
+});
+
+// NOTHING OPENS BY ITSELF but what the person must answer: the start height (above) and the node list when no node
+// answers well. The log is folded under the card, and no panel holds the flow.
+await check("nothing folds the flow, and only the node list opens by itself, when the node fails", async () => {
+  const page = await read("recovery.js");
+  const html = await read("index.html");
+  const card = html.slice(html.indexOf('<div class="card">'), html.indexOf('<section class="aside">'));
+  assert.ok(card.length > 0, "no card in index.html");
+  assert.ok(!/<details/.test(card), "a fold is back inside the card");
+  assert.match(html, /<details class="techlog" id="techlog">[\s\S]*<pre id="log"/, "the log is not in the folded technical log");
+  assert.ok(!/\.open\s*=\s*true/.test(page), "the page opens a fold by itself");
+  const opens = page.match(/setPanel\(true\)/g) || [];
+  assert.equal(opens.length, 1, "the node list opens by itself in " + opens.length + " places");
+  const drawAt = page.indexOf("function drawChecks(");
+  const draw = page.slice(drawAt, page.indexOf("\n}\n", drawAt));
+  assert.match(draw, /if \(checks\.node\.state === "bad" && !panelOpen\) setPanel\(true\);/, "the list does not open when the node fails");
+});
+
 // THE PAGE TALKS TO NO SERVICE: its promise is that only the Monero node and the settlement chain hear from the tab.
 // The SDK's service routes (height, the revealed half's fallback, the "withdrawn" mark) get a fetch that refuses
 // without a request.
@@ -460,6 +505,25 @@ await check("the page talks to no service, so only the node and the chain hear f
   assert.match(body, /throw new TypeError/, "noService does not refuse");
   assert.ok(!/fetch\(/.test(body), "noService sends a request");
   assert.ok(!/sweep\.report|restoreHeight\(\{|reportRetry/.test(page), "the page still asks a service for the height or reports the withdrawal");
+});
+
+// WHAT THE PAGE CHECKED IS SAID LINE BY LINE, and a change of node asks the node again, never the wallet: loading
+// the wallet twice only repeated the same lines in the log.
+await check("the checks are said line by line, and a change of node asks only the node", async () => {
+  const page = await read("recovery.js");
+  const html = await read("index.html");
+  const { default: en } = await import(pathToFileURL(join(ROOT, "locales", "en", "index.js")).href);
+  const names = ["wallet", "node", "secure"];
+  for (const name of names) {
+    assert.match(html, new RegExp(`<li id="check${name[0].toUpperCase() + name.slice(1)}"`), `no ${name} line in index.html`);
+    for (const state of ["wait", "ok", "bad"]) assert.ok(en.strings[`check.${name}.${state}`], `no words for check.${name}.${state}`);
+  }
+  assert.match(page, /if \(!walletCheck\) walletCheck = loadWallet\(\);/, "the wallet is loaded again on every check");
+  const run = page.slice(page.indexOf("async function runPreflight("), page.indexOf("function checkEnvironment("));
+  assert.match(run, /checkWallet\(\)/, "the check runner does not go through checkWallet");
+  assert.ok(!/loadWallet\(/.test(run), "the check runner loads the wallet itself");
+  const choose = page.slice(page.indexOf("function chooseListed("), page.indexOf("function chooseOwn("));
+  assert.match(choose, /checkEnvironment\(\)/, "picking a node does not ask it");
 });
 
 await check("the page never writes the recovery file or the password anywhere", async () => {
