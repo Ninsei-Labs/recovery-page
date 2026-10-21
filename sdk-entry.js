@@ -21,7 +21,19 @@ export {
   unlockStateOf,
 } from "@ninsei-labs/sdk/xmr";
 // RECOVERY FILE AS IT IS ON THE PATH: envelope and payload shape, for display and for OLD mnemonic files.
-export { decryptFile, validatePayload, isEncrypted } from "@ninsei-labs/sdk/recovery";
+export {
+  decryptFile, validatePayload,
+  // THE ONE RECOVERY KEY (sdk#79): the 12 words, the derived halves, the backup file and the on-chain search.
+  createRecoveryKey, importRecoveryKey, openRecoveryKeyFile,
+  recoveryKeyFileName, recoveryKeyText, createRecoveryKeyFile,
+  takerHalves, findSwaps,
+  // THE PAYLOAD FROM THE CHAIN: the page assembles a plain envelope from a found order, so the same
+  // sweep.plan/keys/wallet path runs for a key-backed swap as for an old file.
+  buildPayload, createRecoveryFile,
+} from "@ninsei-labs/sdk/recovery";
+export { isEncrypted } from "@ninsei-labs/sdk/recovery";
+// THE NETWORK REGISTRY: a key does not name a chain, so the page reads the factories and ids from the package.
+export { CHAINS } from "@ninsei-labs/sdk/networks";
 // CORE WALLET AND WITHDRAWAL WALLET, with in-memory storage. moneroWalletAdapter plays the core wallet
 // (vm/connect/address/chainId/unlockedBalance/driver), moneroWallet the withdrawal one
 // (open/sync/sweepUnlocked/relay/close). No WASM: createWallet comes from the page, so no monero-ts byte here.

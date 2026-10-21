@@ -1,8 +1,9 @@
 # Ninsei recovery page
 
 A static page that moves XMR out of a swap wallet. A person opens it in a browser, supplies the
-recovery file and its password, and the page rebuilds the wallet **in the tab**, syncs it against a
-Monero node, and sends a transfer to an address the person types. Keys and the password never leave
+recovery key (twelve words) or an older recovery file, and the page rebuilds the wallet **in the tab**,
+syncs it against a Monero node, and sends a transfer to an address the person types. With a key the page
+finds the open swaps on chain first; the key itself is never sent anywhere. Keys and the password never leave
 the tab; the page has no server of its own.
 
 This repository is the reference implementation. An operator can serve it from their own host and

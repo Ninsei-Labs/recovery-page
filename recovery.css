@@ -421,3 +421,10 @@ button.small { height: 36px; padding: 0 12px; font-size: var(--t13); }
   .progress[data-mode="busy"] .progress-bar > span { left: 0; width: 100%; opacity: 0.5; animation: none; }
   * { transition: none !important; }
 }
+
+
+/* THE ONE RECOVERY KEY: twelve words, an optional address, and the swaps the commitments find. */
+#keyWords { min-height: 78px; resize: vertical; font: 400 var(--m13)/1.6 var(--mono); letter-spacing: 0.02em; }
+.swaps { display: grid; gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }
+.swap-row { width: 100%; justify-content: flex-start; text-align: left; font: 400 var(--t13)/1.4 var(--sans); }
+.swap-row::before { content: ""; width: 6px; height: 6px; margin-right: 10px; background: var(--accent); flex: none; }
