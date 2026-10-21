@@ -20,6 +20,7 @@ import {
   pingNode, medianHeight, nodeVerdict, fastestGood, moneroHeaderTime,
 } from "./lib/node.js";
 import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
+import { restoreWindow } from "./lib/window.js";
 import { startHeightAt } from "./lib/start-height.js";
 import { sideOf, partsOf, payloadOf } from "./lib/found-swap.js";
 import { swapState, moneyState } from "./lib/withdrawal.js";
@@ -27,7 +28,7 @@ import { swapState, moneyState } from "./lib/withdrawal.js";
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=cf687c3e";
 const WORKER = "./monero.worker.js?v=fd2e8b51";
-const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=79abd9a2";
+const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=507d243c";
 // THIS PAGE TALKS TO NO SERVICE. The SDK's service routes (a height the app remembers, the revealed half's
 // fallback, the "withdrawn" mark) get this fetch, which answers "unavailable" without a request: the height comes
 // from the chain or the person, the half from the chain, and a withdrawal needs nobody told. So only the Monero
@@ -889,13 +890,20 @@ async function syncWallet() {
   showProgress("flow.progress.scanning", { sub: soFar });
   const ticker = setInterval(() => { if (progress && progress.sub === soFar) drawProgress(); }, 1000);
 
-  // RESTORE IS A PACKAGE RULE (sweep.restore): height with a downward margin, a rescan, and a SECOND pass
-  // (rescanSpent + sync) when coins exist but are locked.
+  // RESTORE IS A PACKAGE RULE (sweep.restore): the blocks around the lock first, then the full scan only if
+  // that window holds nothing. The window ends at the Monero block at or after the order's t1, plus ten.
+  let window = null;
+  try {
+    const tipHeight = Number(await wallet.getDaemonHeight());
+    const rawT1 = Number((payload.escrow && payload.escrow.t1) ?? (payload.deadlines && payload.deadlines.t1));
+    const t1Sec = Number.isFinite(rawT1) && rawT1 > 0 ? Math.floor(rawT1 >= 1e12 ? rawT1 / 1000 : rawT1) : 0;
+    window = await restoreWindow({ nodeUrl: nodeUrl(), t1Sec, startHeight: height, tipHeight });
+  } catch { window = null; }
   const t0 = performance.now();
   let restored;
   try {
     log(t("log.scan.start", { from: n(scanFrom), height: n(height) }));
-    restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10 });
+    restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10, window });
   } catch (e) {
     log(t("log.rescan.failed", { why: (e && e.message) || e }), "bad");
     return "flow.err.sync";
@@ -914,6 +922,11 @@ async function syncWallet() {
   try { txs = (await wallet.getTxs()).length; } catch (e) { log(t("log.diag.failed", { why: String((e && e.message) || e) }), "wait"); }
   balance = { total, unlocked, txs };
   log(t("log.restored.passes", { passes: n(restored.passes), locked: restored.lockedPass ? t("value.yes") : t("value.no") }), "ok");
+  if (restored.window && restored.window.used) {
+    log(t("log.scan.window", { from: n(restored.window.fromHeight), to: n(restored.window.toHeight), txs: n(restored.window.txs) }), "ok");
+  } else if (window) {
+    log(t("log.scan.window.skipped", { why: restored.window && restored.window.skipped ? restored.window.skipped : t("value.no") }), "wait");
+  }
 
   const walletHeight = await wallet.getHeight();
   const nodeHeight = await wallet.getDaemonHeight();

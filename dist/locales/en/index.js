@@ -197,6 +197,8 @@ export default {
     "log.wallet.notConnected": "the wallet did not connect: {words}",
     "log.wallet.restored": "the wallet is restored, its address matched the swap's (a core check)",
     "log.scan.start": "scanning the chain from height {from} (the swap's start block {height} minus a margin of 10 blocks)",
+    "log.scan.window": "the lock window was scanned: blocks {from}..{to}, {txs} transaction(s); no full rescan followed",
+    "log.scan.window.skipped": "the lock window was not used: {why}",
     "log.rescan.failed": "the wallet could not read the chain: {why}",
     "log.diag.failed": "the diagnostics could not be collected: {why}",
     "log.synced.ok": "the wallet is synced: {xmr} XMR ready to withdraw (wallet height {walletHeight}, node {nodeHeight})",

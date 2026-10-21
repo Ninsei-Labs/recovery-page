@@ -238,7 +238,6 @@ export async function evmBlockTime(network, blockNumber, fetchImpl = globalThis.
   throw new Error(`no ${network} RPC answered the time of block ${blockNumber} (${failures.join("; ")})`);
 }
 
-// THE CURRENT HEIGHT, for bounding a log search: public RPCs refuse a query that spans tens of millions of blocks.
 export async function evmBlockNumber(network, fetchImpl = globalThis.fetch) {
   const chain = settlementOf(network);
   if (!chain) throw new Error(`unknown settlement network: ${network}`);
