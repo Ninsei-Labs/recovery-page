@@ -1,25 +1,29 @@
-// The recovery page: recovery file -> the state of the money -> your address -> one button that syncs, builds
-// and signs -> confirm -> send.
+// The recovery page: the recovery key -> the swaps it made, found on chain -> one swap that needs it -> your
+// address -> one button that syncs, builds and signs -> confirm -> send.
 //
-// THE WITHDRAWAL RULES LIVE IN @ninsei-labs/sdk: isEncrypted, recovery.open, sweep.plan, sweep.keys, sweep.wallet,
-// sweep.restore, sweep.destination, sweep.sign, sweep.relay, formatXmr, probeMoneroNode.
+// THE RULES LIVE IN @ninsei-labs/sdk: importRecoveryKey, openRecoveryKeyFile, takerHalves, findSwaps, order.status,
+// order.jointAddress, sweep.plan, sweep.keys, sweep.wallet, sweep.restore, sweep.destination, sweep.sign,
+// sweep.relay, formatXmr, probeMoneroNode. A found swap reaches the sweep through the SDK's own payload, written in
+// memory (lib/found-swap.js), because the sweep takes no other form yet.
 //
-// The page keeps the DOM, node address, state, display and texts, and parses the payload for display and OLD
-// mnemonic files. What it says about the money comes from lib/withdrawal.js.
+// The page keeps the DOM, the node address, state, display and texts. What it says about a swap and its money
+// comes from lib/withdrawal.js; the start height of a found swap from lib/start-height.js.
 //
-// Keys never leave the tab: only requests for public chain data go out (the Monero node, the settlement
-// chain's RPCs). The mnemonic is never logged or put into state; it lives in the wallet object and dies on
-// close().
+// Keys never leave the tab: only requests for public chain data go out (the Monero node, the settlement chain's
+// RPCs). The 12 words are never logged, never put into window state and never kept in a field after the search;
+// they live in one variable until the transfer is sent.
 
 // CORE CODE -> WORDS: the demo dictionary (a copy of www/js/sdk/codes.js). Unknown codes pass through.
 import { t, n, d, init as initLocale } from "./locales/index.js";
 import {
   NODES, STAGENET_NODE, nodeUrl, nodeSource, nodeLabelKey, nodeLabelParams, setNodeUrl, clearNodeUrl, parseNodeUrl, nodeHost,
-  pingNode, medianHeight, nodeVerdict, fastestGood,
+  pingNode, medianHeight, nodeVerdict, fastestGood, moneroHeaderTime,
 } from "./lib/node.js";
-import { settlementOf, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
+import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
 import { restoreWindow } from "./lib/window.js";
-import { isSell, promisedXmrAddress, fileAmount, moneyState } from "./lib/withdrawal.js";
+import { startHeightAt } from "./lib/start-height.js";
+import { sideOf, partsOf, payloadOf } from "./lib/found-swap.js";
+import { swapState, moneyState } from "./lib/withdrawal.js";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=__V_MONERO__";
@@ -27,7 +31,7 @@ const WORKER = "./monero.worker.js?v=__V_WORKER__";
 const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=__V_SDK__";
 // THIS PAGE TALKS TO NO SERVICE. The SDK's service routes (a height the app remembers, the revealed half's
 // fallback, the "withdrawn" mark) get this fetch, which answers "unavailable" without a request: the height comes
-// from the file or the person, the half from the chain, and a withdrawal needs nobody told. So only the Monero
+// from the chain or the person, the half from the chain, and a withdrawal needs nobody told. So only the Monero
 // node and the settlement chain's RPCs ever hear from this tab, as the page promises.
 const noService = async () => { throw new TypeError("this page talks to no service"); };
 
@@ -39,17 +43,27 @@ const EXPLORER = {
 
 const $ = (id) => document.getElementById(id);
 const logEl = $("log");
-const fileInput = $("file");
-const passField = $("passField");
-const passInput = $("pass");
-const openBtn = $("unlock");
+const keyWordsInput = $("keyWords");
+const keyFileInput = $("keyFile");
+const keyPassField = $("keyPassField");
+const keyPassInput = $("keyPass");
+const findSwapsBtn = $("findSwaps");
+const keyErrorEl = $("keyError");
+const keyResultEl = $("keyResult");
+const keyPrintEl = $("keyPrint");
+const keyCountEl = $("keyCount");
+const keyNoneEl = $("keyNone");
+const keyPartialEl = $("keyPartial");
+const swapListEl = $("swapList");
+const stepSwap = $("stepSwap");
 const openErrorEl = $("openError");
 const moneyEl = $("moneyState");
 const moneyHeadEl = $("moneyHead");
-const fileInfoEl = $("fileInfo");
+const swapInfoEl = $("swapInfo");
+const heightInput = $("restoreHeight");
+const heightBox = $("heightBox");
 const stepTransfer = $("stepTransfer");
 const destInput = $("dest");
-const destWarnEl = $("destWarn");
 const withdrawBtn = $("withdraw");
 const progressEl = $("progress");
 const progressHeadEl = $("progressHead");
@@ -62,70 +76,37 @@ const txInfoEl = $("txInfo");
 const sendBtn = $("send");
 const doneEl = $("done");
 const doneInfoEl = $("doneInfo");
-const heightInput = $("restoreHeight");
-const heightBox = $("heightBox");
-const keyWordsInput = $("keyWords");
-const keyFileInput = $("keyFile");
-const keyPassField = $("keyPassField");
-const keyPassInput = $("keyPass");
-const keyAddressInput = $("keyAddress");
-const findSwapsBtn = $("findSwaps");
-const keyErrorEl = $("keyError");
-const swapListEl = $("swapList");
-let keyFileText = null;
 
 let api = null;          // monero-ts namespace
 let mod = null;          // built SDK core
-let sdk = null;          // core facade createNinsei
-let sdkFor = null;       // the settlement and Monero networks the facade was built for
+const facades = new Map(); // "<settlement>/<monero network>" -> core facade (createNinsei)
 let adapter = null;      // core wallet adapter (connect/sync/unlockedBalance/driver)
 let wallet = null;       // library wallet: driver() of the adapter
-let chosen = null;       // the picked file before it is opened: { text, envelope, encrypted }
-let payload = null;      // decrypted payload (display + old files)
-let plan = null;         // core plan: height, missing, revealed half
-let contents = null;     // recovery file text, needed at every step
-let passphrase = null;   // file password: needed by the core, never left in the input
-let network = null;      // Monero network from the file
+let keyFileText = null;  // the chosen key file's text, until the search reads it
+let key = null;          // { mnemonic, fingerprint } of the last search: the words live here and nowhere else
+let search = null;       // the last search: { rows, failed } - rows are { swap, net, side, status, time }
+let current = null;      // the row being withdrawn
+let contents = null;     // the current swap as the SDK's payload, a plain envelope in memory (lib/found-swap.js)
+let plan = null;         // core plan: address, height, missing, revealed half
+let network = null;      // Monero network of the current swap
 let nodeNetwork = null;  // Monero network the chosen node answered with (checkNode)
-let settlement = null;   // settlement network from the file, one lib/settlement.js knows
-let balance = null;      // { total, unlocked } in atomic units after a sync, null before one
+let settlement = null;   // settlement network of the current swap, one lib/settlement.js knows
+let balance = null;      // { total, unlocked, txs } after a sync, null before one
 let signedToken = null;  // signing token (sweep.sign -> sweep.relay)
 let lastTx = null;       // signed transfer data for the confirmation
 
-// Console and test state: no secrets (no mnemonic, no keys).
+// Console and test state: no secrets (no words, no keys, no halves).
 window.__sweepFlow = { ready: false, network: null, address: null, restoreHeight: null, unlocked: 0n, signed: false, steps: [] };
 
-// A DIFFERENT ADDRESS THAN PROMISED IS SAID OUT LOUD, with both addresses: otherwise the withdrawal goes somewhere
-// unseen. Only a buy promised an XMR address; a sell takes the XMR back to wherever the person names.
-function updateDestWarning() {
-  const typed = destInput.value.trim();
-  if (!payload || !typed || isSell(payload.side)) {
-    destWarnEl.hidden = true;
-    destWarnEl.textContent = "";
-    window.__sweepFlow.destWarning = null;
-    return;
-  }
-  const promised = promisedXmrAddress(payload);
-  if (!promised) {
-    destWarnEl.textContent = t("warn.dest.none");
-    destWarnEl.hidden = false;
-    window.__sweepFlow.destWarning = "no-promised-address";  // state is a CODE: the checks read it
-    return;
-  }
-  const same = typed === promised;
-  destWarnEl.textContent = same ? "" : t("warn.dest.other", { promised, typed });
-  destWarnEl.hidden = same;
-  window.__sweepFlow.destWarning = same ? null : "other-recipient";
-}
-
 const looksLikeXmrAddress = (text) => /^[1-9A-HJ-NP-Za-km-z]{95}$|^[1-9A-HJ-NP-Za-km-z]{106}$/.test(text);
-const currentState = () => (payload ? moneyState({ payload, plan, balance }) : null);
+const wordCount = () => keyWordsInput.value.trim().split(/\s+/).filter(Boolean).length;
+const currentState = () => (current ? moneyState({ plan, balance }) : null);
 
-// VIOLET IS THE NEXT ACTION: "Open file" once a file (and its password) is there, "Withdraw XMR" once the money is
-// ready and an address is named.
+// VIOLET IS THE NEXT ACTION: "Find my swaps" once twelve words or a key file (and its password) are there,
+// "Withdraw XMR" once the money is ready and an address is named.
 function updateButtons() {
-  const passReady = !chosen || !chosen.encrypted || Boolean(passInput.value);
-  openBtn.classList.toggle("ready", Boolean(chosen) && !payload && passReady);
+  const keyReady = keyFileText ? keyPassField.hidden || Boolean(keyPassInput.value) : wordCount() === 12;
+  findSwapsBtn.classList.toggle("ready", keyReady);
   const state = currentState();
   withdrawBtn.classList.toggle("ready", Boolean(state && state.state === "ready") && looksLikeXmrAddress(destInput.value.trim())
     && !signedToken && doneEl.hidden);
@@ -155,20 +136,20 @@ function drawProgress() {
     progressEl.hidden = true;
     return;
   }
-  const { key, params, fraction, sub } = progress;
+  const { key: words, params, fraction, sub } = progress;
   const percent = fraction === null ? null : Math.max(0, Math.min(100, Math.floor(fraction * 100)));
-  progressHeadEl.textContent = t(key, { ...params, percent: percent === null ? "" : n(percent) });
+  progressHeadEl.textContent = t(words, { ...params, percent: percent === null ? "" : n(percent) });
   progressEl.dataset.mode = percent === null ? "busy" : "fill";
   progressFillEl.style.width = percent === null ? "" : percent + "%";
   if (percent === null) progressBarEl.removeAttribute("aria-valuenow");
   else progressBarEl.setAttribute("aria-valuenow", String(percent));
-  const words = sub ? sub() : "";
-  progressSubEl.textContent = words;
-  progressSubEl.hidden = !words;
+  const text = sub ? sub() : "";
+  progressSubEl.textContent = text;
+  progressSubEl.hidden = !text;
   progressEl.hidden = false;
 }
-function showProgress(key, { params = {}, fraction = null, sub = null } = {}) {
-  progress = { key, params, fraction, sub };
+function showProgress(words, { params = {}, fraction = null, sub = null } = {}) {
+  progress = { key: words, params, fraction, sub };
   drawProgress();
 }
 function hideProgress() {
@@ -193,10 +174,8 @@ function dropSigned() {
 destInput.addEventListener("input", () => {
   if (signedToken) dropSigned();
   quiet(withdrawErrorEl);
-  updateDestWarning();
   updateButtons();
 });
-passInput.addEventListener("input", updateButtons);
 
 // --- small interface helpers ---
 
@@ -280,9 +259,9 @@ function renderInfo(node, rows) {
 
 document.addEventListener("i18n:applied", () => {
   for (const draw of panels.values()) draw();
-  for (const [el, [key, params]] of said) el.textContent = t(key, params);
-  if (payload) drawMoney();
-  updateDestWarning();
+  for (const [el, [words, params]] of said) el.textContent = t(words, params);
+  drawSwaps();
+  if (current) drawMoney();
   drawChecks();
   drawProgress();
 });
@@ -292,8 +271,11 @@ document.addEventListener("i18n:applied", () => {
 const xmr = (atomic) => {
   try { return mod.formatXmr(atomic); } catch { return String(atomic); }
 };
-// REFUSAL IN WORDS BY CODE: the core holds SdkError.code, the language holds the wording.
+// REFUSAL IN WORDS BY CODE: the core holds SdkError.code, the language holds the wording. A plain Error (a
+// transport of the page's own) is its message.
 const sdkWords = (error) => t("sdk." + ((error && error.code) || "unknown"), (error && error.params) || {});
+const errorWords = (error) => (error && error.code ? sdkWords(error) : String((error && error.message) || error));
+const short = (address) => String(address).slice(0, 10) + "…";
 
 // A BUTTON IS BUSY WHILE ITS STEP RUNS. An exception nobody named is logged in full and said in one plain line.
 async function busy(btn, fn, errorEl = null) {
@@ -320,29 +302,26 @@ async function sdkBundle() {
   return mod;
 }
 
-// CORE FACADE, built for the open file: its settlement network and its Monero network. There is no facade before
-// a file is open, so nothing can run against a chain the file did not name.
+// CORE FACADE PER SETTLEMENT NETWORK AND MONERO NETWORK: a swap is read and withdrawn through the facade built for
+// its own chain, never a default one.
 //
 // THE CHAIN READ IS REAL: `evmCall` is an eth_call over the settlement network's public RPCs (lib/settlement.js),
-// and a failed read throws instead of answering "0x". sweep.plan reads the revealed half through it; its app
-// route fallback meets `noService`, which the plan reads as "not revealed", the same answer the chain gave.
-async function facade() {
+// and a failed read throws instead of answering "0x". order.status reads the escrow through it, and sweep.plan
+// the revealed half; the plan's app route fallback meets `noService`, which it reads as "not revealed".
+async function facadeFor(chainId, xmrNetwork) {
   const m = await sdkBundle();
-  if (!settlement || !network) throw new Error("no recovery file is open");
-  const key = settlement + "/" + network;
-  if (!sdk || sdkFor !== key) {
-    const chain = settlement;
-    sdk = m.createNinsei({
-      settlement: { chain },
-      xmrNetwork: network,
+  const id = chainId + "/" + xmrNetwork;
+  if (!facades.has(id)) {
+    facades.set(id, m.createNinsei({
+      settlement: { chain: chainId },
+      xmrNetwork,
       mode: "live",
       fetch: noService,
       storage: m.memoryAdapter(),
-      evmCall: (request) => evmCall(chain, request),
-    });
-    sdkFor = key;
+      evmCall: (request) => evmCall(chainId, request),
+    }));
   }
-  return sdk;
+  return facades.get(id);
 }
 
 // --- 0b. Environment: without these checks nothing makes sense ---
@@ -385,7 +364,7 @@ async function loadWallet() {
     }
   }
 
-  const why = () => failed.map(([key, params]) => t(key, params)).join("; ");
+  const why = () => failed.map(([words, params]) => t(words, params)).join("; ");
   if (failed.length) {
     log(t("log.env.notready", { list: why() }), "bad");
     setCheck("wallet", "bad", why);
@@ -435,303 +414,364 @@ async function checkNode(isCurrent) {
   return true;
 }
 
-// --- 1. Opening the file ---
+// --- 1. The recovery key and the swaps it made ---
 
-// --- 0d. One recovery key: find the swaps, then open one through the SAME withdrawal path ---
+// THE WORDS OR THE FILE, NOT BOTH: typing words puts a chosen file away, and choosing a file empties the words, so
+// the search never reads one while the person looks at the other.
+keyWordsInput.addEventListener("input", () => {
+  if (keyFileText && keyWordsInput.value.trim()) {
+    keyFileText = null;
+    keyFileInput.value = "";
+    keyPassInput.value = "";
+    keyPassField.hidden = true;
+  }
+  quiet(keyErrorEl);
+  updateButtons();
+});
+keyPassInput.addEventListener("input", updateButtons);
 
-// THE CHAIN A KEY BELONGS TO IS NOT IN THE KEY. A key is derived per chain id, so the page names the live
-// testnet factory from the package registry; the search sends only that factory, the OrderCreated topic and the
-// optional address. Mainnet factories join this list in the package, not in the page.
-function keyChainOf(m) {
-  const chains = Array.isArray(m.CHAINS) ? m.CHAINS : [];
-  return chains.find((c) => c && c.escrow && c.escrow.address && c.escrow.mode === "live") || null;
-}
-
+// THE PASSWORD IS ASKED ONLY FOR A KEY FILE WRITTEN WITH ONE, and the SDK's reader says which: opening the file
+// without a password stops at the stage "passphrase" for a protected file, reads a plain one, and refuses anything
+// that is not a key file.
 async function onKeyFileChosen() {
+  quiet(keyErrorEl);
   const file = keyFileInput.files && keyFileInput.files[0];
   keyFileText = file ? await file.text() : null;
-  // An encrypted key file is JSON; a plain one starts with its readable header.
-  keyPassField.hidden = !(keyFileText && keyFileText.trim().startsWith("{"));
-  if (!keyFileText) keyPassField.hidden = true;
+  keyPassInput.value = "";
+  keyPassField.hidden = true;
+  if (keyFileText) {
+    keyWordsInput.value = "";
+    try {
+      await (await sdkBundle()).openRecoveryKeyFile(keyFileText, "");
+    } catch (e) {
+      if (e && e.params && e.params.stage === "passphrase") {
+        keyPassField.hidden = false;
+      } else {
+        log(t("log.key.refused", { words: sdkWords(e) }), "bad");
+        keyFileText = null;
+        keyFileInput.value = "";
+        say(keyErrorEl, "flow.err.keyFile");
+      }
+    }
+  }
+  updateButtons();
 }
 
-// FIND OPEN SWAPS BY THE KEY'S COMMITMENTS. The words or the file are used here only; neither is put into the
-// result, the log or window state. A found row is a button: the person chooses which swap to recover.
-async function findKeySwaps() {
-  quiet(keyErrorEl);
-  swapListEl.hidden = true;
-  swapListEl.replaceChildren();
-  let key;
+// THE KEY FROM THE FIELDS, or null with the reason said. The words are never part of a log line: a refusal names
+// the SDK's code and the field, nothing typed.
+async function readKey() {
+  const m = await sdkBundle();
+  if (keyFileText) {
+    try {
+      return await m.openRecoveryKeyFile(keyFileText, keyPassInput.value);
+    } catch (e) {
+      log(t("log.key.refused", { words: sdkWords(e) }), "bad");
+      const stage = e && e.params && e.params.stage;
+      if (stage === "passphrase") {
+        keyPassField.hidden = false;
+        say(keyErrorEl, keyPassInput.value ? "flow.err.keyDecrypt" : "flow.err.keyPass");
+      } else {
+        say(keyErrorEl, stage === "decrypt" || stage === "fingerprint" ? "flow.err.keyDecrypt" : "flow.err.keyFile");
+      }
+      return null;
+    }
+  }
+  if (!keyWordsInput.value.trim()) {
+    say(keyErrorEl, "flow.err.noKey");
+    return null;
+  }
   try {
-    const m = await sdkBundle();
-    key = keyFileText
-      ? await m.openRecoveryKeyFile(keyFileText, keyPassInput.value)
-      : m.importRecoveryKey(keyWordsInput.value);
+    return m.importRecoveryKey(keyWordsInput.value);
   } catch (e) {
     log(t("log.key.refused", { words: sdkWords(e) }), "bad");
-    return say(keyErrorEl, "flow.err.key");
+    say(keyErrorEl, "flow.err.words");
+    return null;
   }
-  const m = await sdkBundle();
-  const chain = keyChainOf(m);
-  if (!chain) return say(keyErrorEl, "flow.err.keyChain");
-  let found;
-  try {
-    // PUBLIC RPCS REFUSE A SPAN OF TENS OF MILLIONS OF BLOCKS (the testnet already has 321M). The factory and
-    // every swap this page can recover are recent, so the search starts inside one allowed window; an older
-    // deployment gets its own start block when the registry names one.
-    let fromBlock = "earliest";
-    try {
-      const latest = await evmBlockNumber(chain.id);
-      if (Number.isFinite(latest) && latest > 0) fromBlock = Math.max(0, latest - 9_000_000);
-    } catch { /* the log call will name the failure */ }
-    found = await m.findSwaps({
-      mnemonic: key.mnemonic,
-      chainId: chain.chainId,
-      factory: chain.escrow.address,
-      address: keyAddressInput.value.trim() || null,
-      evmLogs: (request) => evmLogs(chain.id, request),
-      // The order's block time and the Monero headers give the start height; the same node answers both the
-      // search and the later withdrawal.
-      evmBlockTime: (block) => evmBlockTime(chain.id, block),
-      xmrNodes: [nodeUrl()],
-      moneroNetwork: chain.testnet ? "stagenet" : "mainnet",
-      fromBlock,
-    });
-  } catch (e) {
-    log(t("log.key.searchFailed", { words: String((e && e.message) || e) }), "bad");
-    return say(keyErrorEl, "flow.err.search");
-  }
-  log(t("log.key.found", { n: n(found.swaps.length) }), found.swaps.length ? "ok" : "wait");
-  if (!found.swaps.length) return say(keyErrorEl, "flow.err.noSwaps", {}, "wait");
-  swapListEl.hidden = false;
-  for (const swap of found.swaps) {
-    const li = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "swap-row";
-    const side = swap.side === "locker" ? t("value.side.buy") : t("value.side.sell");
-    button.textContent = t("key.result", { side, escrow: String(swap.escrow).slice(0, 10) + "…" });
-    button.addEventListener("click", () => busy(button, () => openFoundSwap(swap, key.mnemonic, chain, m), keyErrorEl));
-    li.appendChild(button);
-    swapListEl.appendChild(li);
-  }
-  return true;
 }
 
-// OPEN A FOUND SWAP WITHOUT A FILE. The payload is assembled from the key and the on-chain order, written
-// through the same envelope module (unencrypted, in memory), and then the ordinary openFile path runs: plan,
-// height, destination, withdraw. No secret is written to disk.
-async function openFoundSwap(found, mnemonic, chain, m) {
-  quiet(keyErrorEl);
-  settlement = chain.id;
-  // A key names no Monero network; the settlement network decides it. The testnet factory is paired with
-  // stagenet, and the node check later refuses a node of another network instead of silently scanning the wrong chain.
-  network = chain.testnet ? "stagenet" : "mainnet";
-  // THE KEY DOES NOT NAME A NODE, BUT A TESTNET KEY NEEDS STAGENET. If the page's current pick is on another
-  // network, use the project's stagenet node; the destination check below still refuses a wrong-network node.
-  if (network === "stagenet" && nodeNetwork !== "stagenet") {
-    setNodeUrl(STAGENET_NODE, { remember: false, by: "pick" });
-    try { await checkNode(() => true); drawCurrent(); } catch { /* the open will name the node failure */ }
-  }
-  const halves = m.takerHalves({ mnemonic, chainId: chain.chainId, index: found.index });
-  const ownIsLocker = found.side === "locker";
-  const otherSpendPoint = ownIsLocker ? found.edPointClaimer : found.edPointLocker;
-  const otherViewPoint = ownIsLocker ? halves.makerViewPoint : found.edViewPointLocker;
-  const otherViewHalf = halves.makerViewHalf;
-  const core = await facade();
-  let joint;
-  try {
-    joint = core.order.jointAddress({
-      ownSpendHalf: halves.spendHalf, ownViewHalf: halves.viewHalf,
-      otherSpendPoint, otherViewPoint, network,
-    });
-  } catch (e) {
-    log(t("log.key.addressFailed", { words: String((e && e.message) || e) }), "bad");
-    return say(keyErrorEl, "flow.err.keys");
-  }
-  const payload = m.buildPayload({
-    swap: {
-      id: found.escrow, side: ownIsLocker ? "buy" : "sell", network: chain.id, moneroNetwork: network,
-      createdAt: new Date().toISOString(), payToken: "ETH", payAmount: found.amount, xmrAmount: null,
-      rate: null, maker: null, quoteSignature: null,
-      escrow: { address: found.escrow },
-      timeline: { readyBy: found.readyBy * 1000, t1: found.t1 * 1000 },
-    },
-    swapWallet: {
-      source: "halves", network, address: joint.address,
-      spendHalf: halves.spendHalf, viewHalf: halves.viewHalf,
-      otherSpendPoint, otherViewPoint, otherViewHalf,
-      escrowAddress: found.escrow, restoreHeight: Number(found.startHeight) || 0,
-    },
-    escrow: { address: found.escrow },
-    receiveAddress: null,
-    restoreHeight: Number(found.startHeight) || 0,
-  });
-  const text = await m.createRecoveryFile(payload, "");
+function clearKeyFields() {
   keyWordsInput.value = "";
   keyFileInput.value = "";
   keyFileText = null;
   keyPassInput.value = "";
   keyPassField.hidden = true;
-  swapListEl.hidden = true;
-  swapListEl.replaceChildren();
-  chosen = { text, envelope: JSON.parse(text), encrypted: false };
-  passInput.value = "";
-  passField.hidden = true;
-  await openFile();
+}
+
+// FIND THE SWAPS OF A KEY on every settlement network the SDK names a live factory for (lib/settlement.js,
+// keyNetworks). The search reads the factory's orders and matches their commitments in this tab: only the factory,
+// the topic and the block range reach the RPC. Each found swap's state and date are read from the chain; a read
+// that fails is "unknown", never "nothing to do". With empty fields the button searches again with the same key.
+async function findKeySwaps() {
+  quiet(keyErrorEl);
+  const typed = Boolean(keyFileText || keyWordsInput.value.trim());
+  const read = typed || !key ? await readKey() : key;
+  if (!read) {
+    // A REFUSED NEW KEY puts the old one's answer away: under the refusal it would read as the answer to the words
+    // just typed. The old key is forgotten with it; the person is trying another one.
+    if (current) await closeSwap();
+    key = null;
+    search = null;
+    drawSwaps();
+    return false;
+  }
+  // A NEW KEY STARTS CLEAN: the swap being withdrawn closes, and the words leave the fields at once.
+  if (current) await closeSwap();
+  key = { mnemonic: read.mnemonic, fingerprint: read.fingerprint };
+  clearKeyFields();
+  search = { rows: [], failed: [], done: false };
+  drawSwaps();
+  const m = await sdkBundle();
+  const { search: networks, unreadable } = keyNetworks(m.CHAINS);
+  for (const id of unreadable) {
+    log(t("log.key.unreadable", { network: id }), "bad");
+    search.failed.push(id);
+  }
+  if (!networks.length) {
+    search.done = true;
+    drawSwaps();
+    return say(keyErrorEl, "flow.err.keyChain");
+  }
+  log(t("log.key.searching", { fp: key.fingerprint, networks: networks.map((net) => net.name).join(", ") }));
+  for (const net of networks) {
+    let found;
+    let latest;
+    try {
+      latest = await evmBlockNumber(net.id);
+      found = await m.findSwaps({
+        mnemonic: key.mnemonic,
+        chainId: net.chainId,
+        factory: net.factory,
+        evmLogs: (request) => evmLogs(net.id, request),
+        fromBlock: net.since,
+        toBlock: latest,
+      });
+    } catch (e) {
+      log(t("log.key.searchFailed", { network: net.name, words: errorWords(e) }), "bad");
+      search.failed.push(net.name);
+      continue;
+    }
+    log(t("log.key.searched", { network: net.name, count: n(found.swaps.length), numbers: n(found.scanned), from: n(net.since), to: n(latest) }), found.swaps.length ? "ok" : "");
+    const core = await facadeFor(net.id, net.monero);
+    for (const swap of found.swaps) {
+      const row = { swap, net, side: sideOf(swap), status: null, time: null };
+      try {
+        row.status = await core.order.status(swap.escrow);
+      } catch (e) {
+        log(t("log.swap.statusFailed", { escrow: short(swap.escrow), words: errorWords(e) }), "bad");
+      }
+      try {
+        row.time = Number.isSafeInteger(swap.blockNumber) ? await evmBlockTime(net.id, swap.blockNumber) : null;
+      } catch (e) {
+        log(t("log.swap.timeFailed", { escrow: short(swap.escrow), words: errorWords(e) }), "wait");
+      }
+      search.rows.push(row);
+    }
+  }
+  // NEWEST FIRST, by the block that holds the order.
+  search.rows.sort((a, b) => (b.swap.blockNumber ?? -1) - (a.swap.blockNumber ?? -1));
+  search.done = true;
+  window.__sweepFlow.search = {
+    fingerprint: key.fingerprint,
+    failed: [...search.failed],
+    swaps: search.rows.map((row) => ({ escrow: row.swap.escrow, side: row.side, ...swapStateOf(row) })),
+  };
+  drawSwaps();
+  if (search.failed.length && !search.rows.length && search.failed.length >= networks.length + unreadable.length) {
+    return say(keyErrorEl, "flow.err.search");
+  }
   return true;
 }
 
-// THE PASSWORD IS ASKED ONLY FOR AN ENCRYPTED FILE, and the SDK's reader of the envelope says which it is: a
-// file written without a password names that fact. Picking another file forgets the open one: two files in one
-// tab is how a withdrawal goes to the wrong deal.
-async function onFileChosen() {
-  if (payload || adapter) await forget({ keepFile: true });
-  quiet(openErrorEl);
-  const file = fileInput.files && fileInput.files[0];
-  chosen = null;
-  if (file) {
-    const text = await file.text();
-    let envelope = null;
-    try { envelope = JSON.parse(text); } catch { envelope = null; }
-    const m = await sdkBundle();
-    chosen = { text, envelope, encrypted: Boolean(envelope && typeof envelope === "object") && m.isEncrypted(envelope) };
+// THE DEADLINE OF A FOUND ORDER in ms, by the SDK's one conversion; a value of the wrong scale is unknown.
+function deadlineOf(swap) {
+  try { return mod.msFromOrderSeconds(swap.t1, "t1"); } catch { return null; }
+}
+const swapStateOf = (row) => swapState({ side: row.side, status: row.status, deadline: deadlineOf(row.swap), now: Date.now() });
+
+// THE ORDER'S AMOUNT in the settlement chain's coin, for display: the escrow holds it in its smallest unit.
+function coinAmount(row) {
+  const decimals = Number(row.net.native && row.net.native.decimals) || 18;
+  const symbol = (row.net.native && row.net.native.symbol) || "ETH";
+  try {
+    const units = BigInt(row.swap.amount);
+    const scale = 10n ** BigInt(decimals);
+    const whole = units / scale;
+    const fraction = (units % scale).toString().padStart(decimals, "0").slice(0, 6);
+    return t("swap.amount", { amount: n(Number(`${whole}.${fraction}`), { maximumFractionDigits: 6 }), symbol });
+  } catch {
+    return t("swap.amount.unknown");
   }
-  passField.hidden = !(chosen && chosen.encrypted);
-  updateButtons();
 }
 
-async function openFile() {
+// THE LIST, drawn from the last search, so a language change redraws the same rows.
+function drawSwaps() {
+  keyResultEl.hidden = !key || !search;
+  if (keyResultEl.hidden) {
+    swapListEl.replaceChildren();
+    return;
+  }
+  keyPrintEl.textContent = t("key.print", { fp: key.fingerprint });
+  const rows = search.rows;
+  keyCountEl.textContent = !search.done ? t("key.searching") : rows.length ? t("key.count", { count: rows.length }) : "";
+  keyNoneEl.hidden = !search.done || rows.length > 0 || search.failed.length > 0;
+  keyPartialEl.hidden = !search.done || !search.failed.length;
+  keyPartialEl.textContent = search.failed.length ? t("key.partial", { list: search.failed.join(", ") }) : "";
+  swapListEl.replaceChildren(...rows.map(swapRow));
+}
+
+function swapRow(row) {
+  const state = swapStateOf(row);
+  const when = row.time ? d(row.time * 1000, { dateStyle: "medium" }) : t("swap.date.unknown");
+  const side = t(row.side === "buy" ? "value.side.buy" : row.side === "sell" ? "value.side.sell" : "swap.side.unknown");
+  let action;
+  if (state.action === "withdraw") {
+    action = h("button", { type: "button", class: current === row ? "small ready" : "small", text: t("swap.action.withdraw") });
+    action.addEventListener("click", () => busy(action, () => openSwap(row), openErrorEl));
+  } else {
+    action = h("span", { class: "swap-action", text: t("swap.action." + state.action, { deadline: state.params.deadline ? d(state.params.deadline) : "" }) });
+  }
+  return h("li", { class: "swap", "data-action": state.action, ...(current === row ? { "aria-current": "true" } : {}) }, [
+    h("div", { class: "swap-top" }, [
+      h("span", { class: "swap-side", text: side }),
+      h("span", { class: "swap-amount", text: coinAmount(row) }),
+      h("span", { class: "swap-date", text: `${when} · ${row.net.name}` }),
+    ]),
+    h("p", { class: "swap-state", text: t("swap.state." + state.state, { deadline: state.params.deadline ? d(state.params.deadline) : "" }) }),
+    h("div", { class: "swap-do" }, [action]),
+  ]);
+}
+
+// --- 2. One swap: its keys, its start height, the SDK's plan ---
+
+// THE START HEIGHT OF A FOUND SWAP (lib/start-height.js): the time of the settlement block that holds its order,
+// then the chosen node's headers. The node must be on the swap's Monero network, or its headers would give a height
+// on another chain. Any failure is null, said in the log, and the step asks the person for a height.
+async function foundStartHeight(row, xmrNetwork) {
+  try {
+    if (!row.time) throw new Error("the order's block time is unknown");
+    const url = nodeUrl();
+    const probe = url ? await (await sdkBundle()).probeMoneroNode({ url }) : null;
+    if (!probe || !probe.ok) throw new Error("the node did not answer");
+    if (probe.network !== xmrNetwork) throw new Error(`the node is on ${probe.network}, the swap on ${xmrNetwork}`);
+    const height = await startHeightAt(row.time, { tip: async () => probe.height - 1, headerTime: (at) => moneroHeaderTime(url, at) });
+    log(t("log.height.found", { height: n(height), block: n(row.swap.blockNumber) }));
+    return height;
+  } catch (e) {
+    log(t("log.height.failed", { why: String((e && e.message) || e) }), "wait");
+    return null;
+  }
+}
+
+// OPEN ONE SWAP FOR THE WITHDRAWAL. The halves of its number come from the key, the other side's points from the
+// order, checked against the chain (lib/found-swap.js); the SDK builds the joint address and reads the plan from
+// the payload written in memory. Nothing is written to disk.
+async function openSwap(row) {
   quiet(openErrorEl);
-  if (!chosen) return say(openErrorEl, "flow.err.noFile");
-  if (!chosen.envelope || typeof chosen.envelope !== "object") {
-    log(t("log.not.json"), "bad");
-    return say(openErrorEl, "flow.err.notFile");
+  if (!key) return say(keyErrorEl, "key.gone", {}, "wait");
+  // ONE SWAP AT A TIME: a wallet of another swap closes first, so a withdrawal never goes from the wrong address.
+  if (current) await closeSwap();
+  current = row;
+  settlement = row.net.id;
+  network = row.net.monero;
+  window.__sweepFlow.network = network;
+  stepSwap.hidden = false;
+  moneyEl.hidden = false;
+  moneyEl.dataset.state = "wait";
+  moneyHeadEl.textContent = t("money.reading");
+  swapInfoEl.hidden = true;
+  drawSwaps();
+  stepSwap.scrollIntoView({ block: "nearest" });
+  // A TESTNET SWAP NEEDS A STAGENET NODE. If the current pick is on another network, the project's stagenet node is
+  // chosen; the withdrawal still refuses a node of another network instead of scanning the wrong chain.
+  if (network === "stagenet" && nodeNetwork !== "stagenet" && !nodeLocked()) {
+    setNodeUrl(STAGENET_NODE, { remember: false, by: "pick" });
+    try { await checkNode(() => true); drawCurrent(); } catch { /* the withdrawal names the node failure */ }
   }
-  // A FILE WITHOUT A PASSWORD opens with an empty one; the SDK refuses an empty one for an encrypted file.
-  const pass = chosen.encrypted ? passInput.value : "";
-  if (chosen.encrypted && !pass) {
-    passField.hidden = false;
-    return say(openErrorEl, "flow.err.noPass");
-  }
-  // OPENING AGAIN STARTS CLEAN: a wallet from the previous opening is closed first.
-  if (payload || adapter) await forget({ keepFile: true });
-
-  // DECRYPT FIRST, with the SDK's own reader: the file names its settlement network, and the facade is built for
-  // that network, never for a default one.
   const m = await sdkBundle();
-  let opened;
+  const halves = m.takerHalves({ mnemonic: key.mnemonic, chainId: row.net.chainId, index: row.swap.index });
+  const parts = partsOf(row.swap, halves);
+  if (!parts.ok) {
+    log(t("log.order." + parts.why, { escrow: row.swap.escrow }), "bad");
+    moneyEl.hidden = true;
+    return say(openErrorEl, parts.why === "maker-view-point" ? "flow.err.view" : "flow.err.order");
+  }
+  const core = await facadeFor(settlement, network);
+  let joint;
   try {
-    opened = await m.decryptFile(chosen.envelope, pass);
+    joint = core.order.jointAddress({
+      ownSpendHalf: halves.spendHalf, ownViewHalf: halves.viewHalf,
+      otherSpendPoint: parts.otherSpendPoint, otherViewPoint: parts.otherViewPoint, network,
+    });
   } catch (e) {
-    log(t("log.decrypt.failed", { why: String((e && e.message) || e) }), "bad");
-    return say(openErrorEl, "flow.err.decrypt");
+    log(t("log.key.addressFailed", { words: sdkWords(e) }), "bad");
+    moneyEl.hidden = true;
+    return say(openErrorEl, "flow.err.keys");
   }
-  if (!settlementOf(opened.network)) {
-    log(t("log.settlement.unknown", { network: String(opened.network) }), "bad");
-    return say(openErrorEl, "flow.err.settlement", { network: String(opened.network ?? "?") });
-  }
-  const { warnings } = m.validatePayload(opened);
-  settlement = opened.network;
-  network = opened.moneroWallet.network || opened.moneroNetwork;
-  const text = chosen.text;
-  const core = await facade();
-
-  // FILE PARSING IS THE CORE'S (recovery.open); a refusal is not swallowed. A halves file opens here, but an OLD
-  // mnemonic file needs the monero-js build this origin lacks, so parsing falls back to the ./recovery rule.
+  log(t(parts.viewChecked ? "log.swap.address.checked" : "log.swap.address.unchecked", { address: joint.address, escrow: row.swap.escrow }));
+  const startHeight = await foundStartHeight(row, network);
+  const payload = payloadOf({
+    buildPayload: m.buildPayload, found: row.swap, settlement, network, halves, parts,
+    address: joint.address, startHeight, createdAt: row.time ? row.time * 1000 : null,
+  });
+  contents = await m.createRecoveryFile(payload, "");
+  // PLAN IS THE CORE'S (sweep.plan): the address, the height and the maker's half, read from the escrow.
   try {
-    const known = await core.recovery.open({ contents: text }, pass);
-    log(t("log.core.opened", { address: String(known.address || "").slice(0, 12), control: known.spendable ? t("value.control.full") : t("value.control.watch") }), "ok");
-  } catch (e) {
-    log(t("log.core.openFailed", { words: sdkWords(e) }), "wait");
-  }
-
-  // PLAN IS THE CORE'S (sweep.plan): restore height (also from the app by address), missing parts, revealed half.
-  try {
-    plan = await core.sweep.plan({ file: { contents: text }, passphrase: pass });
+    plan = await core.sweep.plan({ file: { contents }, passphrase: "" });
   } catch (e) {
     log(t("log.plan.failed", { words: sdkWords(e) }), "bad");
-    settlement = null;
-    network = null;
+    contents = null;
+    moneyEl.hidden = true;
     return say(openErrorEl, "flow.err.plan");
   }
   window.__sweepFlow.plan = { address: plan.address, restoreHeight: plan.restoreHeight, missing: [...plan.missing], revealedHalf: plan.revealedHalf };
-  payload = opened;
-  contents = text;
-  passphrase = pass;
-  passInput.value = ""; // password only in memory for core steps
-  passField.hidden = true;
-  if (nodeNetwork && nodeNetwork !== network) log(t("log.networks.differ", { file: network, node: nodeNetwork }), "warn");
-
-  window.__sweepFlow.network = network;
-  window.__sweepFlow.address = payload.moneroWallet.address;
-  const fileHeight = Number(payload.moneroWallet.restoreHeight) || 0;
-  // THE HEIGHT FROM THE PLAN WINS; the file value is the fallback when the plan is silent.
-  const height = Number(plan.restoreHeight) > 0 ? Number(plan.restoreHeight) : fileHeight;
+  window.__sweepFlow.address = plan.address;
+  if (plan.missing.includes("revealed-half")) log(t("log.miss.revealedHalf"), "wait");
+  const height = Number(plan.restoreHeight) > 0 ? Number(plan.restoreHeight) : 0;
   heightInput.value = height > 0 ? String(height) : "";
   window.__sweepFlow.restoreHeight = height;
   // NO HEIGHT IS A NAMED STATE: the scan would start from Monero's first block and take hours, so the step says it
   // and shows the field for the person to fill. A known height stays out of sight.
   heightBox.hidden = height > 0;
-  for (const w of warnings) log(t("log.warning", { text: w }), "wait");
-  // "revealed half" is a state of the money, not a breakage.
-  for (const miss of plan.missing) {
-    if (miss === "revealed-half") log(t("log.miss.revealedHalf"), "wait");
-    if (miss === "spendable") log(t("log.miss.spendable"), "wait");
-    if (miss === "restore-height") log(t("log.miss.restoreHeight"), "wait");
-  }
-  log(t("log.file.parsed"));
-
   balance = null;
   drawMoney();
   const ready = currentState().state === "ready";
   stepTransfer.hidden = !ready;
-  // ON A BUY the file names the address the XMR was bought for: it is filled in, and a change is said out loud.
-  const promised = promisedXmrAddress(payload);
-  if (ready && promised && !destInput.value.trim()) destInput.value = promised;
-  updateDestWarning();
   updateButtons();
   if (ready) log(t("log.next.address"));
+  return true;
 }
 
-// --- 2. The state of the money, in words ---
+// --- 3. The state of the money, in words ---
 
-const STATE_KEYS = { ready: "money.ready", waitBuy: "money.waitBuy", waitSell: "money.waitSell", empty: "money.empty", locked: "money.locked" };
-const STATE_TONES = { ready: "ok", waitBuy: "wait", waitSell: "wait", empty: "none", locked: "wait" };
-
-function moneyWords({ state, params }) {
-  if (state === "ready" && params.amount === null) return t("money.ready.unknown");
-  if (state === "ready") return t("money.ready", { amount: n(params.amount, { maximumFractionDigits: 12 }) });
-  if (state === "waitSell" && params.deadline) return t("money.waitSell.deadline", { deadline: d(params.deadline) });
-  return t(STATE_KEYS[state]);
-}
+const STATE_TONES = { ready: "ok", unread: "wait", locked: "wait", withdrawn: "none", unseen: "wait", nothing: "none" };
 
 function drawMoney() {
   const m = currentState();
-  moneyEl.dataset.state = STATE_TONES[m.state];
-  moneyHeadEl.textContent = moneyWords(m);
-  const amount = fileAmount(payload);
+  moneyEl.dataset.state = STATE_TONES[m.state] || "none";
+  moneyHeadEl.textContent = t("money." + m.state);
+  const row = current;
   const rows = [
-    ["info.deal", payload.swapId],
-    ["info.side", () => t(isSell(payload.side) ? "value.side.sell" : "value.side.buy")],
-    ["info.amount.file", () => (amount === null ? t("value.amount.unknown") : t("value.amount.file", { amount: n(amount, { maximumFractionDigits: 12 }) }))],
+    ["info.swap", row.swap.escrow],
+    ["info.side", () => t(row.side === "buy" ? "value.side.buy" : "value.side.sell")],
+    ["info.amount.order", () => coinAmount(row)],
+    ["info.date", () => (row.time ? d(row.time * 1000) : t("swap.date.unknown"))],
+    ["info.network", () => t("value.network", { settlement: row.net.name, monero: row.net.monero })],
   ];
-  if (m.state === "waitSell" && m.params.deadline) rows.push(["info.deadline", () => d(m.params.deadline)]);
-  renderInfo(fileInfoEl, rows);
+  renderInfo(swapInfoEl, rows);
   moneyEl.hidden = false;
 }
 
-// --- 3. Withdraw: sync if needed, build and sign, then confirm ---
+// --- 4. Withdraw: sync if needed, build and sign, then confirm ---
 
 async function withdraw() {
   quiet(withdrawErrorEl);
   dropSigned();
-  if (!payload || !plan) return say(withdrawErrorEl, "flow.err.open");
+  if (!current || !plan || !contents) return say(withdrawErrorEl, "flow.err.open");
   if (!destInput.value.trim()) return say(withdrawErrorEl, "flow.err.dest.empty");
-  // THE NODE AND THE FILE MUST BE ON ONE NETWORK: a stagenet file against a mainnet node finds nothing and
-  // would look like an empty wallet.
+  // THE NODE AND THE SWAP MUST BE ON ONE NETWORK: a stagenet swap against a mainnet node finds nothing and would look
+  // like an empty wallet.
   if (!nodeNetwork) return say(withdrawErrorEl, "flow.err.noNode");
-  if (nodeNetwork !== network) return say(withdrawErrorEl, "flow.err.networks", { file: network, node: nodeNetwork });
+  if (nodeNetwork !== network) return say(withdrawErrorEl, "flow.err.networks", { swap: network, node: nodeNetwork });
   if (!adapter) {
     const synced = await syncWallet();
     if (synced !== true) {
@@ -743,7 +783,7 @@ async function withdraw() {
   const m = currentState();
   if (m.state !== "ready") {
     hideProgress();
-    return say(withdrawErrorEl, STATE_KEYS[m.state], {}, "wait");
+    return say(withdrawErrorEl, "money." + m.state, {}, "wait");
   }
   showProgress("flow.progress.sign");
   const built = await buildTx();
@@ -761,17 +801,16 @@ async function withdraw() {
 // or the node did not serve it.
 const WALLET_STOPS = { "bad-input": "flow.err.walletBuild", "wrong-chain": "flow.err.walletBuild", "recovery-failed": "flow.err.keys" };
 
-// WALLET FROM THE FILE + SYNC. Returns true, or the key of the plain line that says why not; the detail is logged.
+// THE WALLET OF THE SWAP + SYNC. Returns true, or the key of the plain line that says why not; the detail is logged.
 async function syncWallet() {
-  contents = contents || JSON.stringify(payload);
   const dest = destInput.value.trim();
   const height = Number(heightInput.value.trim() || 0) || Number(plan.restoreHeight) || 0;
-  const core = await facade();
+  const core = await facadeFor(settlement, network);
 
-  // ADDRESS IS A PACKAGE RULE (sweep.destination): shape, network, promise; monero-ts is not a second judge.
+  // ADDRESS IS A PACKAGE RULE (sweep.destination): shape and network; monero-ts is not a second judge.
   let verdict;
   try {
-    verdict = await core.sweep.destination({ file: { contents }, passphrase, dest });
+    verdict = await core.sweep.destination({ file: { contents }, passphrase: "", dest });
   } catch (e) {
     log(t("log.dest.refused", { words: sdkWords(e) }), "bad");
     return "flow.err.dest";
@@ -779,23 +818,16 @@ async function syncWallet() {
   if (!verdict.ok) { log(t("log.dest.refused", { words: verdict.reason || "?" }), "bad"); return "flow.err.dest"; }
   log(t("log.dest.accepted", { network }));
 
-  // KEYS ARE THE CORE'S: sweep.keys sums its half and the REVEALED counterparty half and checks (s_a + s_b)*G.
-  // Old mnemonic files carry the spend key themselves.
-  let fields;
-  if (payload.moneroWallet.spendHalf) {
-    let keys;
-    try {
-      keys = await core.sweep.keys({ file: { contents }, passphrase });
-    } catch (e) {
-      log(t("log.keys.failed", { words: sdkWords(e) }), "bad");
-      return "flow.err.keys";
-    }
-    fields = { privateSpendKey: keys.privateSpendKey, privateViewKey: keys.privateViewKey, primaryAddress: keys.address };
-    log(t("log.keys.summed"), "ok");
-  } else {
-    fields = { seed: payload.moneroWallet.mnemonic }; // mnemonic exists only in old files
-    log(t("log.keys.mnemonic"), "wait");
+  // KEYS ARE THE CORE'S: sweep.keys sums the key's half and the maker's REVEALED half and checks (s_a + s_b)*G.
+  let keys;
+  try {
+    keys = await core.sweep.keys({ file: { contents }, passphrase: "" });
+  } catch (e) {
+    log(t("log.keys.failed", { words: sdkWords(e) }), "bad");
+    return "flow.err.keys";
   }
+  const fields = { privateSpendKey: keys.privateSpendKey, privateViewKey: keys.privateViewKey, primaryAddress: keys.address };
+  log(t("log.keys.summed"), "ok");
 
   // WALLET IS THE CORE'S (sweep.wallet), including network name to library enum; the page passes monero-ts and the facts.
   showProgress("flow.progress.connect");
@@ -863,7 +895,7 @@ async function syncWallet() {
   let window = null;
   try {
     const tipHeight = Number(await wallet.getDaemonHeight());
-    const rawT1 = Number(payload.deadlines && payload.deadlines.t1);
+    const rawT1 = Number((payload.escrow && payload.escrow.t1) ?? (payload.deadlines && payload.deadlines.t1));
     const t1Sec = Number.isFinite(rawT1) && rawT1 > 0 ? Math.floor(rawT1 >= 1e12 ? rawT1 / 1000 : rawT1) : 0;
     window = await restoreWindow({ nodeUrl: nodeUrl(), t1Sec, startHeight: height, tipHeight });
   } catch { window = null; }
@@ -884,7 +916,11 @@ async function syncWallet() {
   const ms = Math.round(performance.now() - t0);
   const unlocked = BigInt(restored.unlocked);
   const total = BigInt(restored.total);
-  balance = { total, unlocked };
+  // HOW MANY TRANSACTIONS THE WALLET SEES tells "withdrawn" (XMR came and left) from "unseen" (nothing ever came to
+  // the address this key gives); a wallet that cannot say leaves it unknown.
+  let txs = null;
+  try { txs = (await wallet.getTxs()).length; } catch (e) { log(t("log.diag.failed", { why: String((e && e.message) || e) }), "wait"); }
+  balance = { total, unlocked, txs };
   log(t("log.restored.passes", { passes: n(restored.passes), locked: restored.lockedPass ? t("value.yes") : t("value.no") }), "ok");
   if (restored.window && restored.window.used) {
     log(t("log.scan.window", { from: n(restored.window.fromHeight), to: n(restored.window.toHeight), txs: n(restored.window.txs) }), "ok");
@@ -895,56 +931,29 @@ async function syncWallet() {
   const walletHeight = await wallet.getHeight();
   const nodeHeight = await wallet.getDaemonHeight();
   window.__sweepFlow.unlocked = unlocked;
-  window.__sweepFlow.wallet = wallet;
-  try {
-    window.__sweepFlow.syncInfo = {
-      walletHeight,
-      nodeHeight,
-      txs: (await wallet.getTxs()).length,
-      transfers: (await wallet.getTransfers()).length,
-      balance: String(total),
-      unlocked: String(unlocked),
-      scanHeight: height,
-      walletRestoreHeight: await wallet.getRestoreHeight(),
-    };
-  } catch (e) {
-    window.__sweepFlow.syncError = String((e && e.message) || e);
-    log(t("log.diag.failed", { why: window.__sweepFlow.syncError }), "wait");
-  }
+  window.__sweepFlow.syncInfo = { walletHeight, nodeHeight, txs, balance: String(total), unlocked: String(unlocked), scanHeight: height };
   log(t("log.sync.took", { ms: n(ms), height: n(height || 0) }));
-  log(
-    unlocked > 0n
-      ? t("log.synced.ok", { xmr: xmr(unlocked), walletHeight: n(walletHeight), nodeHeight: n(nodeHeight) })
-      : t(total > 0n ? "log.synced.zero.locked" : "log.synced.zero.empty", { total: xmr(total) }),
-    unlocked > 0n ? "ok" : "wait"
-  );
+  if (unlocked > 0n) log(t("log.synced.ok", { xmr: xmr(unlocked), walletHeight: n(walletHeight), nodeHeight: n(nodeHeight) }), "ok");
+  else if (total > 0n) log(t("log.synced.zero.locked", { total: xmr(total) }), "wait");
+  else if (txs === 0) log(t("log.synced.unseen", { address: plan.address, height: n(height) }), "warn");
+  else log(t("log.synced.zero.empty", { txs: txs === null ? "?" : n(txs) }), "wait");
   return true;
 }
 
 // BUILD AND SIGN, NOT SEND. Returns true, or the key of the plain line that says why not.
 async function buildTx() {
   const dest = destInput.value.trim();
-  // CHECK AGAINST THE PROMISE AND THE NETWORK IS A PACKAGE RULE (sweep.destination); the person names the address.
-  const core = await facade();
+  // THE ADDRESS AGAINST THE SWAP'S NETWORK IS A PACKAGE RULE (sweep.destination); the person names the address. A
+  // swap found by the key promised no address: the chain holds none.
+  const core = await facadeFor(settlement, network);
   let verdict;
   try {
-    verdict = await core.sweep.destination({ file: { contents }, passphrase, dest });
+    verdict = await core.sweep.destination({ file: { contents }, passphrase: "", dest });
   } catch (e) {
     log(t("log.dest.refused", { words: sdkWords(e) }), "bad");
     return "flow.err.dest";
   }
   if (!verdict.ok) { log(t("log.dest.refused", { words: verdict.reason || "?" }), "bad"); return "flow.err.dest"; }
-  // Only a buy promised an XMR address; on a sell the file's recipient is a payout address on another chain.
-  const promised = isSell(payload.side) ? null : verdict.promised || null;
-  const differs = Boolean(promised) && verdict.matches === false;
-  if (differs) {
-    log(t("log.dest.differs"), "warn");
-    log(t("log.dest.file", { address: promised }), "warn");
-    log(t("log.dest.typed", { address: dest }), "warn");
-    log(t("log.dest.same.allowed"), "warn");
-  } else if (promised) {
-    log(t("log.dest.matches"));
-  }
 
   // SIGNING IS THE CORE'S (sweep.sign): plan -> wallet -> sync -> unlocked balance -> signature WITHOUT sending.
   // An empty balance stops with `insufficient-funds` BEFORE signing, on the SAME wallet scanned above.
@@ -952,7 +961,7 @@ async function buildTx() {
   try {
     signed = await core.sweep.sign({
       file: { contents },
-      passphrase,
+      passphrase: "",
       to: dest,
       connectWallet: async () => mod.moneroWallet({
         createWallet: async () => wallet,
@@ -973,7 +982,7 @@ async function buildTx() {
 
   // FEE AND RECEIVE COME FROM sweep.sign. The whole unlocked balance is withdrawn, so the fee is subtracted and
   // `receive` is what arrives; a missing fee is null, shown as "unknown", never as zero.
-  lastTx = { amount: BigInt(signed.amount), fee: signed.fee, receive: signed.receive, dest, differs };
+  lastTx = { amount: BigInt(signed.amount), fee: signed.fee, receive: signed.receive, dest };
   log(t("log.signed", { token: signedToken }));
   return true;
 }
@@ -1006,7 +1015,7 @@ function showTx() {
     ["info.amount", () => t("value.amount", { xmr: xmr(tx.amount) })],
     ["info.fee", () => (tx.fee === null ? t("value.fee.unknown") : xmr(BigInt(tx.fee)) + " XMR"), tx.fee === null ? "warn" : ""],
     ["info.receive", () => (tx.receive === null ? t("value.receive.unknown") : xmr(BigInt(tx.receive)) + " XMR"), tx.receive === null ? "warn" : "good"],
-    ["info.recipient", () => t(tx.differs ? "value.recipient.differs" : "value.recipient.same", { address: tx.dest }), tx.differs ? "warn" : ""],
+    ["info.recipient", tx.dest],
   ]);
 }
 
@@ -1017,7 +1026,7 @@ async function sendTx() {
   let out;
   try {
     // SENDING IS THE CORE'S (sweep.relay). Its "withdrawn" mark for a service meets `noService` and goes nowhere.
-    out = await (await facade()).sweep.relay({ token: signedToken });
+    out = await (await facadeFor(settlement, network)).sweep.relay({ token: signedToken });
   } catch (e) {
     hideProgress();
     log(t("log.send.failed", { words: sdkWords(e) }), "bad");
@@ -1046,36 +1055,28 @@ function showDone(txid) {
   updateButtons();
 }
 
-// THE KEYS LEAVE: the wallet closes and the file's contents, its password and the signed transaction go. The node
-// choice opens again. `plan` stays: it holds the public facts the sent view reads. `keepFile`
-// keeps the file just picked: onFileChosen calls this before it reads the input.
-async function dropKeys({ keepFile = false } = {}) {
-  try { if (adapter) await adapter.close(); } catch { /* a failed close must not keep the rest in memory */ }
+// THE WALLET CLOSES and the node choice opens again; a failed close must not keep the rest in memory.
+async function closeWallet() {
+  try { if (adapter) await adapter.close(); } catch { /* the keys go below either way */ }
   adapter = null;
   wallet = null;
   updateNodeLock();
-  signedToken = null;
-  lastTx = null;
-  payload = null;
-  contents = null;
-  passphrase = null;
-  passInput.value = "";
-  if (!keepFile) {
-    chosen = null;
-    fileInput.value = "";
-  }
-  log(t("log.forgotten"), "ok");
 }
 
-// FORGET: the keys go (dropKeys), and the page is back at "choose a file". Picking another file does this, so two
-// files never share a tab.
-async function forget({ keepFile = false } = {}) {
-  await dropKeys({ keepFile });
+// ANOTHER SWAP OR ANOTHER KEY: the wallet closes, the swap's payload and the signed transfer go, and the step is
+// back to "choose a swap". The key and the list stay: the person is choosing among them.
+async function closeSwap() {
+  await closeWallet();
+  current = null;
+  contents = null;
   plan = null;
   network = null;
   settlement = null;
   balance = null;
-  window.__sweepFlow = { ready: window.__sweepFlow.ready, network: null, address: null, restoreHeight: null, unlocked: 0n, signed: false, steps: [] };
+  signedToken = null;
+  lastTx = null;
+  window.__sweepFlow = { ready: window.__sweepFlow.ready, network: null, address: null, restoreHeight: null, unlocked: 0n, signed: false, steps: window.__sweepFlow.steps, search: window.__sweepFlow.search };
+  stepSwap.hidden = true;
   stepTransfer.hidden = true;
   moneyEl.hidden = true;
   confirmEl.hidden = true;
@@ -1087,12 +1088,24 @@ async function forget({ keepFile = false } = {}) {
   destInput.value = "";
   heightInput.value = "";
   heightBox.hidden = true;
-  passField.hidden = !(chosen && chosen.encrypted);
-  updateDestWarning();
+  drawSwaps();
   updateButtons();
 }
 
-// --- events ---
+// THE KEYS LEAVE WITH THE TRANSFER: the wallet closes, and the recovery key, the swap's payload and the signed
+// transfer go. The sent view and the txid stay; the list goes with the key, since every action in it needs the key.
+async function dropKeys() {
+  await closeWallet();
+  key = null;
+  search = null;
+  contents = null;
+  signedToken = null;
+  lastTx = null;
+  clearKeyFields();
+  drawSwaps();
+  say(keyErrorEl, "key.gone", {}, "wait");
+  log(t("log.forgotten"), "ok");
+}
 
 // --- 0c. Node: a checked list, the page's pick or the person's own ---
 // The choice can change BEFORE the wallet exists; afterwards it would be a different wallet, so it cannot.
@@ -1356,7 +1369,7 @@ let announced = false;
 async function runPreflight() {
   const mine = ++preflightRun;
   const isCurrent = () => mine === preflightRun;
-  openBtn.disabled = true;
+  findSwapsBtn.disabled = true;
   // ISOLATION IS NOT A REQUIREMENT. monero-ts 0.11.20 has no pthreads and needs no SharedArrayBuffer; the headers
   // are still served when the host has them, and the diagnostics report the fact. WebCrypto needs a secure context.
   setCheck("secure", self.isSecureContext ? "ok" : "bad", () => t("preflight.fail.https"));
@@ -1364,7 +1377,9 @@ async function runPreflight() {
   if (!isCurrent()) return false;
   const ready = walletOk && nodeOk && self.isSecureContext;
   window.__sweepFlow.ready = ready;
-  openBtn.disabled = !ready;
+  // THE SEARCH NEEDS THE SDK AND THE BROWSER'S CRYPTO, NOT THE NODE: a key can be read and its swaps listed while the
+  // person still picks a node. The withdrawal checks the node itself.
+  findSwapsBtn.disabled = !(walletOk && self.isSecureContext);
   if (ready && !announced) {
     announced = true;
     log(t("log.ready"));
@@ -1393,8 +1408,6 @@ copyLogBtn.addEventListener("click", async () => {
 
 keyFileInput.addEventListener("change", () => { onKeyFileChosen().catch((e) => log(String((e && e.message) || e), "bad")); });
 findSwapsBtn.addEventListener("click", () => busy(findSwapsBtn, findKeySwaps, keyErrorEl));
-fileInput.addEventListener("change", () => { onFileChosen().catch((e) => log(String((e && e.message) || e), "bad")); });
-openBtn.addEventListener("click", () => busy(openBtn, openFile, openErrorEl));
 withdrawBtn.addEventListener("click", () => busy(withdrawBtn, withdraw, withdrawErrorEl));
 sendBtn.addEventListener("click", () => busy(sendBtn, sendTx, withdrawErrorEl));
 
@@ -1414,4 +1427,4 @@ initLocale()
     await startNode();
   })
   .catch((e) => log(t("log.error", { message: String((e && e.message) || e) }), "bad"));
-openBtn.disabled = true;
+findSwapsBtn.disabled = true;

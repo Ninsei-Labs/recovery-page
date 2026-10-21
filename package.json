@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Static page that withdraws XMR from a swap wallet using a recovery file. Keys stay in the tab.",
+  "description": "Static page that finds the swaps of a Ninsei recovery key and withdraws their XMR. Keys stay in the tab.",
   "license": "MIT",
   "repository": {
     "type": "git",

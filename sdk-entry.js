@@ -7,8 +7,9 @@
 // any file move (tools/check-sweep-sdk-only.mjs guards this). NOT HERE: nothing copied into sweep/lib, and the
 // "code -> words" dictionary stays with the page ON PURPOSE: the package holds no human texts.
 export { createNinsei, ERROR_META } from "@ninsei-labs/sdk";
-// XMR AMOUNTS: twelve decimals and BigInt. No arithmetic of its own, only formatXmr/parseXmr.
-export { formatXmr, parseXmr } from "@ninsei-labs/sdk/core";
+// XMR AMOUNTS: twelve decimals and BigInt. No arithmetic of its own, only formatXmr/parseXmr. An order's deadline
+// is in seconds on chain; msFromOrderSeconds is the one conversion, and it refuses a value of the wrong scale.
+export { formatXmr, parseXmr, msFromOrderSeconds } from "@ninsei-labs/sdk/core";
 // NODE AND ARRIVAL FACTS: preflight, address policy, address parsing, unlock_time. No own get_info and no
 // letter-by-letter network guess: the package answers and names the reason when it refuses.
 export {
@@ -20,18 +21,13 @@ export {
   decodeAddressKeys,
   unlockStateOf,
 } from "@ninsei-labs/sdk/xmr";
-// RECOVERY FILE AS IT IS ON THE PATH: envelope and payload shape, for display and for OLD mnemonic files.
+// THE ONE RECOVERY KEY (sdk#79): the 12 words or the key file, the halves of a swap number, the on-chain search.
+// buildPayload and createRecoveryFile write a found swap into the SDK's own payload in memory, so sweep.plan/keys/
+// sign run on it unchanged (lib/found-swap.js); no per-swap file is read or written.
 export {
-  decryptFile, validatePayload,
-  // THE ONE RECOVERY KEY (sdk#79): the 12 words, the derived halves, the backup file and the on-chain search.
-  createRecoveryKey, importRecoveryKey, openRecoveryKeyFile,
-  recoveryKeyFileName, recoveryKeyText, createRecoveryKeyFile,
-  takerHalves, findSwaps,
-  // THE PAYLOAD FROM THE CHAIN: the page assembles a plain envelope from a found order, so the same
-  // sweep.plan/keys/wallet path runs for a key-backed swap as for an old file.
+  importRecoveryKey, openRecoveryKeyFile, takerHalves, findSwaps,
   buildPayload, createRecoveryFile,
 } from "@ninsei-labs/sdk/recovery";
-export { isEncrypted } from "@ninsei-labs/sdk/recovery";
 // THE NETWORK REGISTRY: a key does not name a chain, so the page reads the factories and ids from the package.
 export { CHAINS } from "@ninsei-labs/sdk/networks";
 // CORE WALLET AND WITHDRAWAL WALLET, with in-memory storage. moneroWalletAdapter plays the core wallet

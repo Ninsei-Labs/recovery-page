@@ -193,6 +193,27 @@ export async function pingNode(url, probe, timeoutMs = PING_TIMEOUT_MS) {
   return second.ok && second.ms < first.ms ? second : first;
 }
 
+// THE TIMESTAMP OF ONE MONERO BLOCK, in seconds: one `get_block_header_by_height`, the reader the start height of a
+// swap found by the key searches with (lib/start-height.js). The heights asked converge on the swap's time, which
+// the node learns anyway once the wallet asks for blocks from there. No answer, an RPC error or a header without a
+// time throws: a missing time is unknown, never 0.
+export async function moneroHeaderTime(url, height, fetchImpl = globalThis.fetch, timeoutMs = PING_TIMEOUT_MS) {
+  if (!Number.isSafeInteger(height) || height < 0) throw new Error(`not a block height: ${height}`);
+  const response = await fetchImpl(String(url) + "/json_rpc", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: "0", method: "get_block_header_by_height", params: { height } }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) throw new Error(`get_block_header_by_height ${height}: HTTP ${response.status}`);
+  const body = await response.json();
+  const header = body && body.result && body.result.block_header;
+  if (!header || header.height !== height || !Number.isSafeInteger(header.timestamp) || header.timestamp <= 0) {
+    throw new Error(`get_block_header_by_height ${height}: ${body && body.error ? `RPC ${body.error.code ?? "error"}` : "no block time"}`);
+  }
+  return header.timestamp;
+}
+
 // THE MEDIAN HEIGHT of the synchronized mainnet answers, or null when there are none: the measure of
 // "behind" and "ahead". The median, not the highest: one node claiming a height far above the rest must
 // not turn the others red and leave itself the only good one. With an even count the lower middle

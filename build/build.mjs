@@ -163,7 +163,7 @@ const STAMP = {
 
 console.log("\npage:");
 const PAGE_TEXT = ["recovery.js", "diagnostics.js"];
-const PAGE_COPY = ["index.html", "recovery.css", "diagnostics.html", "favicon.svg", "lib/node.js", "lib/codes.js", "lib/settlement.js", "lib/withdrawal.js"];
+const PAGE_COPY = ["index.html", "recovery.css", "diagnostics.html", "favicon.svg"];
 
 // The locale list is derived from the folders, not edited by hand: a third language is one folder.
 const localesDir = join(ROOT, "locales");
@@ -192,6 +192,12 @@ await emit("locales/index.js", await readFile(join(localesDir, "index.js")));
 
 for (const rel of PAGE_COPY) {
   await emit(rel, await readFile(join(ROOT, rel)));
+}
+// THE PAGE'S MODULES ARE THE FOLDER'S CONTENTS, like the languages and the fonts: a new module in lib/ ships
+// without a second list to remember, and a list that forgot one would leave the page without an import.
+const libDir = join(ROOT, "lib");
+for (const name of (await readdir(libDir)).filter((n) => n.endsWith(".js")).sort()) {
+  await emit(`lib/${name}`, await readFile(join(libDir, name)));
 }
 // The fonts and their licences are the folder's contents, like the languages: recovery.css names the
 // files it loads, and every licence travels with its font.
