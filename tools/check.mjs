@@ -40,7 +40,9 @@ async function check(name, fn) {
 const read = (rel) => readFile(join(ROOT, rel), "utf8");
 
 // --- 1. the node address ----------------------------------------------------------------
-const { parseNodeUrl, DEFAULT_NODE } = await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
+const { parseNodeUrl, NODES, DEFAULT_NODE, nodeVerdict, topHeight, fastestGood, pingNode } = await import(
+  pathToFileURL(join(ROOT, "lib", "node.js")).href
+);
 
 await check("an empty address is refused with its own reason", () => {
   assert.deepEqual(parseNodeUrl(""), { ok: false, why: "empty", url: null });
@@ -64,8 +66,93 @@ await check("a query or a fragment is refused: the page appends its own paths", 
   assert.equal(parseNodeUrl("https://node.example/?x=1").why, "shape");
   assert.equal(parseNodeUrl("https://node.example/#top").why, "shape");
 });
-await check("the default is an https proxy, not a bare node", () => {
-  assert.match(DEFAULT_NODE, /^https:\/\//);
+await check("every listed node is https and written the way the parser gives it back", () => {
+  assert.ok(NODES.length >= 5, `only ${NODES.length} nodes listed`);
+  assert.equal(new Set(NODES).size, NODES.length, "a node is listed twice");
+  assert.equal(DEFAULT_NODE, NODES[0], "the default is not the first listed node");
+  for (const url of NODES) {
+    assert.match(url, /^https:\/\//, `${url} is not https`);
+    const parsed = parseNodeUrl(url);
+    assert.ok(parsed.ok, `${url} is refused: ${parsed.why}`);
+    // A link or a stored choice is matched to its row by the parsed form.
+    assert.equal(parsed.url, url, `${url} parses to ${parsed.url}`);
+  }
+  return `${NODES.length} nodes`;
+});
+
+// AN ANSWER as the SDK's probeMoneroNode gives it; heights and times are example values.
+const answer = (fields) => ({ ok: true, network: "mainnet", nettype: "mainnet", synchronized: true, height: 3_500_000, ms: 100, ...fields });
+// [what it is, answer, top height, expected state, expected why, expected params]
+const VERDICTS = [
+  ["no answer yet", null, 3_500_000, "checking", "checking", {}],
+  ["the probe could not run", { ok: false, why: "unchecked" }, null, "unknown", "unchecked", {}],
+  ["at the top", answer({}), 3_500_000, "good", "good", { height: 3_500_000 }],
+  ["three blocks behind", answer({ height: 3_499_997 }), 3_500_000, "good", "good", { height: 3_499_997 }],
+  ["four blocks behind", answer({ height: 3_499_996 }), 3_500_000, "bad", "behind", { blocks: 4 }],
+  ["stagenet", answer({ network: "stagenet", nettype: "stagenet", height: 2_000_000 }), 3_500_000, "bad", "network", { network: "stagenet" }],
+  ["not synchronized", answer({ synchronized: false }), 3_500_000, "bad", "sync", {}],
+  ["no answer (CORS or offline)", { ok: false, why: "unreachable", ms: 40 }, 3_500_000, "bad", "unreachable", { status: "?" }],
+  ["timed out", { ok: false, why: "timeout", ms: 5000 }, 3_500_000, "bad", "timeout", { status: "?" }],
+  ["an HTTP error", { ok: false, why: "http", status: 403, ms: 90 }, 3_500_000, "bad", "http", { status: 403 }],
+  ["not JSON", { ok: false, why: "not-json", ms: 90 }, 3_500_000, "bad", "answer", { status: "?" }],
+  ["an RPC error", { ok: false, why: "rpc", rpc: -1, ms: 90 }, 3_500_000, "bad", "answer", { status: "?" }],
+  ["an unknown network", { ok: false, why: "nettype", nettype: "fakenet", ms: 90 }, 3_500_000, "bad", "network", { network: "fakenet" }],
+];
+await check("a node is good only when it answers on mainnet, synchronized, at most 3 blocks behind", () => {
+  for (const [what, a, top, state, why, params] of VERDICTS) {
+    assert.deepEqual(nodeVerdict(a, top), { state, why, params }, what);
+  }
+  return `${VERDICTS.length} cases`;
+});
+
+await check("the highest height counts mainnet answers only", () => {
+  assert.equal(topHeight([]), null);
+  assert.equal(topHeight([null, { ok: false, why: "timeout" }]), null);
+  const answers = [answer({ height: 3_500_002 }), answer({ network: "stagenet", height: 2_000_000 }), answer({ network: "testnet", height: 9_000_000 }), null];
+  assert.equal(topHeight(answers), 3_500_002);
+});
+
+await check("the page picks the fastest good node, and nothing when none is good", () => {
+  const entries = [
+    { url: "https://a.example", answer: answer({ ms: 120 }) },
+    { url: "https://b.example", answer: answer({ ms: 80 }) },
+    { url: "https://c.example", answer: answer({ ms: 20, network: "stagenet", height: 2_000_000 }) },
+    { url: "https://d.example", answer: answer({ ms: 30, height: 3_499_990 }) },
+    { url: "https://e.example", answer: answer({ ms: 10, synchronized: false }) },
+    { url: "https://f.example", answer: { ok: false, why: "timeout", ms: 5 } },
+    { url: "https://g.example", answer: null },
+  ];
+  assert.equal(fastestGood(entries), "https://b.example");
+  assert.equal(fastestGood(entries.filter((e) => !/[ab]\./.test(e.url))), null);
+  assert.equal(fastestGood([]), null);
+  // Equal times: the list order decides.
+  assert.equal(fastestGood([{ url: "https://x.example", answer: answer({ ms: 50 }) }, { url: "https://y.example", answer: answer({ ms: 50 }) }]), "https://x.example");
+});
+
+await check("a ping asks twice and keeps the faster answer; a failed first answer is not asked again", async () => {
+  const probeOf = (answers) => {
+    const calls = [];
+    const probe = async (req) => {
+      calls.push(req);
+      const next = answers[calls.length - 1];
+      if (next instanceof Error) throw next;
+      return next;
+    };
+    return { calls, probe };
+  };
+  const url = "https://node.example";
+  const slowThenFast = probeOf([answer({ ms: 310 }), answer({ ms: 42 })]);
+  assert.equal((await pingNode(url, slowThenFast.probe, 1234)).ms, 42);
+  assert.deepEqual(slowThenFast.calls, [{ url, timeoutMs: 1234 }, { url, timeoutMs: 1234 }]);
+  const fastThenSlow = probeOf([answer({ ms: 42 }), answer({ ms: 310 })]);
+  assert.equal((await pingNode(url, fastThenSlow.probe)).ms, 42);
+  const failsFirst = probeOf([{ ok: false, why: "unreachable", ms: 12 }, answer({})]);
+  assert.deepEqual(await pingNode(url, failsFirst.probe), { ok: false, why: "unreachable", ms: 12 });
+  assert.equal(failsFirst.calls.length, 1);
+  const failsSecond = probeOf([answer({ ms: 200 }), { ok: false, why: "timeout", ms: 5000 }]);
+  assert.equal((await pingNode(url, failsSecond.probe)).ms, 200);
+  const throws = probeOf([new Error("boom")]);
+  assert.deepEqual(await pingNode(url, throws.probe), { ok: false, why: "unreachable" });
 });
 
 // --- 2. one key set for the one language ------------------------------------------------
@@ -127,9 +214,29 @@ await check("every literal t() key in the page exists", async () => {
 });
 
 await check("the node labels the module can return all exist", () => {
-  for (const key of ["node.label.default", "node.label.same", "node.label.custom"]) {
+  for (const key of ["node.label.listed", "node.label.same", "node.label.custom"]) {
     if (!(key in strings)) throw new Error("missing " + key);
   }
+});
+
+await check("every word a node row or the note under the list can show exists", async () => {
+  const keys = new Set(VERDICTS.map((v) => "node.state." + v[4]));
+  // The note keys are written as data ([key, params]), not as t() calls, so the literal check misses them.
+  for (const m of (await read("recovery.js")).matchAll(/"(node\.(?:note|state)\.[a-z]+)"/g)) keys.add(m[1]);
+  for (const why of ["empty", "shape", "scheme", "credentials"]) keys.add("node.why." + why);
+  keys.add("node.ms");
+  const missing = [...keys].filter((key) => !(key in strings));
+  assert.deepEqual(missing, []);
+  return `${keys.size} keys`;
+});
+
+await check("the node list has no check button, and its rows are radios of one group", async () => {
+  const html = await read("index.html");
+  const page = await read("recovery.js");
+  assert.ok(!/nodeCheck/.test(html) && !/nodeCheck/.test(page), "a node check button is still on the page");
+  assert.match(html, /<fieldset id="nodeList"/, "no fieldset for the node list");
+  assert.match(html, /<input type="radio" name="node"/, "the own node row has no radio");
+  assert.match(page, /h\("input", \{ type: "radio", name: "node"/, "the listed rows are not radios of the same group");
 });
 
 // --- 3. the page's own rules ------------------------------------------------------------

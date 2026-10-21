@@ -166,9 +166,42 @@ input[type="file"]::file-selector-button {
 }
 input[type="file"]:hover::file-selector-button { border-color: var(--accent); }
 
-/* A FIELD WITH ITS BUTTON BESIDE IT; on a narrow screen the button drops below. */
-.row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 10px; margin-bottom: 12px; }
-.row > .field { flex: 1 1 260px; margin: 0; }
+/* THE NODE LIST: one row per node with its live state, then the person's own. A real radio carries the
+   choice and the keyboard; the selected row wears the accent. The dot is the state (grey and pulsing while
+   the page asks, lime when good, red when not), the small text says why, the number is the faster of two
+   round trips. Small and calm: no glow, the words carry the detail. */
+.nodes { display: grid; gap: 6px; min-width: 0; margin: 0 0 12px; padding: 0; border: 0; }
+.node { border: 1px solid var(--line-2); border-radius: 6px; background: var(--bg-sunken); transition: border-color 0.15s, background 0.15s; }
+.node:hover { border-color: var(--line-3); }
+.node:has(.node-pick input:checked) { border-color: var(--accent); background: #11102a; }
+.node-pick { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 44px; padding: 8px 12px; cursor: pointer; }
+.node-pick input[type="radio"] { appearance: none; display: grid; place-content: center; width: 16px; height: 16px; margin: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: transparent; cursor: pointer; }
+.node-pick input[type="radio"]::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); transform: scale(0); transition: transform 0.12s; }
+.node-pick input[type="radio"]:checked { border-color: var(--accent); }
+.node-pick input[type="radio"]:checked::before { transform: scale(1); }
+.node-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; }
+.node-name { min-width: 0; font: 500 var(--m13)/1.35 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.node-own .node-name { font: 500 var(--t15)/1.35 var(--sans); }
+.node-why { font: 400 var(--m11)/1.4 var(--mono); letter-spacing: 0.02em; color: var(--text-3); }
+.node-why:empty { display: none; }
+.node-signal { display: inline-flex; align-items: center; gap: 8px; font: 400 var(--m12)/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--text-2); white-space: nowrap; }
+.node-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
+.node[data-state="checking"] .node-dot { animation: node-pulse 1.4s ease-in-out infinite; }
+.node[data-state="good"] .node-dot { background: var(--lime); }
+.node[data-state="good"] .node-ms { color: var(--text); }
+.node[data-state="bad"] .node-dot { background: var(--red); }
+.node[data-state="bad"] .node-why { color: var(--red); opacity: 0.85; }
+.node[data-state="idle"] .node-dot { visibility: hidden; }
+@keyframes node-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+/* The own row's field sits under its name, in line with the text above it. */
+.node-own > input[type="text"] { width: calc(100% - 52px); height: 40px; margin: 0 12px 12px 40px; }
+/* LOCKED: a wallet holds the node. The rows go quiet; the chosen one stays readable. */
+.nodes:disabled .node { opacity: 0.5; }
+.nodes:disabled .node:has(.node-pick input:checked) { opacity: 0.9; }
+.nodes:disabled .node:hover { border-color: var(--line-2); }
+.nodes:disabled .node:has(.node-pick input:checked):hover { border-color: var(--accent); }
+.nodes:disabled .node-pick, .nodes:disabled input { cursor: not-allowed; }
+.node-note { color: var(--text-2); }
 
 /* THE SITE'S BUTTONS: an outline by default; violet only for the action the page expects next. */
 button {
@@ -201,7 +234,7 @@ button.ghost:hover:not(:disabled) { border-color: var(--line-strong); color: var
 .bar .cta { flex: 1 1 200px; height: 48px; border-radius: 6px; white-space: normal; text-align: center; }
 
 .hint { margin: 0 0 12px; font-size: var(--t13); line-height: 1.5; color: var(--text-3); }
-.row + .hint, .field + .hint { margin-top: -2px; }
+.field + .hint { margin-top: -2px; }
 .step > .hint:last-child { margin-bottom: 0; }
 /* CAREFUL: the destination differs from the one the file promised, or the file promised none. */
 .hint.warn { padding: 10px 12px; border: 1px solid #6a4a1c; border-radius: 6px; background: #1f1508; color: var(--amber); overflow-wrap: anywhere; }
@@ -286,13 +319,16 @@ button.ghost:hover:not(:disabled) { border-color: var(--line-strong); color: var
   .card { padding: 14px 14px 16px; }
   .info dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .info dd + dt { margin-top: 8px; }
-  .row > button, .bar > button { flex: 1 1 auto; }
+  .bar > button { flex: 1 1 auto; }
+  /* Narrow rows always stack the name over its state, so a short word and a long one look the same. */
+  .node-text { flex-direction: column; align-items: flex-start; }
+  .node-own > input[type="text"] { width: calc(100% - 24px); margin-left: 12px; }
 }
 @media (max-width: 400px) {
   .glitch { font-size: 19px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .glitch::before, .glitch::after, .status.wait::before, #state.wait::before { animation: none; }
+  .glitch::before, .glitch::after, .status.wait::before, #state.wait::before, .node[data-state="checking"] .node-dot { animation: none; }
   * { transition: none !important; }
 }

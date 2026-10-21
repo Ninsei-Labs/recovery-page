@@ -11,7 +11,10 @@
 
 // CORE CODE -> WORDS: the demo dictionary (a copy of www/js/sdk/codes.js). Unknown codes pass through.
 import { t, n, d, init as initLocale } from "./locales/index.js";
-import { nodeUrl, nodeLabelKey, nodeLabelParams, setNodeUrl, DEFAULT_NODE } from "./lib/node.js";
+import {
+  NODES, nodeUrl, nodeSource, nodeLabelKey, nodeLabelParams, setNodeUrl, clearNodeUrl, parseNodeUrl, nodeHost,
+  pingNode, topHeight, nodeVerdict, fastestGood,
+} from "./lib/node.js";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=__V_MONERO__";
@@ -234,7 +237,9 @@ async function facade() {
 
 // --- 0b. Environment: without these checks nothing makes sense ---
 
-async function preflight() {
+// `isCurrent` is false once a newer run has started (the person picked another node meanwhile): an older
+// run's answer must not paint the status line or set the network for a node that is no longer chosen.
+async function preflight(isCurrent = () => true) {
   const failed = [];
   // ISOLATION IS NOT A REQUIREMENT. monero-ts 0.11.20 has no pthreads and needs no SharedArrayBuffer; the
   // headers are still served when the host has them, and the diagnostics report the fact. A host without them
@@ -271,8 +276,12 @@ async function preflight() {
   }
 
   // NODE IS A PACKAGE RULE (probeMoneroNode): one get_info, height, network, named refusal reason.
-  if (core) {
+  // No node chosen is a failure in its own words, never a silent fallback to one nobody chose.
+  if (!nodeUrl()) {
+    failed.push(t("preflight.fail.noNode"));
+  } else if (core) {
     const probe = await core.probeMoneroNode({ url: nodeUrl() });
+    if (!isCurrent()) return false;
     if (!probe.ok) {
       failed.push(t("preflight.fail.node", { message: probe.why }));
     } else {
@@ -281,6 +290,7 @@ async function preflight() {
     }
   }
 
+  if (!isCurrent()) return false;
   if (failed.length) {
     setStatus(preflightEl, t("preflight.status.bad", { list: failed.join("; ") }), "bad");
     log(t("log.env.notready", { list: failed.join("; ") }), "bad");
@@ -422,6 +432,8 @@ async function syncWallet() {
     restoreHeight: height,
     expectedAddress: plan.address,
   });
+  // THE WALLET IS BOUND TO THIS NODE NOW: the choice closes until the wallet is forgotten.
+  updateNodeLock();
   // THE CORE WALLET UNDER ITS OWN NAME, so (...balances) is not read as a call on monero-ts by the API check.
   const coreWallet = core.wallet;
   coreWallet.use(adapter);
@@ -430,6 +442,7 @@ async function syncWallet() {
   } catch (e) {
     log(t("log.wallet.notConnected", { words: sdkWords(e) }), "bad");
     adapter = null;
+    updateNodeLock();
     return;
   }
   wallet = adapter.driver();
@@ -634,6 +647,7 @@ async function forget() {
   try { if (adapter) await adapter.close(); } catch { /* closing must not break the report */ }
   adapter = null;
   wallet = null;
+  updateNodeLock();
   signedToken = null;
   payload = null;
   plan = null;
@@ -659,52 +673,254 @@ async function forget() {
 
 // --- events ---
 
-// --- 0c. Node: the person chooses the address, not a constant in the code ---
-// It can change BEFORE the wallet exists; afterwards it would be a different wallet, so it cannot.
+// --- 0c. Node: a checked list, the page's pick or the person's own ---
+// The choice can change BEFORE the wallet exists; afterwards it would be a different wallet, so it cannot.
+//
+// WHAT THE CHECK SENDS: each listed node is asked for `get_info`, which tells it only that a visitor asked for
+// its height. The recovery file, the password and the keys never leave the tab.
+const nodeList = $("nodeList");
 const nodeInput = $("node");
-const nodeCheck = $("nodeCheck");
-const nodeInfoEl = $("nodeInfo");
+const nodeNote = $("nodeNote");
+const ownRow = nodeList.querySelector(".node-own");
+const ownRadio = ownRow.querySelector('input[type="radio"]');
 
-function showNodeInfo() {
-  if (!nodeInfoEl) return;
-  nodeInfoEl.textContent = t(nodeLabelKey(), nodeLabelParams());
-  nodeInfoEl.title = DEFAULT_NODE;
-}
+// A HIDDEN TAB IS ASKED AGAIN when it comes back after this long: a node that answered an hour ago may not now.
+const RECHECK_AFTER_MS = 60_000;
+
+// ONE ENTRY PER ROW: the listed nodes in list order, then the person's own. `answer` is the faster of two
+// probeMoneroNode results, null while the page is asking; `ask` numbers the requests, so an answer to an
+// older one (another address in the own field, an earlier round) is dropped.
+const listed = NODES.map((url) => ({ url, answer: null, ask: 0, el: null, radio: null }));
+const own = { url: null, answer: null, ask: 0, refused: null, el: ownRow };
+let picking = false;  // the page holds the choice, not the person: a re-check may pick again
+let note = null;      // [key, params] of the line under the list
 
 function nodeLocked() {
   return Boolean(adapter || wallet);
 }
 
-async function applyNode() {
-  if (!nodeInput) return;
-  if (nodeLocked()) {
-    nodeInput.value = nodeUrl();
-    log(t("log.node.locked"), "warn");
+function rowFor(url) {
+  return listed.find((row) => row.url === url) || (url && own.url === url ? own : null);
+}
+
+function verdictOf(row) {
+  if (row === own && !own.url) return own.refused ? { state: "bad", why: null } : { state: "idle", why: null };
+  return nodeVerdict(row.answer, topHeight([...listed, own].map((r) => r.answer)));
+}
+
+function stateOf(url) {
+  const row = url ? rowFor(url) : null;
+  return row ? verdictOf(row).state : null;
+}
+
+function buildRows() {
+  for (const row of listed) {
+    row.radio = h("input", { type: "radio", name: "node", value: row.url });
+    row.radio.addEventListener("change", () => { if (row.radio.checked) chooseListed(row.url); });
+    row.el = h("div", { class: "node", "data-state": "checking" }, [
+      h("label", { class: "node-pick", title: row.url }, [
+        row.radio,
+        h("span", { class: "node-text" }, [h("span", { class: "node-name", text: nodeHost(row.url) }), h("span", { class: "node-why" })]),
+        h("span", { class: "node-signal" }, [h("span", { class: "node-dot", "aria-hidden": "true" }), h("span", { class: "node-ms" })]),
+      ]),
+    ]);
+    nodeList.insertBefore(row.el, ownRow);
+  }
+}
+
+// A ROW IS DRAWN FROM ITS ANSWER, so a language change or a new answer elsewhere (a higher top) redraws it.
+function drawRows() {
+  for (const row of [...listed, own]) {
+    const verdict = verdictOf(row);
+    row.el.dataset.state = verdict.state;
+    let why = "";
+    if (row === own && own.refused) why = t("node.why." + own.refused);
+    else if (verdict.why) {
+      const p = verdict.params;
+      why = t("node.state." + verdict.why, { ...p, height: p.height === undefined ? undefined : n(p.height), blocks: p.blocks === undefined ? undefined : n(p.blocks) });
+    }
+    row.el.querySelector(".node-why").textContent = why;
+    row.el.querySelector(".node-ms").textContent = row.answer && row.answer.ok ? t("node.ms", { ms: n(row.answer.ms) }) : "";
+  }
+}
+
+function drawNote() {
+  const locked = nodeLocked();
+  const words = locked ? t("log.node.locked") : note ? t(note[0], note[1]) : "";
+  nodeNote.textContent = words;
+  nodeNote.hidden = !words;
+}
+
+function updateNodeLock() {
+  nodeList.disabled = nodeLocked();
+  drawNote();
+}
+
+// THE RADIOS SHOW THE MODULE'S CHOICE; the own row is checked when the choice is the person's own address,
+// or when the person chose the own row and its field is empty or refused.
+function markChoice(url, ownChosen = false) {
+  for (const row of listed) row.radio.checked = row.url === url;
+  ownRadio.checked = ownChosen || Boolean(url && own.url === url && !NODES.includes(url));
+}
+
+async function pingRows(rows) {
+  let core = null;
+  try {
+    core = await sdkBundle();
+  } catch {
+    // Without the core there is no probe: the rows say "not checked" and the preflight names the failure.
+  }
+  const asked = rows.map((row) => {
+    row.ask += 1;
+    row.answer = core ? null : { ok: false, why: "unchecked" };
+    return { row, url: row.url, ask: row.ask };
+  });
+  drawRows();
+  if (!core) return;
+  await Promise.all(asked.map(async ({ row, url, ask }) => {
+    const answer = await pingNode(url, core.probeMoneroNode);
+    if (row.ask !== ask || row.url !== url) return;
+    row.answer = answer;
+    drawRows();
+  }));
+}
+
+const pingAll = () => pingRows(own.url ? [...listed, own] : listed);
+
+// THE PAGE'S PICK: the fastest good listed node, or nothing - said plainly - when none is good.
+function autoPick() {
+  if (!picking) return false;
+  const before = nodeUrl();
+  const url = fastestGood(listed);
+  if (url) {
+    setNodeUrl(url, { remember: false, by: "pick" });
+    note = ["node.note.picked", { host: nodeHost(url) }];
+  } else {
+    clearNodeUrl();
+    note = ["node.note.none"];
+  }
+  markChoice(url);
+  drawNote();
+  return nodeUrl() !== before;
+}
+
+function chooseListed(url) {
+  if (nodeLocked()) { markChoice(nodeUrl()); drawNote(); return; }
+  picking = false;
+  setNodeUrl(url);
+  markChoice(url);
+  note = null;
+  drawNote();
+  checkEnvironment();
+}
+
+// THE OWN ROW: chosen by its radio or by a change in its field. The field goes through the one parser; a
+// refusal is said in its own words and leaves no node chosen, never the previous one in disguise.
+function chooseOwn() {
+  if (nodeLocked()) { markChoice(nodeUrl()); drawNote(); return; }
+  picking = false;
+  const parsed = parseNodeUrl(nodeInput.value);
+  if (parsed.ok && NODES.includes(parsed.url)) {
+    nodeInput.value = "";
+    own.url = null;
+    own.refused = null;
+    chooseListed(parsed.url);
     return;
   }
-  const parsed = setNodeUrl(nodeInput.value);
   if (!parsed.ok) {
-    log(t("log.node.bad", { why: t("node.why." + parsed.why) }), "bad");
-    nodeInput.value = nodeUrl();
+    own.url = null;
+    own.answer = null;
+    own.ask += 1;
+    own.refused = parsed.why === "empty" ? null : parsed.why;
+    if (own.refused) log(t("log.node.bad", { why: t("node.why." + parsed.why) }), "bad");
+    clearNodeUrl();
+    markChoice(null, true);
+    note = parsed.why === "empty" ? ["node.note.own"] : null;
+  } else {
+    nodeInput.value = parsed.url;
+    const changed = own.url !== parsed.url;
+    own.url = parsed.url;
+    own.refused = null;
+    setNodeUrl(parsed.url);
+    markChoice(parsed.url, true);
+    note = null;
+    if (changed || !own.answer) pingRows([own]);
+  }
+  drawRows();
+  drawNote();
+  checkEnvironment();
+}
+
+ownRadio.addEventListener("change", () => { if (ownRadio.checked) chooseOwn(); });
+nodeInput.addEventListener("change", chooseOwn);
+
+// A TAB BACK FROM A LONG ABSENCE asks again, and only while no wallet holds the choice. The page's own pick
+// moves only when its node is no longer good; the person's choice never moves.
+let hiddenAt = null;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { hiddenAt = performance.now(); return; }
+  const away = hiddenAt === null ? 0 : performance.now() - hiddenAt;
+  hiddenAt = null;
+  if (away > RECHECK_AFTER_MS && !nodeLocked()) recheck();
+});
+
+async function recheck() {
+  const before = stateOf(nodeUrl());
+  if (picking) { note = ["node.note.checking"]; drawNote(); }
+  await pingAll();
+  if (nodeLocked()) return;
+  let moved = false;
+  if (picking) {
+    if (stateOf(nodeUrl()) !== "good") moved = autoPick();
+    else { note = ["node.note.picked", { host: nodeHost(nodeUrl()) }]; drawNote(); }
+  }
+  if (moved || stateOf(nodeUrl()) !== before) checkEnvironment();
+}
+
+// THE FIRST CHOICE: a link or this tab's earlier choice is taken at once and the list is checked beside it;
+// otherwise the page waits for the answers and picks.
+async function startNode() {
+  buildRows();
+  const source = nodeSource();
+  if (source === "link" || source === "tab") {
+    const url = nodeUrl();
+    if (!NODES.includes(url)) {
+      own.url = url;
+      nodeInput.value = url;
+    }
+    markChoice(url);
+    note = source === "link" ? ["node.note.link", { host: nodeHost(url) }] : null;
+    drawRows();
+    drawNote();
+    await Promise.all([runPreflight(), pingAll()]);
     return;
   }
-  nodeInput.value = parsed.url;
-  showNodeInfo();
+  picking = true;
+  clearNodeUrl();
+  note = ["node.note.checking"];
+  drawNote();
+  await pingAll();
+  autoPick();
   await runPreflight();
 }
 
+// ONE PREFLIGHT AT A TIME COUNTS: a person who clicks through the rows gets the answer for the last one.
+let preflightRun = 0;
 async function runPreflight() {
-  const ready = await preflight();
+  const mine = ++preflightRun;
+  btns.unlock.disabled = true;
+  setStatus(preflightEl, t("page.preflight"), "wait");
+  const ready = await preflight(() => mine === preflightRun);
+  if (mine !== preflightRun) return false;
   btns.unlock.disabled = !ready;
   if (ready) log(t("log.ready"));
   return ready;
 }
+function checkEnvironment() {
+  return runPreflight().catch((e) => log(String((e && e.message) || e), "bad"));
+}
 
-if (nodeInput) nodeInput.addEventListener("change", () => { applyNode().catch((e) => log(String((e && e.message) || e), "bad")); });
-if (nodeCheck) nodeCheck.addEventListener("click", () => {
-  if (nodeLocked()) { log(t("log.node.locked"), "warn"); return; }
-  runPreflight().catch((e) => log(String((e && e.message) || e), "bad"));
-});
+document.addEventListener("i18n:applied", () => { drawRows(); drawNote(); });
 
 btns.unlock.addEventListener("click", () => busy(btns.unlock, unlock));
 btns.sync.addEventListener("click", () => busy(btns.sync, syncWallet));
@@ -715,9 +931,8 @@ btns.forget.addEventListener("click", () => busy(btns.forget, forget));
 // LANGUAGE IS CHOSEN BEFORE THE FIRST LOG LINE; if loading fails the log shows raw keys, visible and not hidden.
 initLocale()
   .then(async () => {
-    // Node captions are set AFTER the language loads: before that t() returns keys.
-    if (nodeInput) nodeInput.value = nodeUrl();
-    showNodeInfo();
-    await runPreflight();
-  });
+    // Node rows are drawn AFTER the language loads: before that t() returns keys.
+    await startNode();
+  })
+  .catch((e) => log(t("log.error", { message: String((e && e.message) || e) }), "bad"));
 btns.unlock.disabled = true;

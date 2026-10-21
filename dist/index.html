@@ -35,20 +35,28 @@
     <div class="card">
       <div id="preflight" class="status wait" data-i18n="page.preflight"></div>
 
-      <!-- THE NODE IS THE VISITOR'S CHOICE. The default is a public community node, but the page can
-           be served anywhere and pointed at a node of that operator's own - then it depends on us in
-           nothing. -->
+      <!-- THE NODE IS THE VISITOR'S CHOICE. The page lists public community nodes with their live
+           state and picks the fastest good one, but it can be served anywhere and pointed at a node of
+           that operator's own - then it depends on us in nothing. The listed rows are drawn by
+           recovery.js from lib/node.js, so the list lives in one place; real radio inputs carry the
+           choice and the keyboard. -->
       <section class="step" id="stepNode">
-        <h2 data-i18n="page.node.h"></h2>
-        <div class="row">
-          <label class="field">
-            <span data-i18n="page.node.label"></span>
-            <input id="node" type="text" spellcheck="false" autocomplete="off" data-i18n-placeholder="page.node.placeholder">
-          </label>
-          <button id="nodeCheck" type="button" data-i18n="page.node.check"></button>
-        </div>
-        <p class="hint" data-i18n="page.node.hint"></p>
-        <div id="nodeInfo" class="info" hidden></div>
+        <h2 id="nodeHead" data-i18n="page.node.h"></h2>
+        <fieldset id="nodeList" class="nodes" aria-labelledby="nodeHead">
+          <div class="node node-own" data-state="idle">
+            <label class="node-pick">
+              <input type="radio" name="node" value="own">
+              <span class="node-text">
+                <span class="node-name" id="nodeOwnName" data-i18n="page.node.own"></span>
+                <span class="node-why"></span>
+              </span>
+              <span class="node-signal"><span class="node-dot" aria-hidden="true"></span><span class="node-ms"></span></span>
+            </label>
+            <input id="node" type="text" spellcheck="false" autocomplete="off" aria-labelledby="nodeOwnName" data-i18n-placeholder="page.node.placeholder">
+          </div>
+        </fieldset>
+        <p id="nodeNote" class="hint node-note" aria-live="polite"></p>
+        <p class="hint" data-i18n="page.node.own.hint"></p>
       </section>
 
       <section class="step">

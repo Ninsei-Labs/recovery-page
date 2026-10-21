@@ -10,7 +10,7 @@ You need:
 - a DNS name such as `xmr.example.com` and a TLS certificate for it;
 - nginx on that host, or any proxy that can send the headers below.
 
-The page itself may live anywhere. Only this name goes into the node field.
+The page itself may live anywhere. Only this name goes into the page's "Your own node" field.
 
 ## What the proxy forwards
 
@@ -168,8 +168,10 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
   -H 'content-type: application/octet-stream' --data-binary ''
 ```
 
-Then open the page, enter `https://xmr.example.com` in the node field and press Check the node. A page
-served over HTTPS cannot use an `http://` node: the browser blocks that call as mixed content.
+Then open the page and enter `https://xmr.example.com` under "Your own node", or open it with
+`?node=https://xmr.example.com`. The row turns green when the node answers on mainnet, synchronized and
+close to the listed nodes' height. A page served over HTTPS cannot use an `http://` node: the browser
+blocks that call as mixed content.
 
 ## Keep the node private
 

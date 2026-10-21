@@ -38,8 +38,12 @@ Two conditions apply in a browser:
    send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, the page
    reports it in the diagnostics and nothing changes. A CORS-passing answer also passes `require-corp`.
 
-The node address is a field on the page. It defaults to a public community node, can be given in the link
-(`?node=https://node.example`), and is remembered for the tab. A node of your own behind an HTTPS
+The page lists public community nodes that pass CORS in a browser. When it opens, it asks each of
+them for `get_info` and picks the fastest one that is on mainnet, synchronized and at most three blocks
+behind the highest answer; each row shows its state and round trip. That request tells a listed node only
+that a visitor asked for its height. A person can pick another row or enter their own node, a link can
+name one (`?node=https://node.example`), and a person's choice is remembered for the tab. Once a wallet
+exists the choice is locked until the wallet is forgotten. A node of your own behind an HTTPS
 proxy is enough; `deploy/xmr-proxy.conf` has the block and `deploy/own-node.md` walks through the setup,
 including a public fallback and the exact headers.
 

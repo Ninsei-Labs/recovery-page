@@ -12,8 +12,8 @@ of the four ways below.
 
 Before anything else, decide about the node. If you run `monerod`, put `deploy/xmr-proxy.conf` in front
 of it; the page needs CORS and the wallet's binary paths. If you would rather not run a node, leave the
-field at its default, which points at a public community node - the page still works, but it depends on
-that node being up and allowing this page's origin. For a proxy of your own, with or without a public
+choice to the page: it lists public community nodes and picks the fastest one that answers well. The page
+still works, but it depends on those nodes being up and allowing this page's origin. For a proxy of your own, with or without a public
 fallback, see `own-node.md` in this directory.
 
 ## 1. nginx (recommended)
@@ -71,7 +71,8 @@ this page can make about itself: the bytes that handle a spend key are the bytes
 
 1. `build.json` is served and its hashes match the files.
 2. The first status line is green (isolation and bundles).
-3. The node field shows the address you expect, and "check the node" reports a height and a network.
+3. The node rows turn green or red by themselves, the chosen row is the node you expect, and the log
+   reports its height and network.
    A `stagenet` node and a `mainnet` recovery file do not match; the page says so before anything is
    signed.
 4. A recovery file from a real deal decrypts and the promised address is shown.
