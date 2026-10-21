@@ -13,7 +13,7 @@
 import { t, n, d, init as initLocale } from "./locales/index.js";
 import {
   NODES, nodeUrl, nodeSource, nodeLabelKey, nodeLabelParams, setNodeUrl, clearNodeUrl, parseNodeUrl, nodeHost,
-  pingNode, topHeight, nodeVerdict, fastestGood,
+  pingNode, medianHeight, nodeVerdict, fastestGood,
 } from "./lib/node.js";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
@@ -705,7 +705,7 @@ function rowFor(url) {
 
 function verdictOf(row) {
   if (row === own && !own.url) return own.refused ? { state: "bad", why: null } : { state: "idle", why: null };
-  return nodeVerdict(row.answer, topHeight([...listed, own].map((r) => r.answer)));
+  return nodeVerdict(row.answer, medianHeight([...listed, own].map((r) => r.answer)));
 }
 
 function stateOf(url) {
@@ -728,7 +728,7 @@ function buildRows() {
   }
 }
 
-// A ROW IS DRAWN FROM ITS ANSWER, so a language change or a new answer elsewhere (a higher top) redraws it.
+// A ROW IS DRAWN FROM ITS ANSWER, so a language change or a new answer elsewhere (a new median) redraws it.
 function drawRows() {
   for (const row of [...listed, own]) {
     const verdict = verdictOf(row);

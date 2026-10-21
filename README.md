@@ -39,8 +39,8 @@ Two conditions apply in a browser:
    reports it in the diagnostics and nothing changes. A CORS-passing answer also passes `require-corp`.
 
 The page lists public community nodes that pass CORS in a browser. When it opens, it asks each of
-them for `get_info` and picks the fastest one that is on mainnet, synchronized and at most three blocks
-behind the highest answer; each row shows its state and round trip. That request tells a listed node only
+them for `get_info` and picks the fastest one that is on mainnet, synchronized and within three blocks
+of the median answer; each row shows its state and round trip. That request tells a listed node only
 that a visitor asked for its height. A person can pick another row or enter their own node, a link can
 name one (`?node=https://node.example`), and a person's choice is remembered for the tab. Once a wallet
 exists the choice is locked until the wallet is forgotten. A node of your own behind an HTTPS

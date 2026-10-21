@@ -40,7 +40,7 @@ async function check(name, fn) {
 const read = (rel) => readFile(join(ROOT, rel), "utf8");
 
 // --- 1. the node address ----------------------------------------------------------------
-const { parseNodeUrl, NODES, DEFAULT_NODE, nodeVerdict, topHeight, fastestGood, pingNode } = await import(
+const { parseNodeUrl, NODES, DEFAULT_NODE, nodeVerdict, medianHeight, fastestGood, pingNode } = await import(
   pathToFileURL(join(ROOT, "lib", "node.js")).href
 );
 
@@ -82,13 +82,15 @@ await check("every listed node is https and written the way the parser gives it 
 
 // AN ANSWER as the SDK's probeMoneroNode gives it; heights and times are example values.
 const answer = (fields) => ({ ok: true, network: "mainnet", nettype: "mainnet", synchronized: true, height: 3_500_000, ms: 100, ...fields });
-// [what it is, answer, top height, expected state, expected why, expected params]
+// [what it is, answer, median height, expected state, expected why, expected params]
 const VERDICTS = [
   ["no answer yet", null, 3_500_000, "checking", "checking", {}],
   ["the probe could not run", { ok: false, why: "unchecked" }, null, "unknown", "unchecked", {}],
-  ["at the top", answer({}), 3_500_000, "good", "good", { height: 3_500_000 }],
+  ["at the median", answer({}), 3_500_000, "good", "good", { height: 3_500_000 }],
   ["three blocks behind", answer({ height: 3_499_997 }), 3_500_000, "good", "good", { height: 3_499_997 }],
   ["four blocks behind", answer({ height: 3_499_996 }), 3_500_000, "bad", "behind", { blocks: 4 }],
+  ["three blocks ahead", answer({ height: 3_500_003 }), 3_500_000, "good", "good", { height: 3_500_003 }],
+  ["four blocks ahead", answer({ height: 3_500_004 }), 3_500_000, "bad", "ahead", { blocks: 4 }],
   ["stagenet", answer({ network: "stagenet", nettype: "stagenet", height: 2_000_000 }), 3_500_000, "bad", "network", { network: "stagenet" }],
   ["not synchronized", answer({ synchronized: false }), 3_500_000, "bad", "sync", {}],
   ["no answer (CORS or offline)", { ok: false, why: "unreachable", ms: 40 }, 3_500_000, "bad", "unreachable", { status: "?" }],
@@ -98,18 +100,25 @@ const VERDICTS = [
   ["an RPC error", { ok: false, why: "rpc", rpc: -1, ms: 90 }, 3_500_000, "bad", "answer", { status: "?" }],
   ["an unknown network", { ok: false, why: "nettype", nettype: "fakenet", ms: 90 }, 3_500_000, "bad", "network", { network: "fakenet" }],
 ];
-await check("a node is good only when it answers on mainnet, synchronized, at most 3 blocks behind", () => {
+await check("a node is good only when it answers on mainnet, synchronized, within 3 blocks of the median", () => {
   for (const [what, a, top, state, why, params] of VERDICTS) {
     assert.deepEqual(nodeVerdict(a, top), { state, why, params }, what);
   }
   return `${VERDICTS.length} cases`;
 });
 
-await check("the highest height counts mainnet answers only", () => {
-  assert.equal(topHeight([]), null);
-  assert.equal(topHeight([null, { ok: false, why: "timeout" }]), null);
-  const answers = [answer({ height: 3_500_002 }), answer({ network: "stagenet", height: 2_000_000 }), answer({ network: "testnet", height: 9_000_000 }), null];
-  assert.equal(topHeight(answers), 3_500_002);
+await check("the reference height is the median of the mainnet answers, so one inflated height cannot move it", () => {
+  assert.equal(medianHeight([]), null);
+  assert.equal(medianHeight([null, { ok: false, why: "timeout" }]), null);
+  // Another network's height and a syncing node's height never count.
+  const others = [answer({ height: 3_500_002 }), answer({ network: "stagenet", height: 2_000_000 }), answer({ network: "testnet", height: 9_000_000 }), answer({ synchronized: false, height: 1_000 }), null];
+  assert.equal(medianHeight(others), 3_500_002);
+  // Five nodes, one claiming a million blocks more: the median stays with the four that agree.
+  const inflated = [3_500_000, 3_500_001, 99_999_999, 3_500_000, 3_499_999].map((height) => answer({ height }));
+  assert.equal(medianHeight(inflated), 3_500_000);
+  // An even count takes the lower middle.
+  assert.equal(medianHeight([3_500_000, 3_500_010].map((height) => answer({ height }))), 3_500_000);
+  assert.equal(medianHeight([3_500_000, 3_500_001, 3_500_002, 3_500_003].map((height) => answer({ height }))), 3_500_001);
 });
 
 await check("the page picks the fastest good node, and nothing when none is good", () => {
@@ -123,7 +132,16 @@ await check("the page picks the fastest good node, and nothing when none is good
     { url: "https://g.example", answer: null },
   ];
   assert.equal(fastestGood(entries), "https://b.example");
-  assert.equal(fastestGood(entries.filter((e) => !/[ab]\./.test(e.url))), null);
+  // One node claims a far higher height and answers fastest: the honest nodes stay good, and it is not picked.
+  const liar = [
+    { url: "https://h1.example", answer: answer({ ms: 90 }) },
+    { url: "https://h2.example", answer: answer({ ms: 60, height: 3_500_001 }) },
+    { url: "https://liar.example", answer: answer({ ms: 5, height: 4_500_000 }) },
+    { url: "https://h3.example", answer: answer({ ms: 70, height: 3_499_999 }) },
+    { url: "https://h4.example", answer: answer({ ms: 120 }) },
+  ];
+  assert.equal(fastestGood(liar), "https://h2.example");
+  assert.equal(fastestGood(entries.filter((e) => !/[abd]\./.test(e.url))), null);
   assert.equal(fastestGood([]), null);
   // Equal times: the list order decides.
   assert.equal(fastestGood([{ url: "https://x.example", answer: answer({ ms: 50 }) }, { url: "https://y.example", answer: answer({ ms: 50 }) }]), "https://x.example");

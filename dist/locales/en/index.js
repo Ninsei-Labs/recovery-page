@@ -249,6 +249,7 @@ export default {
     "node.state.network": "{network}, not mainnet",
     "node.state.sync": "not synced",
     "node.state.behind": "{blocks} blocks behind",
+    "node.state.ahead": "{blocks} blocks ahead of the others",
     "node.state.unchecked": "not checked",
     "node.note.checking": "Asking each node for its height",
     "node.note.picked": "Picked the fastest node that answers well: {host}",
