@@ -37,7 +37,9 @@ async function check(name, fn) {
     bad(name, String((e && e.message) || e));
   }
 }
-const read = (rel) => readFile(join(ROOT, rel), "utf8");
+// LINE ENDINGS ARE NOT PART OF A SOURCE CHECK. A Windows checkout writes CRLF, and guards that slice a
+// function by "\n}\n" then read the rest of the file instead of one body. Normalise once, here.
+const read = (rel) => readFile(join(ROOT, rel), "utf8").then((text) => text.replace(/\r\n/g, "\n"));
 
 // --- 1. the node address ----------------------------------------------------------------
 const { parseNodeUrl, NODES, DEFAULT_NODE, nodeVerdict, medianHeight, fastestGood, pingNode } = await import(

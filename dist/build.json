@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.2.0",
-  "commit": "1999050d20447efcd7642261e05797e647378b71",
-  "builtAt": "2026-10-21T11:49:31.722Z",
+  "commit": "0efed375a6823544d40590078d19a447a3f3a66b",
+  "builtAt": "2026-10-21T14:54:37.699Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -16,8 +16,8 @@
     },
     {
       "file": "assets/vendors/sdk/sdk-browser.js",
-      "bytes": 446054,
-      "sha256": "3af09690"
+      "bytes": 446072,
+      "sha256": "67f5dbca"
     },
     {
       "file": "assets/vendors/atomic/atomic-browser.js",
@@ -31,48 +31,38 @@
     },
     {
       "file": "locales/en/index.js",
-      "bytes": 24336,
-      "sha256": "96a9c6f0"
+      "bytes": 24590,
+      "sha256": "b23e2861"
     },
     {
       "file": "locales/index.js",
-      "bytes": 10993,
-      "sha256": "68b1eb7b"
+      "bytes": 11218,
+      "sha256": "e66e1e0f"
     },
     {
       "file": "index.html",
-      "bytes": 7036,
-      "sha256": "be66e0c4"
+      "bytes": 7151,
+      "sha256": "bbca1c56"
     },
     {
       "file": "recovery.css",
-      "bytes": 24871,
-      "sha256": "4ac29d8c"
+      "bytes": 25253,
+      "sha256": "e02cd332"
     },
     {
       "file": "diagnostics.html",
-      "bytes": 2798,
-      "sha256": "d6bd7364"
+      "bytes": 2839,
+      "sha256": "f43cf632"
     },
     {
       "file": "favicon.svg",
-      "bytes": 376,
-      "sha256": "eea8567b"
-    },
-    {
-      "file": "coi.js",
-      "bytes": 2447,
-      "sha256": "e7f89009"
-    },
-    {
-      "file": "sw.js",
-      "bytes": 1589,
-      "sha256": "15d1a9bd"
+      "bytes": 377,
+      "sha256": "7416a182"
     },
     {
       "file": "lib/node.js",
-      "bytes": 11136,
-      "sha256": "03a655ed"
+      "bytes": 11279,
+      "sha256": "201091ac"
     },
     {
       "file": "lib/codes.js",
@@ -81,18 +71,18 @@
     },
     {
       "file": "lib/settlement.js",
-      "bytes": 3633,
-      "sha256": "80162add"
+      "bytes": 3718,
+      "sha256": "4215dba9"
     },
     {
       "file": "lib/withdrawal.js",
-      "bytes": 3212,
-      "sha256": "56256d04"
+      "bytes": 2869,
+      "sha256": "8af0b649"
     },
     {
       "file": "assets/fonts/chakra-petch-OFL.txt",
-      "bytes": 5472,
-      "sha256": "8f32c96e"
+      "bytes": 5565,
+      "sha256": "b88ebf68"
     },
     {
       "file": "assets/fonts/chakra-petch-latin-600-normal.woff2",
@@ -101,8 +91,8 @@
     },
     {
       "file": "assets/fonts/geist-mono-OFL.txt",
-      "bytes": 4498,
-      "sha256": "cc815ed4"
+      "bytes": 4591,
+      "sha256": "ccfad538"
     },
     {
       "file": "assets/fonts/geist-mono-latin-400-normal.woff2",
@@ -116,8 +106,8 @@
     },
     {
       "file": "assets/fonts/hanken-grotesk-OFL.txt",
-      "bytes": 4530,
-      "sha256": "f45f60ca"
+      "bytes": 4623,
+      "sha256": "ef8780a5"
     },
     {
       "file": "assets/fonts/hanken-grotesk-latin-400-normal.woff2",
@@ -136,8 +126,8 @@
     },
     {
       "file": "assets/fonts/silkscreen-OFL.txt",
-      "bytes": 4503,
-      "sha256": "5e647e94"
+      "bytes": 4596,
+      "sha256": "90efa205"
     },
     {
       "file": "assets/fonts/silkscreen-latin-700-normal.woff2",
@@ -146,18 +136,18 @@
     },
     {
       "file": "_headers",
-      "bytes": 671,
-      "sha256": "8556c59c"
+      "bytes": 610,
+      "sha256": "0b822857"
     },
     {
       "file": "recovery.js",
-      "bytes": 45041,
-      "sha256": "21e6eb3b"
+      "bytes": 46810,
+      "sha256": "bd23ed48"
     },
     {
       "file": "diagnostics.js",
-      "bytes": 19050,
-      "sha256": "540f7faa"
+      "bytes": 19448,
+      "sha256": "1592c3c3"
     }
   ]
 }

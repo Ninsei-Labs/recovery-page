@@ -23,7 +23,7 @@ import { isSell, promisedXmrAddress, fileAmount, moneyState } from "./lib/withdr
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=cf687c3e";
 const WORKER = "./monero.worker.js?v=fd2e8b51";
-const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=cd449f26";
+const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=67f5dbca";
 // THE APP IS OPTIONAL: a third-party operator has none, so the height is typed by hand. A 404 is not an error.
 const API = "./api";
 
