@@ -321,6 +321,7 @@ const REQUIRED = [
   "locales/en/index.js",
   "_headers",
   "build.json",
+  "favicon.svg",
   // The fonts are licensed under the SIL OFL, which travels with them.
   "assets/fonts/hanken-grotesk-OFL.txt",
   "assets/fonts/geist-mono-OFL.txt",
@@ -371,6 +372,17 @@ await check("the stamped page names the hashes of the files it loads", async () 
   const expected = createHash("sha256").update(bundle).digest("hex").slice(0, 8);
   assert.ok(page.includes(expected), `sdk-browser.js?v=${expected} is not named by the page`);
   return `?v=${expected}`;
+});
+
+await check("both pages name the icon the build ships, so no browser asks for /favicon.ico", async () => {
+  for (const file of ["index.html", "diagnostics.html"]) {
+    const html = await readFile(join(DIST, file), "utf8");
+    assert.match(html, /<link rel="icon" href="\.\/favicon\.svg" type="image\/svg\+xml">/, `${file} names no icon`);
+  }
+  const svg = await readFile(join(DIST, "favicon.svg"), "utf8");
+  assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/, "favicon.svg is not an SVG");
+  // The CSP allows images from this origin and data: only; an icon that loads anything else would be blocked.
+  assert.ok(!/(?:href|src)=|url\(/.test(svg), "favicon.svg loads another file");
 });
 
 await check("the isolation fallback ships with the page", async () => {
