@@ -40,6 +40,22 @@ async function check(name, fn) {
 // LINE ENDINGS ARE NOT PART OF A SOURCE CHECK. A Windows checkout writes CRLF, and guards that slice a
 // function by "\n}\n" then read the rest of the file instead of one body. Normalise once, here.
 const read = (rel) => readFile(join(ROOT, rel), "utf8").then((text) => text.replace(/\r\n/g, "\n"));
+
+// VISIBLE HTML WITHOUT COMMENTS, cut by index rather than a regex: a single replace of `<!--...-->` can leave a
+// second opener behind, and a comment is not text a person reads. The page's own comments are not checked.
+const withoutComments = (html) => {
+  let out = "";
+  let at = 0;
+  while (at < html.length) {
+    const open = html.indexOf("<!--", at);
+    if (open < 0) { out += html.slice(at); break; }
+    out += html.slice(at, open);
+    const close = html.indexOf("-->", open + 4);
+    if (close < 0) break;
+    at = close + 3;
+  }
+  return out;
+};
 // THE PAGE'S MODULES, read from the folder the build ships whole (build/build.mjs): every rule over the sources and
 // the list of files a host must receive cover a new module without a second list to remember.
 const LIB = (await readdir(join(ROOT, "lib"))).filter((name) => name.endsWith(".js")).sort().map((name) => `lib/${name}`);
@@ -1040,13 +1056,13 @@ await check("the key is the Ninsei key, never a seed, and the page says it is no
   // Every "seed" must be the one in "not a wallet seed": a text that says both still calls the key a seed once.
   const seeds = texts.filter(([, v]) => (v.match(/seed/gi) || []).length !== (v.match(/not a wallet seed/gi) || []).length);
   assert.deepEqual(seeds.map(([k]) => k), [], "a text calls something a seed");
-  assert.ok(!/seed/i.test(html.replace(/<!--[\s\S]*?-->/g, "")), "index.html says seed");
+  assert.ok(!/seed/i.test(withoutComments(html)), "index.html says seed");
   assert.match(strings["page.hint.key"], /not a wallet seed/i);
   assert.match(strings["page.hint.key"], /Ninsei never asks for it/);
   assert.match(strings["page.hint.key"], /Ninsei key/);
   const named = texts.filter(([, v]) => /recovery key/i.test(v.replace(/NINSEI RECOVERY KEY/g, "")));
   assert.deepEqual(named.map(([k]) => k), [], "a text calls it a recovery key");
-  assert.ok(!/recovery key/i.test(html.replace(/<!--[\s\S]*?-->/g, "")), "index.html calls it a recovery key");
+  assert.ok(!/recovery key/i.test(withoutComments(html)), "index.html calls it a recovery key");
   assert.match(strings["page.find.lead"], /`ninsei-recovery-key`/, "the find block does not name the file the SDK writes");
 });
 
