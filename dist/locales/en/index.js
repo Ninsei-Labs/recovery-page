@@ -10,7 +10,7 @@ export default {
   strings: {
     "page.title": "Ninsei recovery: withdraw XMR from a swap wallet",
     "page.h1": "Withdraw XMR from a swap wallet",
-    "page.intro": "Keys and the password never leave this tab: the recovery file is decrypted in the browser and the transfer is signed here too. Only requests to the Monero node leave the tab - the balance, the sync and the sending of an already signed transaction.",
+    "page.intro": "Keys and the password never leave this tab: the recovery file is decrypted in the browser and the transfer is signed here too. Only requests to the Monero node leave the tab: for the balance, the sync and the sending of an already signed transaction.",
     "page.lang": "Language",
     "page.preflight": "checking the environment...",
     "page.step1": "1. Recovery file",
