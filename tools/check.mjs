@@ -45,7 +45,28 @@ const read = (rel) => readFile(join(ROOT, rel), "utf8").then((text) => text.repl
 const { parseNodeUrl, NODES, DEFAULT_NODE, nodeVerdict, medianHeight, fastestGood, pingNode } = await import(
   pathToFileURL(join(ROOT, "lib", "node.js")).href
 );
+const { moneroHeightAtOrAfter, restoreWindow } = await import(pathToFileURL(join(ROOT, "lib", "window.js")).href);
 
+await check("the lock window ends at the block at t1 plus ten", async () => {
+  const fetchImpl = async (_url, options) => {
+    const request = JSON.parse(options.body);
+    const height = Number(request.params.height);
+    return { ok: true, json: async () => ({ result: { block_header: { timestamp: 1_000 + height * 1_000 } } }) };
+  };
+  const at = await moneroHeightAtOrAfter({ nodeUrl: "https://node.example", timestamp: 1_000_500, tipHeight: 2_000, fetchImpl });
+  assert.equal(at, 1_000, `height at t1 is ${at}`);
+  const window = await restoreWindow({ nodeUrl: "https://node.example", t1Sec: 1_000_500, startHeight: 500, tipHeight: 2_000, fetchImpl });
+  assert.deepEqual(window, { nodeUrl: "https://node.example", toHeight: 1_010, tipHeight: 2_000, fallback: true });
+});
+await check("a t1 in the future stops at the tip", async () => {
+  const fetchImpl = async (_url, options) => {
+    const request = JSON.parse(options.body);
+    const height = Number(request.params.height);
+    return { ok: true, json: async () => ({ result: { block_header: { timestamp: 1_000 + height * 1_000 } } }) };
+  };
+  const window = await restoreWindow({ nodeUrl: "https://node.example", t1Sec: 9_000_000, startHeight: 500, tipHeight: 2_000, fetchImpl });
+  assert.equal(window.toHeight, 2_000);
+});
 await check("an empty address is refused with its own reason", () => {
   assert.deepEqual(parseNodeUrl(""), { ok: false, why: "empty", url: null });
   assert.deepEqual(parseNodeUrl("   "), { ok: false, why: "empty", url: null });

@@ -17,7 +17,8 @@ import {
   NODES, STAGENET_NODE, nodeUrl, nodeSource, nodeLabelKey, nodeLabelParams, setNodeUrl, clearNodeUrl, parseNodeUrl, nodeHost,
   pingNode, medianHeight, nodeVerdict, fastestGood,
 } from "./lib/node.js";
-import { settlementOf, evmCall, evmLogs, evmBlockNumber } from "./lib/settlement.js";
+import { settlementOf, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
+import { restoreWindow } from "./lib/window.js";
 import { isSell, promisedXmrAddress, fileAmount, moneyState } from "./lib/withdrawal.js";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
@@ -489,6 +490,11 @@ async function findKeySwaps() {
       factory: chain.escrow.address,
       address: keyAddressInput.value.trim() || null,
       evmLogs: (request) => evmLogs(chain.id, request),
+      // The order's block time and the Monero headers give the start height; the same node answers both the
+      // search and the later withdrawal.
+      evmBlockTime: (block) => evmBlockTime(chain.id, block),
+      xmrNodes: [nodeUrl()],
+      moneroNetwork: chain.testnet ? "stagenet" : "mainnet",
       fromBlock,
     });
   } catch (e) {
@@ -555,11 +561,11 @@ async function openFoundSwap(found, mnemonic, chain, m) {
       source: "halves", network, address: joint.address,
       spendHalf: halves.spendHalf, viewHalf: halves.viewHalf,
       otherSpendPoint, otherViewPoint, otherViewHalf,
-      escrowAddress: found.escrow, restoreHeight: 0,
+      escrowAddress: found.escrow, restoreHeight: Number(found.startHeight) || 0,
     },
     escrow: { address: found.escrow },
     receiveAddress: null,
-    restoreHeight: 0,
+    restoreHeight: Number(found.startHeight) || 0,
   });
   const text = await m.createRecoveryFile(payload, "");
   keyWordsInput.value = "";
@@ -852,13 +858,20 @@ async function syncWallet() {
   showProgress("flow.progress.scanning", { sub: soFar });
   const ticker = setInterval(() => { if (progress && progress.sub === soFar) drawProgress(); }, 1000);
 
-  // RESTORE IS A PACKAGE RULE (sweep.restore): height with a downward margin, a rescan, and a SECOND pass
-  // (rescanSpent + sync) when coins exist but are locked.
+  // RESTORE IS A PACKAGE RULE (sweep.restore): the blocks around the lock first, then the full scan only if
+  // that window holds nothing. The window ends at the Monero block at or after the order's t1, plus ten.
+  let window = null;
+  try {
+    const tipHeight = Number(await wallet.getDaemonHeight());
+    const rawT1 = Number(payload.deadlines && payload.deadlines.t1);
+    const t1Sec = Number.isFinite(rawT1) && rawT1 > 0 ? Math.floor(rawT1 >= 1e12 ? rawT1 / 1000 : rawT1) : 0;
+    window = await restoreWindow({ nodeUrl: nodeUrl(), t1Sec, startHeight: height, tipHeight });
+  } catch { window = null; }
   const t0 = performance.now();
   let restored;
   try {
     log(t("log.scan.start", { from: n(scanFrom), height: n(height) }));
-    restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10 });
+    restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10, window });
   } catch (e) {
     log(t("log.rescan.failed", { why: (e && e.message) || e }), "bad");
     return "flow.err.sync";
@@ -873,6 +886,11 @@ async function syncWallet() {
   const total = BigInt(restored.total);
   balance = { total, unlocked };
   log(t("log.restored.passes", { passes: n(restored.passes), locked: restored.lockedPass ? t("value.yes") : t("value.no") }), "ok");
+  if (restored.window && restored.window.used) {
+    log(t("log.scan.window", { from: n(restored.window.fromHeight), to: n(restored.window.toHeight), txs: n(restored.window.txs) }), "ok");
+  } else if (window) {
+    log(t("log.scan.window.skipped", { why: restored.window && restored.window.skipped ? restored.window.skipped : t("value.no") }), "wait");
+  }
 
   const walletHeight = await wallet.getHeight();
   const nodeHeight = await wallet.getDaemonHeight();

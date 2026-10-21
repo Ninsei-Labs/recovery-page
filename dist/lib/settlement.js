@@ -143,6 +143,38 @@ export async function evmLogs(network, request, fetchImpl = globalThis.fetch) {
 
 
 // THE CURRENT HEIGHT, for bounding a log search: public RPCs refuse a query that spans tens of millions of blocks.
+// THE SETTLEMENT BLOCK'S TIMESTAMP, for `findSwaps`'s Monero start height. One public RPC, one answer; a block
+// without a timestamp is unknown, never zero.
+export async function evmBlockTime(network, blockNumber, fetchImpl = globalThis.fetch) {
+  const chain = settlementOf(network);
+  if (!chain) throw new Error(`unknown settlement network: ${network}`);
+  const number = Number(blockNumber);
+  if (!Number.isSafeInteger(number) || number < 0) throw new Error("eth_getBlockByNumber: bad block");
+  const tag = "0x" + number.toString(16);
+  const failures = [];
+  for (const url of chain.rpcs) {
+    let body;
+    try {
+      const response = await fetchImpl(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBlockByNumber", params: [tag, false] }),
+        signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+      });
+      if (!response.ok) { failures.push(`${url}: HTTP ${response.status}`); continue; }
+      body = await response.json();
+    } catch (error) {
+      failures.push(`${url}: ${(error && error.name) || "error"}`);
+      continue;
+    }
+    if (body && body.error) { failures.push(`${url}: RPC ${body.error.code ?? "error"}`); continue; }
+    const timestamp = Number.parseInt(body && body.result && body.result.timestamp, 16);
+    if (Number.isFinite(timestamp) && timestamp > 0) return timestamp;
+    failures.push(`${url}: no timestamp`);
+  }
+  throw new Error(`no ${network} RPC answered (${failures.join("; ")})`);
+}
+
 export async function evmBlockNumber(network, fetchImpl = globalThis.fetch) {
   const chain = settlementOf(network);
   if (!chain) throw new Error(`unknown settlement network: ${network}`);
