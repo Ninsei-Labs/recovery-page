@@ -6,27 +6,30 @@ puts a proxy in front of it. This file shows how.
 
 You need:
 
-- a node on the same host, listening on `127.0.0.1:18081` (the default `monerod` RPC port);
-- a DNS name such as `xmr.example.com` and a TLS certificate for it;
+- a node on the same host, started with `--restricted-rpc` and listening on `127.0.0.1:18081` (the
+  default `monerod` RPC port; `38081` for a stagenet node);
+- a DNS name of its own such as `xmr.example.com` and a TLS certificate for it;
 - nginx on that host, or any proxy that can send the headers below.
 
 The page itself may live anywhere. Only this name goes into the page's "Your own node" field.
 
 ## What the proxy forwards
 
-Forward these paths and nothing else:
+Every path, to a node that runs with `--restricted-rpc`. Restricted mode refuses the calls a wallet never
+makes (mining, peers, `/stop_daemon` and the rest of the admin surface), so the node itself is the filter.
+
+Do not replace it with a list of allowed paths. The wallet's paths are not the ones the RPC documentation
+leads with: a scan on stagenet called these, and nothing else:
 
 | Path | Used for |
 | --- | --- |
-| `/json_rpc` | chain height, node info, fee estimate |
-| `/get_blocks_by_height.bin` | block bodies during the wallet scan |
-| `/get_transactions` | transaction lookup |
-| `/send_raw_transaction` | broadcast of the signed transaction |
-| `/is_key_image_spent` | double spend check before the send |
-| `/get_height` | height fallback |
+| `/json_rpc` | node info, chain height, fee estimate |
+| `/gethashes.bin` | the chain's block hashes up to the start block, most of a scan's time |
+| `/getblocks.bin` | block bodies from the start block on |
+| `/get_transaction_pool_hashes.bin` | transactions not yet in a block |
 
-Do not forward the whole RPC surface. The page never calls mining, peer or admin methods, and a proxy
-that passes `/stop_daemon` is a proxy that lets anyone stop the node.
+The transfer adds paths of its own (outputs for the ring, the broadcast). A list that missed one would
+pass the scan and fail at the send, with the money already found.
 
 ## Headers the page needs
 
@@ -58,7 +61,7 @@ Put this in the server block for `xmr.example.com`, after the TLS settings:
 ```nginx
 client_max_body_size 8m;
 
-location ~ ^/(json_rpc|get_blocks_by_height\.bin|get_transactions|send_raw_transaction|is_key_image_spent|get_height)$ {
+location / {
     proxy_pass http://127.0.0.1:18081;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -94,7 +97,7 @@ fallback only when your node cannot be reached or does not answer in time.
 ```nginx
 client_max_body_size 8m;
 
-location ~ ^/(json_rpc|get_blocks_by_height\.bin|get_transactions|send_raw_transaction|is_key_image_spent|get_height)$ {
+location / {
     proxy_pass http://127.0.0.1:18081;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -157,14 +160,14 @@ curl -sS -i -X OPTIONS https://xmr.example.com/json_rpc \
   -H 'Access-Control-Request-Method: POST' \
   -H 'Access-Control-Request-Headers: content-type'
 
-# a real call: expect "status": "OK" and "nettype": "mainnet"
+# a real call: expect "status": "OK" and "nettype": "mainnet" ("stagenet" for a stagenet node)
 curl -sS https://xmr.example.com/json_rpc \
   -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":"0","method":"get_info"}'
 
 # the binary path must exist: 400 means the node answered, 404 means the proxy does not pass it
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
-  https://xmr.example.com/get_blocks_by_height.bin \
+  https://xmr.example.com/getblocks.bin \
   -H 'content-type: application/octet-stream' --data-binary ''
 ```
 
@@ -176,8 +179,8 @@ blocks that call as mixed content.
 ## Keep the node private
 
 - `monerod` stays on `127.0.0.1` or a private interface. Only the proxy listens on 443.
-- Do not enable restricted RPC with credentials for this proxy. The page sends no credentials and the
-  data is public.
+- Run `monerod` with `--restricted-rpc` and no RPC login. The page sends no credentials, the data is
+  public, and restricted mode refuses everything a wallet does not need.
 - Rate limit the name if it is open to the internet. A scan is a handful of large requests, not a
   stream, so a simple per address limit is enough.
 - Keep `client_max_body_size` at a few megabytes. A signed transaction is small, and a large limit only

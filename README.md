@@ -20,16 +20,17 @@ answers is not a recovery page.
 
 ## What a node must do
 
-The page speaks to a Monero node through the wallet's own paths:
+The page speaks to a Monero node through the wallet's own paths. A scan on stagenet called these:
 
 | Path | Purpose |
 |---|---|
-| `/json_rpc` | `get_info`, fee estimate, hard fork info |
-| `/get_blocks_by_height.bin` | blocks with transactions (the main sync channel) |
-| `/get_transactions` | transaction lookup |
-| `/send_raw_transaction` | broadcast of the signed transaction |
-| `/is_key_image_spent` | double spend check before the send |
-| `/get_height` | chain height fallback |
+| `/json_rpc` | `get_info`, chain height, fee estimate |
+| `/gethashes.bin` | the chain's block hashes up to the start block, most of a scan's time |
+| `/getblocks.bin` | block bodies from the start block on |
+| `/get_transaction_pool_hashes.bin` | transactions not yet in a block |
+
+The transfer adds paths of its own, so a node for this page runs with `--restricted-rpc` and its proxy
+passes every path (`deploy/own-node.md`).
 
 Two conditions apply in a browser:
 
