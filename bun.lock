@@ -5,7 +5,7 @@
     "": {
       "name": "@ninsei-labs/sweep",
       "devDependencies": {
-        "@ninsei-labs/sdk": "0.49.0",
+        "@ninsei-labs/sdk": "0.50.0",
         "@noble/curves": "2.4.0",
         "@noble/hashes": "2.4.0",
         "assert": "2.1.0",
@@ -111,7 +111,7 @@
 
     "@jsonjoy.com/util": ["@jsonjoy.com/util@1.9.0", "", { "dependencies": { "@jsonjoy.com/buffers": "^1.0.0", "@jsonjoy.com/codegen": "^1.0.0" }, "peerDependencies": { "tslib": "2" } }, "sha512-pLuQo+VPRnN8hfPqUTLTHk126wuYdXVxE6aDmjSeV4NCAgyxWbiOIeNJVtID3h1Vzpoi9m4jXezf73I6LgabgQ=="],
 
-    "@ninsei-labs/sdk": ["@ninsei-labs/sdk@0.49.0", "", { "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "@scure/bip39": "2.4.0", "keccak256": "^1.0.6" } }, "sha512-g6clhNARPWZyBcsGJS5jfD45g04QldoB5hFhxuQgevNuCNCmGvEo/mDFDDHdFbNtkGYIXxsNZb2KY+M9Od4xeA=="],
+    "@ninsei-labs/sdk": ["@ninsei-labs/sdk@0.50.0", "", { "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "@scure/bip39": "2.4.0", "keccak256": "^1.0.6" } }, "sha512-1B2EQz45MWq8IIX6rJCx2i7mArsmj7GMcqG4y5sGm90rG66kdtisirph/UdYXY2kKYhw0V3MBBlrfGchauR6ww=="],
 
     "@noble/curves": ["@noble/curves@2.4.0", "", { "dependencies": { "@noble/hashes": "2.4.0" } }, "sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew=="],
 
