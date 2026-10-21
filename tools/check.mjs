@@ -416,6 +416,200 @@ await check("every settlement network is one the SDK knows, with its chain id an
   return names.join(", ");
 });
 
+// --- 2c. the start height of a swap found by the key ------------------------------------------
+const { startHeightAt, START_HEIGHT_MARGIN } = await import(pathToFileURL(join(ROOT, "lib", "start-height.js")).href);
+const { evmBlockTime } = await import(pathToFileURL(join(ROOT, "lib", "settlement.js")).href);
+const { moneroHeaderTime } = await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
+
+// A FAKE MONERO NODE: block h's header time is `stamp(h)`, every header read is counted, and a height outside the
+// chain is refused as a real node refuses it. Heights and times are examples, not a recorded chain.
+const fakeChain = (top, stamp) => {
+  const asked = [];
+  return {
+    asked,
+    tip: async () => top,
+    headerTime: async (height) => {
+      asked.push(height);
+      if (!Number.isInteger(height) || height < 0 || height > top) throw new Error(`no block ${height}`);
+      return stamp(height);
+    },
+  };
+};
+// THE SAME CASES ON EVERY RUN: a seeded generator, so a failure names a case that repeats.
+const seeded = (seed) => () => {
+  seed = (seed + 0x6d2b79f5) >>> 0;
+  let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+  return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+};
+// THE BOUND ON HEADER READS: a binary search over top + 1 blocks, plus the two ends. A linear walk would read the
+// whole chain, over two million requests on mainnet.
+const searchBound = (top) => Math.ceil(Math.log2(top + 2)) + 2;
+
+await check("the start height is 60 blocks below the last Monero block at or before the order, on any chain", async () => {
+  assert.equal(START_HEIGHT_MARGIN, 60);
+  const random = seeded(76);
+  let cases = 0;
+  for (let c = 0; c < 200; c += 1) {
+    // Timestamps that never step back, with equal neighbours allowed; the expected answer is found by reading
+    // every block, independently of the search.
+    const top = Math.floor(random() * 3000);
+    const stamps = [];
+    let at = 1_700_000_000;
+    for (let h = 0; h <= top; h += 1) {
+      at += Math.floor(random() * 241);
+      stamps.push(at);
+    }
+    for (let k = 0; k < 15; k += 1) {
+      const order = stamps[0] - 600 + Math.floor(random() * (stamps[top] - stamps[0] + 1200));
+      let last = 0;
+      for (let h = 0; h <= top; h += 1) if (stamps[h] <= order) last = h;
+      const chain = fakeChain(top, (h) => stamps[h]);
+      const got = await startHeightAt(order, chain);
+      assert.equal(got, Math.max(0, last - 60), `top ${top}, order ${order}`);
+      assert.ok(chain.asked.length <= searchBound(top), `top ${top}: ${chain.asked.length} header reads`);
+      cases += 1;
+    }
+  }
+  // A mainnet-sized chain at two minutes a block: the answer is the block the clock gives, minus the margin.
+  const t0 = 1_397_818_193;
+  const mainnet = (order) => fakeChain(3_500_000, (h) => t0 + 120 * h);
+  for (const order of [t0 + 120 * 1_000_000, t0 + 120 * 3_400_000 + 119, t0 + 120 * 3_499_999 + 60]) {
+    const chain = mainnet(order);
+    assert.equal(await startHeightAt(order, chain), Math.floor((order - t0) / 120) - 60);
+    assert.ok(chain.asked.length <= searchBound(3_500_000), `${chain.asked.length} header reads on mainnet`);
+    cases += 1;
+  }
+  // The ends, as worked examples: a block whose time equals the order's counts; an order newer than the tip starts
+  // below the tip; one older than every block starts at 0; a chain shorter than the margin never goes negative.
+  assert.equal(await startHeightAt(1000 + 120 * 500, fakeChain(1000, (h) => 1000 + 120 * h)), 440);
+  assert.equal(await startHeightAt(10_000_000, fakeChain(1000, (h) => 1000 + 120 * h)), 940);
+  assert.equal(await startHeightAt(999, fakeChain(1000, (h) => 1000 + 120 * h)), 0);
+  assert.equal(await startHeightAt(1000 + 120 * 30, fakeChain(40, (h) => 1000 + 120 * h)), 0);
+  // Monero's genesis block carries the timestamp 0 (a real stagenet node answers so): the search must not need it.
+  const genesis = fakeChain(1000, (h) => (h === 0 ? 0 : 1000 + 120 * h));
+  assert.equal(await startHeightAt(1000 + 120 * 500, genesis), 440);
+  assert.ok(!genesis.asked.includes(0), "the genesis block was read");
+  assert.equal(await startHeightAt(999, fakeChain(1000, (h) => (h === 0 ? 0 : 1000 + 120 * h))), 0);
+  return `${cases + 6} cases`;
+});
+
+await check("the scan never starts above the first block that can hold the XMR, with block times 2 h ahead or 1 h behind", async () => {
+  // A Monero block's timestamp may run up to two hours ahead of the clock and about an hour behind it (the
+  // median of the last 60 blocks). Block h is mined at 120*h; its header says 120*h plus a jitter in that range.
+  // The XMR of an order made at `order` can only be in a block mined at or after it.
+  const random = seeded(3);
+  const top = 200_000;
+  const jitter = new Map();
+  const stamp = (h) => {
+    if (!jitter.has(h)) jitter.set(h, Math.floor(random() * 10_801) - 3600);
+    return 1_000_000 + 120 * h + jitter.get(h);
+  };
+  let cases = 0;
+  for (let k = 0; k < 400; k += 1) {
+    const order = 1_000_000 + Math.floor(random() * 120 * top);
+    const firstMined = Math.ceil((order - 1_000_000) / 120);
+    const got = await startHeightAt(order, fakeChain(top, stamp));
+    assert.ok(got <= firstMined, `order ${order}: starts at ${got}, above block ${firstMined}`);
+    // And not far below it: the margin, the two hours ahead and one more block, so a scan is not hours longer.
+    assert.ok(got >= firstMined - 60 - 60 - 2, `order ${order}: starts at ${got}, far below block ${firstMined}`);
+    cases += 1;
+  }
+  return `${cases} orders`;
+});
+
+await check("a start height the chain cannot give is unknown: every failed or strange read throws, never a height", async () => {
+  const good = (top = 1000) => fakeChain(top, (h) => 1_000_000 + 120 * h);
+  const order = 1_000_000 + 120 * 500;
+  const unknowns = [
+    ["the tip read fails", order, { tip: async () => { throw new Error("offline"); }, headerTime: good().headerTime }],
+    ["the tip is not a height", order, { tip: async () => Number.NaN, headerTime: good().headerTime }],
+    ["the tip is negative", order, { tip: async () => -1, headerTime: good().headerTime }],
+    ["a header read fails", order, { tip: async () => 1000, headerTime: async (h) => { if (h === 500) throw new Error("timeout"); return 1_000_000 + 120 * h; } }],
+    ["a header has no time", order, { tip: async () => 1000, headerTime: async (h) => (h === 1000 ? 1_000_000 + 120 * h : null) }],
+    ["a header time is NaN", order, { tip: async () => 1000, headerTime: async () => Number.NaN }],
+    ["a header time is 0", order, { tip: async () => 1000, headerTime: async () => 0 }],
+    ["a header time is in milliseconds", 1_760_000_000 + 120 * 500, { tip: async () => 1000, headerTime: async (h) => (1_760_000_000 + 120 * h) * 1000 }],
+    ["the order time is NaN", Number.NaN, good()],
+    ["the order time is 0", 0, good()],
+    ["the order time is negative", -5, good()],
+    ["the order time is not a number", "yesterday", good()],
+    ["the order time is in milliseconds", 1_760_000_000_000, fakeChain(1000, (h) => 1_760_000_000 + 120 * h)],
+    ["the order time is infinite", Number.POSITIVE_INFINITY, good()],
+    ["there is no header reader", order, {}],
+  ];
+  for (const [what, time, readers] of unknowns) {
+    let answer;
+    await assert.rejects(async () => { answer = await startHeightAt(time, readers); }, Error, what);
+    assert.equal(answer, undefined, `${what}: answered ${answer}`);
+  }
+  return `${unknowns.length} cases`;
+});
+
+// THE TWO READERS: what they ask, and that a missing answer throws instead of reading as 0.
+const fakeFetch = (answers) => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init, body: JSON.parse(init.body) });
+    const next = answers[calls.length - 1];
+    if (next instanceof Error) throw next;
+    return { ok: next.status === 200, status: next.status, json: async () => next.body };
+  };
+  return { calls, fetchImpl };
+};
+
+await check("the order's block time is one eth_getBlockByNumber, and no answer is unknown, never 0", async () => {
+  const [first, second, third] = SETTLEMENT["arbitrum-sepolia"].rpcs;
+  // The block of an example order; the answer is shaped as the JSON-RPC spec gives it (timestamp in hex seconds).
+  const asks = fakeFetch([{ status: 200, body: { jsonrpc: "2.0", id: 1, result: { number: "0x13293393", timestamp: "0x6a1c3f80" } } }]);
+  assert.equal(await evmBlockTime("arbitrum-sepolia", 321_467_283, asks.fetchImpl), 0x6a1c3f80);
+  assert.equal(asks.calls.length, 1);
+  assert.equal(asks.calls[0].url, first);
+  assert.equal(asks.calls[0].init.method, "POST");
+  assert.deepEqual(asks.calls[0].body, { jsonrpc: "2.0", id: 1, method: "eth_getBlockByNumber", params: ["0x13293393", false] });
+  // A failed transport, an unknown block (result null) and an RPC error move on; the next answer counts.
+  const moves = fakeFetch([{ status: 503, body: null }, { status: 200, body: { result: null } }, { status: 200, body: { result: { timestamp: "0x10" } } }]);
+  assert.equal(await evmBlockTime("arbitrum-sepolia", 7, moves.fetchImpl), 16);
+  assert.deepEqual(moves.calls.map((c) => c.url), [first, second, third]);
+  // Nobody answers with a time: thrown, never 0.
+  const none = fakeFetch([new TypeError("Failed to fetch"), { status: 200, body: { error: { code: -32000, message: "header not found" } } }, { status: 200, body: { result: { timestamp: "0x0" } } }]);
+  await assert.rejects(evmBlockTime("arbitrum-sepolia", 7, none.fetchImpl), /no arbitrum-sepolia RPC answered the time of block 7/);
+  assert.equal(none.calls.length, 3);
+  // A bad block number or an unknown network is refused before any request.
+  const idle = fakeFetch([]);
+  for (const bad of [-1, 1.5, Number.NaN, "7", null]) await assert.rejects(evmBlockTime("arbitrum-sepolia", bad, idle.fetchImpl), /bad block number/);
+  await assert.rejects(evmBlockTime("base", 7, idle.fetchImpl), /unknown settlement network/);
+  assert.equal(idle.calls.length, 0);
+});
+
+await check("a Monero block's time is one get_block_header_by_height, and no answer is unknown, never 0", async () => {
+  const url = "https://node.example";
+  // An answer shaped as monerod's get_block_header_by_height gives it; the height and the time are examples.
+  const header = (height, timestamp) => ({ status: 200, body: { jsonrpc: "2.0", id: "0", result: { status: "OK", block_header: { height, timestamp } } } });
+  const asks = fakeFetch([header(2_000_000, 1_764_246_150)]);
+  assert.equal(await moneroHeaderTime(url, 2_000_000, asks.fetchImpl), 1_764_246_150);
+  assert.equal(asks.calls.length, 1);
+  assert.equal(asks.calls[0].url, url + "/json_rpc");
+  assert.equal(asks.calls[0].init.method, "POST");
+  assert.equal(asks.calls[0].init.headers["content-type"], "application/json");
+  assert.deepEqual(asks.calls[0].body, { jsonrpc: "2.0", id: "0", method: "get_block_header_by_height", params: { height: 2_000_000 } });
+  const unknowns = [
+    ["an HTTP error", { status: 500, body: null }],
+    ["an RPC error", { status: 200, body: { error: { code: -2, message: "Requested block height: 9 greater than current top block height: 3" } } }],
+    ["another block's header", header(1_999_999, 1_764_246_000)],
+    ["a header without a time", header(2_000_000, undefined)],
+    ["a time of 0", header(2_000_000, 0)],
+    ["a time that is not a number", header(2_000_000, "1764246150")],
+  ];
+  for (const [what, answer] of unknowns) {
+    await assert.rejects(moneroHeaderTime(url, 2_000_000, fakeFetch([answer]).fetchImpl), /get_block_header_by_height 2000000/, what);
+  }
+  await assert.rejects(moneroHeaderTime(url, 2_000_000, fakeFetch([new TypeError("Failed to fetch")]).fetchImpl), TypeError);
+  const idle = fakeFetch([]);
+  for (const bad of [-1, 2.5, Number.NaN, "5"]) await assert.rejects(moneroHeaderTime(url, bad, idle.fetchImpl), /not a block height/);
+  assert.equal(idle.calls.length, 0);
+});
+
 // --- 3. the page's own rules ------------------------------------------------------------
 await check("the SDK entry names package subpaths, not files inside the package", async () => {
   const text = await read("sdk-entry.js");

@@ -15,9 +15,10 @@
 import { t, n, d, init as initLocale } from "./locales/index.js";
 import {
   NODES, STAGENET_NODE, nodeUrl, nodeSource, nodeLabelKey, nodeLabelParams, setNodeUrl, clearNodeUrl, parseNodeUrl, nodeHost,
-  pingNode, medianHeight, nodeVerdict, fastestGood,
+  pingNode, medianHeight, nodeVerdict, fastestGood, moneroHeaderTime,
 } from "./lib/node.js";
-import { settlementOf, evmCall, evmLogs, evmBlockNumber } from "./lib/settlement.js";
+import { settlementOf, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
+import { startHeightAt } from "./lib/start-height.js";
 import { isSell, promisedXmrAddress, fileAmount, moneyState } from "./lib/withdrawal.js";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
@@ -512,6 +513,26 @@ async function findKeySwaps() {
   return true;
 }
 
+// THE START HEIGHT OF A FOUND SWAP (lib/start-height.js): the time of the settlement block that holds its order,
+// then the chosen node's headers. The node must be on the swap's Monero network, or its headers would give a height
+// on another chain. Any failure is null, said in the log, and the step asks the person for a height.
+async function foundStartHeight(found, chain, network) {
+  try {
+    if (!Number.isSafeInteger(found.blockNumber)) throw new Error("the order names no block");
+    const url = nodeUrl();
+    const probe = url ? await (await sdkBundle()).probeMoneroNode({ url }) : null;
+    if (!probe || !probe.ok) throw new Error("the node did not answer");
+    if (probe.network !== network) throw new Error(`the node is on ${probe.network}, the swap on ${network}`);
+    const time = await evmBlockTime(chain.id, found.blockNumber);
+    const height = await startHeightAt(time, { tip: async () => probe.height - 1, headerTime: (h) => moneroHeaderTime(url, h) });
+    log(t("log.height.found", { height: n(height), block: n(found.blockNumber) }));
+    return height;
+  } catch (e) {
+    log(t("log.height.failed", { why: String((e && e.message) || e) }), "wait");
+    return null;
+  }
+}
+
 // OPEN A FOUND SWAP WITHOUT A FILE. The payload is assembled from the key and the on-chain order, written
 // through the same envelope module (unencrypted, in memory), and then the ordinary openFile path runs: plan,
 // height, destination, withdraw. No secret is written to disk.
@@ -527,6 +548,7 @@ async function openFoundSwap(found, mnemonic, chain, m) {
     setNodeUrl(STAGENET_NODE, { remember: false, by: "pick" });
     try { await checkNode(() => true); drawCurrent(); } catch { /* the open will name the node failure */ }
   }
+  const startHeight = await foundStartHeight(found, chain, network);
   const halves = m.takerHalves({ mnemonic, chainId: chain.chainId, index: found.index });
   const ownIsLocker = found.side === "locker";
   const otherSpendPoint = ownIsLocker ? found.edPointClaimer : found.edPointLocker;
@@ -555,11 +577,11 @@ async function openFoundSwap(found, mnemonic, chain, m) {
       source: "halves", network, address: joint.address,
       spendHalf: halves.spendHalf, viewHalf: halves.viewHalf,
       otherSpendPoint, otherViewPoint, otherViewHalf,
-      escrowAddress: found.escrow, restoreHeight: 0,
+      escrowAddress: found.escrow, restoreHeight: startHeight,
     },
     escrow: { address: found.escrow },
     receiveAddress: null,
-    restoreHeight: 0,
+    restoreHeight: startHeight,
   });
   const text = await m.createRecoveryFile(payload, "");
   keyWordsInput.value = "";

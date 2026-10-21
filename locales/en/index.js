@@ -158,6 +158,8 @@ export default {
     "log.key.searchFailed": "the swap search failed: {words}",
     "log.key.found": "the key search found {n} swap(s)",
     "log.key.addressFailed": "the shared address could not be assembled from the key: {words}",
+    "log.height.found": "the swap starts at Monero block {height}: the last block before its order (settlement block {block}) minus 60",
+    "log.height.failed": "the swap's start block could not be found on the Monero chain: {why}",
     "log.dest.accepted": "the recipient address was accepted by the library ({network})",
     "log.keys.failed": "the spend keys were not assembled: {words}",
     "log.keys.summed": "the second half was verified by the core, the spend key is assembled as the sum of the halves",
