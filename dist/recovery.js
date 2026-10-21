@@ -892,18 +892,20 @@ async function syncWallet() {
 
   // RESTORE IS A PACKAGE RULE (sweep.restore): the blocks around the lock first, then the full scan only if
   // that window holds nothing. The window ends at the Monero block at or after the order's t1, plus ten.
-  let window = null;
+  // THE WINDOW HAS ITS OWN NAME: a local `window` would hide the browser's, and this function still writes
+  // window.__sweepFlow after the scan.
+  let lockWindow = null;
   try {
     const tipHeight = Number(await wallet.getDaemonHeight());
     const rawT1 = Number((payload.escrow && payload.escrow.t1) ?? (payload.deadlines && payload.deadlines.t1));
     const t1Sec = Number.isFinite(rawT1) && rawT1 > 0 ? Math.floor(rawT1 >= 1e12 ? rawT1 / 1000 : rawT1) : 0;
-    window = await restoreWindow({ nodeUrl: nodeUrl(), t1Sec, startHeight: height, tipHeight });
-  } catch { window = null; }
+    lockWindow = await restoreWindow({ nodeUrl: nodeUrl(), t1Sec, startHeight: height, tipHeight });
+  } catch { lockWindow = null; }
   const t0 = performance.now();
   let restored;
   try {
     log(t("log.scan.start", { from: n(scanFrom), height: n(height) }));
-    restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10, window });
+    restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10, window: lockWindow });
   } catch (e) {
     log(t("log.rescan.failed", { why: (e && e.message) || e }), "bad");
     return "flow.err.sync";
@@ -924,7 +926,7 @@ async function syncWallet() {
   log(t("log.restored.passes", { passes: n(restored.passes), locked: restored.lockedPass ? t("value.yes") : t("value.no") }), "ok");
   if (restored.window && restored.window.used) {
     log(t("log.scan.window", { from: n(restored.window.fromHeight), to: n(restored.window.toHeight), txs: n(restored.window.txs) }), "ok");
-  } else if (window) {
+  } else if (lockWindow) {
     log(t("log.scan.window.skipped", { why: restored.window && restored.window.skipped ? restored.window.skipped : t("value.no") }), "wait");
   }
 

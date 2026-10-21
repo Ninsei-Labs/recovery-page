@@ -912,6 +912,36 @@ await check("every script the page loads parses as a module", async () => {
   return `${files.length} files`;
 });
 
+// A NAME THAT HIDES A BROWSER GLOBAL breaks every later use of the global in the same scope, and parses fine: a
+// local `window` turned `window.__sweepFlow` after the scan into a TypeError, so no withdrawal could finish.
+await check("no page code declares a name that hides the browser's window, document or location", async () => {
+  const offenders = [];
+  for (const file of ["recovery.js", "diagnostics.js", ...LIB]) {
+    const text = (await read(file)).replace(/\/\/.*$/gm, "");
+    for (const m of text.matchAll(/\b(?:let|const|var|function)\s+(window|document|location|self|navigator|globalThis)\b|[(,]\s*(window|document|location)\s*(?=[,)=])/g)) {
+      offenders.push(`${file}: ${m[0].trim()}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+// THE PAGE'S SCRIPTS ARE COPIED, NOT BUNDLED, so nothing in the build parses them: a name declared twice in one
+// module is an early error that stops the whole page in the browser while every rule above reads the text happily.
+await check("every script the page loads parses as a module", async () => {
+  const { transform } = await import("esbuild");
+  const files = ["recovery.js", "diagnostics.js", ...LIB, "locales/index.js", "locales/en/index.js"];
+  const broken = [];
+  for (const file of files) {
+    try {
+      await transform(await read(file), { loader: "js", format: "esm", logLevel: "silent" });
+    } catch (e) {
+      broken.push(`${file}: ${((e.errors && e.errors[0] && e.errors[0].text) || e.message).split("\n")[0]}`);
+    }
+  }
+  assert.deepEqual(broken, []);
+  return `${files.length} files`;
+});
+
 await check("no eval and no new Function in the page's own code", async () => {
   const offenders = [];
   for (const file of ["recovery.js", "diagnostics.js", ...LIB]) {
