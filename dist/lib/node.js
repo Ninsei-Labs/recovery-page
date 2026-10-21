@@ -28,6 +28,9 @@ export const NODES = Object.freeze([
   "https://xmr.0xrpc.io",
 ]);
 export const DEFAULT_NODE = NODES[0];
+// THE PROJECT'S OWN STAGENET NODE. It is not in the mainnet list above: the page chooses it when a key
+// names a testnet factory, because the settlement network then pairs with stagenet.
+export const STAGENET_NODE = "https://xmr.arrakisswap.trade";
 
 // A NODE MORE THAN THIS MANY BLOCKS FROM THE MEDIAN ANSWER is out of step. Behind: a wallet synced
 // against it would miss the newest blocks, which is where a fresh swap's XMR is. Ahead: the other
