@@ -1,306 +1,382 @@
-/* A SMALL DESIGN SYSTEM, NOT A FRAMEWORK.
+/* THE SITE'S LOOK, NOT A FRAMEWORK.
  *
- * The page has one job and one screen: decrypt a file, sync a wallet, send a transfer. A theme with
- * hundreds of components would be bigger than the page itself, and every component it does not use is
- * a class name nobody can explain later. What is here is the whole visual language: tokens, a column,
- * cards, fields, buttons and a log.
+ * The page has one job and one screen: decrypt a file, sync a wallet, send a transfer. It wears the
+ * site's "Night Signal" look so a person who came from ninsei.finance recognises it: the same tokens,
+ * the glitch wordmark, the swap widget's card and fields, the site's buttons and focus ring. What is
+ * here is the whole visual language: tokens, fonts, a header, a column, one card, fields, buttons, a
+ * status line, result panels and a log.
  *
- * COLOURS COME FROM THE BRAND: near-black background, soft grey text, one warm accent used only for
- * the action the person is meant to take. Status colours (ok, warn, bad) are separate from the accent
- * on purpose: an accent-coloured refusal would read as a suggestion.
+ * COLOURS CARRY MEANING: violet is the action the person is meant to take next, lime is done or live,
+ * amber is careful, red is an error. A refusal is never violet: an accent-coloured refusal would read
+ * as a suggestion.
  *
- * NO EXTERNAL FONT, NO EXTERNAL STYLESHEET: the page is served with `script-src 'self'` and
- * `style-src 'self'`, and a font from a CDN would be both a network dependency and a privacy leak.
- * The stack resolves to the platform's UI font (Inter where it is installed).
+ * NO FONT OR STYLESHEET FROM ANOTHER HOST: the page is served with `default-src 'self'` and
+ * `style-src 'self'`, and a font from a CDN would be both a network dependency and a privacy leak. The
+ * four families are the site's own, copied into assets/fonts/ with their licences (SIL OFL 1.1): the
+ * latin subset and only the weights this page uses. Files under assets/ are cached for a year, so a
+ * changed font gets a new file name.
  */
 
+@font-face { font-family: "Hanken Grotesk"; font-style: normal; font-weight: 400; font-display: swap; src: url("./assets/fonts/hanken-grotesk-latin-400-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Hanken Grotesk"; font-style: normal; font-weight: 500; font-display: swap; src: url("./assets/fonts/hanken-grotesk-latin-500-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Hanken Grotesk"; font-style: normal; font-weight: 600; font-display: swap; src: url("./assets/fonts/hanken-grotesk-latin-600-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Geist Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("./assets/fonts/geist-mono-latin-400-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Geist Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("./assets/fonts/geist-mono-latin-500-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Chakra Petch"; font-style: normal; font-weight: 600; font-display: swap; src: url("./assets/fonts/chakra-petch-latin-600-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Silkscreen"; font-style: normal; font-weight: 700; font-display: swap; src: url("./assets/fonts/silkscreen-latin-700-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+/* THE SITE'S TOKENS (global.css on ninsei.finance), only the ones this page uses. */
 :root {
   color-scheme: dark;
-  --bg: #080a0f;
-  --panel: #0e1218;
-  --panel-2: #12171f;
-  --line: #1e2633;
-  --line-soft: #17202b;
-  --text: #e6ebf2;
-  --muted: #8b93a7;
-  --muted-2: #63708a;
-  --accent: #ff7a45;
-  --accent-dim: rgba(255, 122, 69, 0.12);
-  --ok: #4ade80;
-  --warn: #f5c451;
-  --bad: #ff6b6b;
-  --radius: 16px;
-  --pill: 999px;
-  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 24px 60px rgba(0, 0, 0, 0.35);
+
+  --bg: #07070e;
+  --bg-raised: #0b0a17;
+  --bg-sunken: #0e0d1d;
+  --panel-3: #13122a;
+  --line: #1c1b2e;
+  --line-2: #1f1d36;
+  --line-3: #2a2848;
+  --line-strong: #34315a;
+
+  --text: #eceaff;
+  --text-hi: #f4f1ff;
+  --text-2: #a9a6c6;
+  --text-3: #8d8aaf;
+
+  --accent: #8b80ff;
+  --accent-hi: #b9b2ff;
+  --lime: #b6f24a;
+  --amber: #ffb454;
+  --red: #ff6b6b;
+  --cyan: #8fe9ff;
+  --slice: #ff6a1a;
+
+  --sans: "Hanken Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --mono: "Geist Mono", ui-monospace, Menlo, Consolas, monospace;
+  --display: "Chakra Petch", "Hanken Grotesk", sans-serif;
+  --pixel: "Silkscreen", "Geist Mono", monospace;
+
+  --t13: 13px; --t15: 15px; --t17: 17px;
+  --m11: 11px; --m12: 12px; --m13: 13px;
+
+  --wrap: 1440px;
+  --gutter: clamp(18px, 3.4vw, 48px);
+  --col: 600px;
 }
 
-* { box-sizing: border-box; }
-
-html, body { min-height: 100%; }
-
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--bg); -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
-  background:
-    radial-gradient(900px 420px at 50% -10%, rgba(255, 122, 69, 0.08), transparent 60%),
-    var(--bg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
   color: var(--text);
-  font: 15px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 400 var(--t15)/1.55 var(--sans);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
-
-main {
-  width: 100%;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 56px 20px 72px;
-}
-
-/* THE WORDMARK: a link home is not needed (there is one page), but a person must see whose page this
-   is before typing a password into it. */
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 40px;
-  color: var(--muted);
-  font-size: 14px;
-  letter-spacing: 0.01em;
-}
-.brand .mark {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #140a04;
-  font-weight: 700;
-  font-size: 14px;
-}
-.brand strong { color: var(--text); font-weight: 600; }
-.brand .tag {
-  margin-left: 4px;
-  padding: 2px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--pill);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted-2);
-}
-
-h1 {
-  margin: 0 0 10px;
-  font-size: 32px;
-  line-height: 1.2;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-h2 {
-  margin: 0 0 16px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted-2);
-}
-
+a { color: inherit; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+a:hover { color: var(--accent-hi); text-decoration-color: currentColor; }
+code, kbd, pre { font-family: var(--mono); }
+code { font-size: 0.87em; background: rgba(139, 128, 255, 0.08); border: 1px solid var(--line); padding: 0.05em 0.35em; border-radius: 4px; }
+b, strong { color: var(--text); font-weight: 600; }
+h1, h2 { margin: 0; }
 p { margin: 0; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+[hidden] { display: none !important; }
 
-.note {
-  margin: 0 0 28px;
-  max-width: 60ch;
-  color: var(--muted);
-  font-size: 14.5px;
-}
-.note a { color: var(--text); text-decoration-color: var(--line); text-underline-offset: 3px; }
-.note a:hover { color: var(--accent); }
+.wrap { width: min(100%, var(--wrap)); margin-inline: auto; padding-inline: var(--gutter); }
 
-/* A STEP IS A CARD. Steps are numbered by their heading, not by decoration: the page runs in order
-   and the order is the point. */
-.step {
-  margin: 0 0 16px;
-  padding: 22px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-}
+/* THE WORDMARK: the site's glitch, pixel type with orange and cyan slices that jump for a split second.
+   No link home: the page may be served from any host, and it has one screen. */
+.site-head { border-bottom: 1px solid var(--line); background: rgba(7, 7, 14, 0.86); }
+.site-head .wrap { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.logo { display: inline-flex; align-items: center; gap: 12px; }
+.glitch { position: relative; display: inline-block; font-family: var(--pixel); font-size: 22px; font-weight: 700; line-height: 1; letter-spacing: 0.04em; color: var(--text-hi); text-shadow: 0 0 12px rgba(139, 128, 255, 0.45); white-space: nowrap; }
+.glitch::before, .glitch::after { content: attr(data-text); position: absolute; inset: 0; overflow: hidden; text-shadow: none; clip-path: inset(0 0 100% 0); }
+.glitch::before { color: var(--slice); animation: glitch-a 3.4s infinite steps(1, end); }
+.glitch::after { color: var(--cyan); animation: glitch-b 4.1s infinite steps(1, end); }
+@keyframes glitch-a { 0% { clip-path: inset(0 0 100% 0); } 22% { clip-path: inset(12% 0 58% 0); transform: translateX(-0.07em); } 23% { clip-path: inset(64% 0 8% 0); transform: translateX(0.05em); } 24.2% { clip-path: inset(0 0 100% 0); } 71% { clip-path: inset(38% 0 36% 0); transform: translateX(-0.1em); } 71.8%, 100% { clip-path: inset(0 0 100% 0); } }
+@keyframes glitch-b { 0% { clip-path: inset(0 0 100% 0); } 36% { clip-path: inset(46% 0 30% 0); transform: translateX(0.08em); } 37% { clip-path: inset(4% 0 80% 0); transform: translateX(-0.04em); } 38.1% { clip-path: inset(0 0 100% 0); } 86% { clip-path: inset(70% 0 6% 0); transform: translateX(0.06em); } 86.7%, 100% { clip-path: inset(0 0 100% 0); } }
+.head-tag { padding: 4px 6px 3px; border: 1px solid var(--line-3); border-radius: 3px; font: 700 9px/1 var(--pixel); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); white-space: nowrap; }
 
-.bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-}
-.bar:first-child { margin-top: 0; }
+/* LANGUAGE: shown only when there is more than one (the locale layer hides the field otherwise). */
+.site-head .lang { display: flex; align-items: center; gap: 10px; margin: 0; font-size: var(--t13); color: var(--text-3); }
+.site-head .lang > span { margin: 0; }
+.site-head .lang select { width: auto; height: 38px; padding: 0 10px; border-color: var(--line-2); border-radius: 4px; font: 400 var(--m12)/1 var(--mono); color: var(--text-2); }
 
-.field {
-  display: block;
-  margin: 0 0 14px;
-}
-.field > span {
-  display: block;
-  margin-bottom: 7px;
-  color: var(--muted);
-  font-size: 13px;
-}
+/* ONE COLUMN, CENTRED: the intro, the card with the flow, then what happens to the keys. */
+.page { flex: 1 0 auto; width: min(100%, calc(var(--col) + 2 * var(--gutter))); margin-inline: auto; padding: 48px var(--gutter) 64px; }
+.page-wide { --col: 920px; }
+.intro { margin-bottom: 28px; }
+h1 { font: 600 clamp(30px, 3.4vw, 44px)/1.04 var(--display); letter-spacing: -0.01em; color: var(--text-hi); text-wrap: balance; }
+.note { margin-top: 14px; max-width: 64ch; font-size: var(--t15); line-height: 1.6; color: var(--text-2); }
+.note a { color: var(--text); }
+.note a:hover { color: var(--accent-hi); }
+
+/* THE CARD IS THE SWAP WIDGET'S: a raised panel with a violet glow beneath, sunken fields inside. */
+.card { display: flex; flex-direction: column; padding: 16px 18px 18px; border: 1px solid var(--line-3); border-radius: 10px; background: rgba(11, 10, 23, 0.94); box-shadow: 0 40px 90px -40px rgba(120, 100, 255, 0.35); }
+
+/* A STEP is a section of the card; the steps run in order and their headings carry the numbers. */
+.step { padding: 18px 0 20px; }
+.step + .step { border-top: 1px solid var(--line-2); }
+h2 { font: 500 var(--m11)/1.3 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-3); }
+.step h2 { margin-bottom: 14px; color: var(--text-2); }
+
+.field { display: block; margin: 0 0 12px; }
+.field > span { display: block; margin-bottom: 6px; font-size: var(--t13); color: var(--text-2); }
 
 input[type="text"],
 input[type="password"],
 input[type="file"],
 select {
+  display: block;
   width: 100%;
-  padding: 12px 14px;
-  background: #0a0e14;
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--bg-sunken);
   color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  font: inherit;
-  font-size: 14.5px;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font: 400 var(--t15)/1 var(--sans);
+  transition: border-color 0.15s;
 }
-input::placeholder { color: var(--muted-2); }
-input:focus, select:focus {
-  border-color: rgba(255, 122, 69, 0.55);
-  box-shadow: 0 0 0 3px var(--accent-dim);
-}
-input[type="file"] { padding: 10px 12px; color: var(--muted); }
-input[type="file"]::file-selector-button {
-  margin-right: 12px;
-  padding: 6px 12px;
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
+/* NODE ADDRESSES, XMR ADDRESSES AND HEIGHTS are machine strings: mono, like the widget's "Receive to". */
+input[type="text"] { font: 400 var(--m13)/1 var(--mono); letter-spacing: 0; }
+input::placeholder { color: var(--text-3); opacity: 1; }
+input:hover:not(:disabled), select:hover:not(:disabled) { border-color: var(--line-3); }
+input:focus, select:focus { border-color: var(--accent); }
 input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
-
-button {
-  appearance: none;
-  padding: 11px 18px;
-  background: var(--panel-2);
+/* THE FILE PICKER is a native control: browsers differ on flex inside it, so the button is centred by the
+   padding alone (44px box, 1px border, 32px button) and the file name by its line height. */
+input[type="file"] { padding: 5px; font-size: var(--t13); line-height: 32px; color: var(--text-3); cursor: pointer; }
+input[type="file"]::file-selector-button {
+  height: 32px;
+  margin: 0 12px 0 0;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel-3);
   color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: var(--pill);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 550;
+  font: 500 var(--t13)/1 var(--sans);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.06s ease;
+  transition: border-color 0.15s;
 }
-button:hover:not(:disabled) { border-color: #2b3648; background: #171d27; }
-button:active:not(:disabled) { transform: translateY(1px); }
-button:disabled { opacity: 0.45; cursor: not-allowed; }
+input[type="file"]:hover::file-selector-button { border-color: var(--accent); }
 
-/* THE ACTION THE PAGE EXPECTS NEXT: the accent belongs to it and to nothing else. */
-button.ready,
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #170a03;
-}
-button.ready:hover:not(:disabled),
-button.primary:hover:not(:disabled) { background: #ff8a5c; border-color: #ff8a5c; }
+/* THE NODE LIST: one row per node with its live state, then the person's own. A real radio carries the
+   choice and the keyboard; the selected row wears the accent. The dot is the state (grey and pulsing while
+   the page asks, lime when good, red when not), the small text says why, the number is the faster of two
+   round trips. Small and calm: no glow, the words carry the detail. */
+.nodes { display: grid; gap: 6px; min-width: 0; margin: 0 0 12px; padding: 0; border: 0; }
+.node { border: 1px solid var(--line-2); border-radius: 6px; background: var(--bg-sunken); transition: border-color 0.15s, background 0.15s; }
+.node:hover { border-color: var(--line-3); }
+.node:has(.node-pick input:checked) { border-color: var(--accent); background: #11102a; }
+.node-pick { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 44px; padding: 8px 12px; cursor: pointer; }
+.node-pick input[type="radio"] { appearance: none; display: grid; place-content: center; width: 16px; height: 16px; margin: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: transparent; cursor: pointer; }
+.node-pick input[type="radio"]::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); transform: scale(0); transition: transform 0.12s; }
+.node-pick input[type="radio"]:checked { border-color: var(--accent); }
+.node-pick input[type="radio"]:checked::before { transform: scale(1); }
+.node-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; }
+.node-name { min-width: 0; font: 500 var(--m13)/1.35 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.node-own .node-name { font: 500 var(--t15)/1.35 var(--sans); }
+.node-why { font: 400 var(--m11)/1.4 var(--mono); letter-spacing: 0.02em; color: var(--text-3); }
+.node-why:empty { display: none; }
+.node-signal { display: inline-flex; align-items: center; gap: 8px; font: 400 var(--m12)/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--text-2); white-space: nowrap; }
+.node-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
+.node[data-state="checking"] .node-dot { animation: node-pulse 1.4s ease-in-out infinite; }
+.node[data-state="good"] .node-dot { background: var(--lime); }
+.node[data-state="good"] .node-ms { color: var(--text); }
+.node[data-state="bad"] .node-dot { background: var(--red); }
+.node[data-state="bad"] .node-why { color: var(--red); opacity: 0.85; }
+.node[data-state="idle"] .node-dot { visibility: hidden; }
+@keyframes node-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+/* The own row's field sits under its name, in line with the text above it. */
+.node-own > input[type="text"] { width: calc(100% - 52px); height: 40px; margin: 0 12px 12px 40px; }
+/* LOCKED: a wallet holds the node. The rows go quiet; the chosen one stays readable. */
+.nodes:disabled .node { opacity: 0.5; }
+.nodes:disabled .node:has(.node-pick input:checked) { opacity: 0.9; }
+.nodes:disabled .node:hover { border-color: var(--line-2); }
+.nodes:disabled .node:has(.node-pick input:checked):hover { border-color: var(--accent); }
+.nodes:disabled .node-pick, .nodes:disabled input { cursor: not-allowed; }
+.node-note { color: var(--text-2); }
 
-button.ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--muted);
-}
-button.ghost:hover:not(:disabled) { background: var(--panel-2); color: var(--text); border-color: var(--line); }
-
-.hint {
-  margin: 10px 0 0;
-  color: var(--muted-2);
-  font-size: 13px;
-}
-.hint.warn { color: var(--warn); }
-
-.info {
-  margin-top: 16px;
-  padding: 14px 16px;
-  background: var(--panel-2);
-  border: 1px solid var(--line-soft);
-  border-radius: 12px;
-  color: var(--muted);
-  font-size: 13.5px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.info b, .info strong { color: var(--text); font-weight: 600; }
-
-/* STATUS IS A PILL WITH A DOT: the dot carries the state at a glance, the text says it in words. */
-.status {
+/* THE SITE'S BUTTONS: an outline by default; violet only for the action the page expects next. */
+button {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  margin: 0 0 16px;
-  padding: 9px 14px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--pill);
-  color: var(--muted);
-  font-size: 13.5px;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: 500 var(--t15)/1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.status::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--muted-2);
-  flex: none;
-}
-.status.ok { color: #cfe9d8; border-color: rgba(74, 222, 128, 0.35); }
-.status.ok::before { background: var(--ok); box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12); }
-.status.bad { color: #ffd6d6; border-color: rgba(255, 107, 107, 0.38); }
-.status.bad::before { background: var(--bad); box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.12); }
-.status.warn { color: #ffe9b8; border-color: rgba(245, 196, 81, 0.35); }
-.status.warn::before { background: var(--warn); }
-.status.wait::before { animation: pulse 1.4s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: 0.35; } }
+button:hover:not(:disabled) { border-color: var(--accent); color: var(--text-hi); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.ready,
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+button.ready:hover:not(:disabled),
+button.primary:hover:not(:disabled) { background: var(--accent-hi); border-color: var(--accent-hi); color: var(--bg); }
+button.ghost { border-color: transparent; color: var(--text-2); }
+button.ghost:hover:not(:disabled) { border-color: var(--line-strong); color: var(--text); }
 
-.log {
-  margin: 20px 0 0;
-  padding: 16px 18px;
-  min-height: 92px;
-  max-height: 280px;
-  overflow: auto;
-  background: #070a0e;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--muted);
-  font: 12.5px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.log .ok { color: #9fe7b8; }
-.log .bad { color: #ffb3b3; }
-.log .warn { color: #ffe1a1; }
-.log .wait { color: var(--muted-2); }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
+.bar .cta { flex: 1 1 200px; height: 48px; border-radius: 6px; white-space: normal; text-align: center; }
 
-.legend {
-  margin: 12px 0 0;
-  padding: 0 0 0 18px;
-  color: var(--muted-2);
-  font-size: 13.5px;
-}
-.legend li { margin: 6px 0; }
+.hint { margin: 0 0 12px; font-size: var(--t13); line-height: 1.5; color: var(--text-3); }
+.field + .hint { margin-top: -2px; }
+.step > .hint:last-child { margin-bottom: 0; }
+/* CAREFUL: the destination differs from the one the file promised, or the file promised none. */
+.hint.warn { padding: 10px 12px; border: 1px solid #6a4a1c; border-radius: 6px; background: #1f1508; color: var(--amber); overflow-wrap: anywhere; }
 
-.explorer-link { color: var(--accent); text-decoration: none; }
+/* RESULT PANELS: a label and a value per row; values are machine strings (amounts, heights, addresses),
+   so they are mono. The class on a value carries its state. */
+.info { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--bg-sunken); font-size: var(--t13); color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.info dl { margin: 0; display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr); gap: 8px 16px; align-items: baseline; }
+.info dt { color: var(--text-2); }
+.info dd { margin: 0; font: 400 var(--m12)/1.5 var(--mono); color: var(--text); }
+.info dd.ok, .info dd.good { color: var(--lime); }
+.info dd.warn { color: var(--amber); }
+.info dd.bad { color: var(--red); }
+/* "Tell the service again" sits inside the transfer panel: the site's small outline button. */
+.info > button { height: 38px; margin-top: 12px; padding: 0 14px; border-color: var(--line-strong); font-size: var(--t13); }
+.explorer-link { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-hi); text-decoration: none; }
 .explorer-link:hover { text-decoration: underline; }
 
-[hidden] { display: none !important; }
+/* STATUS IS A LINE WITH A SQUARE: the square carries the state at a glance, the text says it in words.
+   #state on the diagnostics page is the same line; its script sets the whole class, so it is named by id. */
+.status, #state {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--bg-sunken);
+  font: 400 var(--m12)/1.5 var(--mono);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.status::before, #state::before { content: ""; flex: none; width: 6px; height: 6px; transform: translateY(-1px); background: var(--text-3); }
+.status.ok, #state.ok { border-color: #4f6b1f; background: #121a08; color: var(--lime); }
+.status.ok::before, #state.ok::before { background: var(--lime); box-shadow: 0 0 6px var(--lime); }
+.status.warn, #state.warn { border-color: #6a4a1c; background: #1f1508; color: var(--amber); }
+.status.warn::before, #state.warn::before { background: var(--amber); }
+.status.bad, #state.bad { border-color: #6b2a33; background: #1f0b10; color: var(--red); }
+.status.bad::before, #state.bad::before { background: var(--red); }
+.status.wait::before, #state.wait::before { animation: blink 1.6s infinite steps(1, end); }
+@keyframes blink { 0%, 100% { opacity: 1; } 55% { opacity: 0.2; } }
+
+/* THE STATE OF THE MONEY: one sentence in plain words, then the deal's facts. The square and the edge carry the
+   state: lime when the XMR can be withdrawn, amber while the deal says "not yet", neutral when nothing is there. */
+.money { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--bg-sunken); }
+.money-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; font: 500 var(--t15)/1.5 var(--sans); color: var(--text-hi); }
+.money-head::before { content: ""; flex: none; width: 7px; height: 7px; transform: translateY(-2px); background: var(--text-3); }
+.money[data-state="ok"] { border-color: #4f6b1f; }
+.money[data-state="ok"] .money-head::before { background: var(--lime); }
+.money[data-state="wait"] { border-color: #6a4a1c; }
+.money[data-state="wait"] .money-head::before { background: var(--amber); }
+.money-facts dl { margin: 0; display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr); gap: 6px 16px; align-items: baseline; font-size: var(--t13); }
+.money-facts dt { color: var(--text-3); }
+.money-facts dd { margin: 0; font: 400 var(--m12)/1.5 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+
+/* ONE PLAIN LINE when a step stops: red for an error, amber for "not yet"; the detail is in the log. */
+.flow-error { margin: 12px 0 0; padding: 10px 12px; border: 1px solid #6b2a33; border-radius: 6px; background: #1f0b10; font-size: var(--t13); line-height: 1.5; color: var(--red); overflow-wrap: anywhere; }
+.flow-error[data-tone="wait"] { border-color: #6a4a1c; background: #1f1508; color: var(--amber); }
+
+/* PROGRESS under the button: what the page is doing now, with the waiting square of the status line. */
+.progress { display: flex; align-items: baseline; gap: 10px; margin: 12px 0 0; font: 400 var(--m12)/1.5 var(--mono); color: var(--text-2); }
+.progress::before { content: ""; flex: none; width: 6px; height: 6px; transform: translateY(-1px); background: var(--accent); animation: blink 1.6s infinite steps(1, end); }
+
+/* CONFIRM: what leaves, the fee and where it goes, framed in the accent because it is the next action. */
+.confirm { margin-top: 16px; padding: 14px 16px 16px; border: 1px solid var(--accent); border-radius: 8px; background: #11102a; }
+.confirm h3, .done-head { margin: 0; font: 500 var(--m11)/1.3 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; }
+.confirm h3 { color: var(--accent-hi); }
+.confirm .info { margin-top: 12px; }
+.confirm .bar { margin-top: 14px; }
+
+/* SENT: the transaction, the explorer and "you can close this tab". */
+.done { margin-top: 16px; padding: 14px 16px; border: 1px solid #4f6b1f; border-radius: 8px; background: #121a08; }
+.done-head { color: var(--lime); }
+.done .info { margin-top: 12px; background: var(--bg); }
+.done .hint { margin: 12px 0 0; color: var(--text-2); }
+
+/* DETAILS: the scan height, the log and "Forget the wallet", folded under one line until needed. */
+.details { padding: 14px 0 0; border-top: 1px solid var(--line-2); }
+.details > summary { display: flex; align-items: center; gap: 10px; width: fit-content; padding: 4px 0; cursor: pointer; list-style: none; font: 500 var(--m11)/1.3 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-2); }
+.details > summary::-webkit-details-marker { display: none; }
+.details > summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform 0.15s; }
+.details[open] > summary::before { transform: rotate(45deg); }
+.details > summary:hover { color: var(--text); }
+.details[open] > summary { margin-bottom: 14px; }
+.details .log { margin-top: 4px; }
+.details .bar { margin-top: 12px; }
+button.small { height: 36px; padding: 0 12px; font-size: var(--t13); }
+
+/* THE LOG: every step in words, newest at the bottom. */
+.log {
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  min-height: 88px;
+  max-height: 300px;
+  overflow: auto;
+  border: 1px dashed var(--line-3);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-2);
+  font: 400 var(--m12)/1.65 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.step .log { margin-top: 16px; }
+.page-wide .log { max-height: none; }
+.log .ok { color: var(--lime); }
+.log .bad { color: var(--red); }
+.log .warn { color: var(--amber); }
+.log .wait { color: var(--text-3); }
+
+/* WHAT HAPPENS TO THE KEYS: the reasons, under the card. */
+.aside { margin-top: 40px; }
+.legend { margin: 14px 0 0; padding: 0; list-style: none; font-size: var(--t15); line-height: 1.55; color: var(--text-2); overflow-wrap: anywhere; }
+.legend li { position: relative; margin: 0 0 10px; padding-left: 20px; }
+.legend li::before { content: ""; position: absolute; left: 2px; top: 0.6em; width: 6px; height: 6px; background: var(--accent); }
+.aside .note { margin-top: 18px; font-size: var(--t13); color: var(--text-3); }
+
+/* THE FOOTER: one fine line, as at the foot of the site. */
+.site-foot { border-top: 1px solid var(--line); }
+.site-foot .wrap { padding-block: 20px 28px; }
+.fine { display: flex; flex-wrap: wrap; gap: 4px 20px; font: 400 var(--m11)/1.6 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+.fine > * { min-width: 0; overflow-wrap: anywhere; }
+.fine a { color: var(--text-2); }
 
 @media (max-width: 560px) {
-  main { padding: 32px 16px 48px; }
-  h1 { font-size: 26px; }
-  .step { padding: 18px; border-radius: 14px; }
-  .brand { margin-bottom: 28px; }
+  .page { padding-top: 28px; padding-bottom: 48px; }
+  .intro { margin-bottom: 22px; }
+  .card { padding: 14px 14px 16px; }
+  .info dl, .money-facts dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .info dd + dt, .money-facts dd + dt { margin-top: 8px; }
+  .bar > button { flex: 1 1 auto; }
+  /* Narrow rows always stack the name over its state, so a short word and a long one look the same. */
+  .node-text { flex-direction: column; align-items: flex-start; }
+  .node-own > input[type="text"] { width: calc(100% - 24px); margin-left: 12px; }
+}
+@media (max-width: 400px) {
+  .glitch { font-size: 19px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glitch::before, .glitch::after, .status.wait::before, #state.wait::before, .node[data-state="checking"] .node-dot, .progress::before { animation: none; }
+  * { transition: none !important; }
 }

@@ -10,7 +10,7 @@ You need:
 - a DNS name such as `xmr.example.com` and a TLS certificate for it;
 - nginx on that host, or any proxy that can send the headers below.
 
-The page itself may live anywhere. Only this name goes into the node field.
+The page itself may live anywhere. Only this name goes into the page's "Your own node" field.
 
 ## What the proxy forwards
 
@@ -44,9 +44,9 @@ want to name one origin instead, echo the request origin and add `Vary: Origin`.
 
 The preflight must answer `204` for `OPTIONS`. Without it the browser stops before the first JSON call.
 
-`Cross-Origin-Resource-Policy: cross-origin` is required because the page runs under
-`Cross-Origin-Embedder-Policy: require-corp`. A response that passes CORS also passes that check only
-when CORP says so.
+`Cross-Origin-Resource-Policy: cross-origin` lets the answers through for a page served with
+`Cross-Origin-Embedder-Policy: require-corp`. This page no longer is, so the header is harmless and
+only matters to a copy that still sets COEP.
 
 A public node may send its own CORS headers. Hide them in the proxy before adding yours, otherwise the
 browser sees two `Access-Control-Allow-Origin` values and refuses the answer.
@@ -119,9 +119,9 @@ location ~ ^/(json_rpc|get_blocks_by_height\.bin|get_transactions|send_raw_trans
 }
 
 location @public_node {
-    proxy_pass https://monero.openinternet.io;
+    proxy_pass https://xmr-node.cakewallet.com:18081;
     proxy_ssl_server_name on;
-    proxy_set_header Host monero.openinternet.io;
+    proxy_set_header Host xmr-node.cakewallet.com;
     proxy_http_version 1.1;
     proxy_connect_timeout 5s;
     proxy_read_timeout 120s;
@@ -168,8 +168,10 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
   -H 'content-type: application/octet-stream' --data-binary ''
 ```
 
-Then open the page, enter `https://xmr.example.com` in the node field and press Check the node. A page
-served over HTTPS cannot use an `http://` node: the browser blocks that call as mixed content.
+Then open the page and enter `https://xmr.example.com` under "Your own node", or open it with
+`?node=https://xmr.example.com`. The row turns green when the node answers on mainnet, synchronized and
+close to the listed nodes' height. A page served over HTTPS cannot use an `http://` node: the browser
+blocks that call as mixed content.
 
 ## Keep the node private
 

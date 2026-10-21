@@ -54,7 +54,7 @@ EXPOSE 8080
 # marker in the body. A listener that answers 404, or an index that points at assets that are not
 # there, fails here instead of in a support report.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -fsS "http://127.0.0.1:${PORT:-8080}/index.html" | grep -q "NinseiSwap" || exit 1
+  CMD curl -fsS "http://127.0.0.1:${PORT:-8080}/index.html" | grep -q "Ninsei recovery" || exit 1
 
 # Bun handles SIGTERM itself and closes the listener; naming the signal keeps an orchestrator from
 # guessing.

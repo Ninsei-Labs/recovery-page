@@ -38,8 +38,12 @@ Two conditions apply in a browser:
    send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, the page
    reports it in the diagnostics and nothing changes. A CORS-passing answer also passes `require-corp`.
 
-The node address is a field on the page. It defaults to a public community node, can be given in the link
-(`?node=https://node.example`), and is remembered for the tab. A node of your own behind an HTTPS
+The page lists public community nodes that pass CORS in a browser. When it opens, it asks each of
+them for `get_info` and picks the fastest one that is on mainnet, synchronized and within three blocks
+of the median answer; each row shows its state and round trip. That request tells a listed node only
+that a visitor asked for its height. A person can pick another row or enter their own node, a link can
+name one (`?node=https://node.example`), and a person's choice is remembered for the tab. Once a wallet
+exists the choice is locked until the wallet is forgotten. A node of your own behind an HTTPS
 proxy is enough; `deploy/xmr-proxy.conf` has the block and `deploy/own-node.md` walks through the setup,
 including a public fallback and the exact headers.
 
@@ -53,33 +57,32 @@ bun install
 bun run build
 ```
 
-`dist/` is the result: HTML, CSS, the page's JavaScript, the locale files, the wallet worker, two
-bundles and `build.json` with the version, the commit and a SHA-256 of every file. Nothing in `dist/`
+`dist/` is the result: HTML, CSS, the fonts with their licences, the page's JavaScript, the locale
+files, the wallet worker, two bundles and `build.json` with the version, the commit and a SHA-256 of every file. Nothing in `dist/`
 needs a build step on the host and nothing there is fetched from a CDN.
 
 The bundles are built from **exact** versions of `monero-ts` and `@ninsei-labs/sdk` (see
 `package.json`); the versions are not ranges on purpose - a page that handles spend keys should change
 only when someone changes it.
 
-`bun run serve` serves `dist/` with the two isolation headers, for looking at a change locally.
+`bun run serve` serves `dist/` with the page's headers, for looking at a change locally.
 
 ## Hosting
 
 | Host | Headers | Notes |
 |---|---|---|
 | **Your nginx** | yes | `deploy/nginx.conf`. Best option: nothing between the page and the browser. |
-| **Cloudflare Pages** | yes | Upload `dist/`; `_headers` in the same folder sets COOP/COEP and the CSP. |
-| **GitHub Pages** | no | The page's service worker adds the headers and reloads once. Works, but it is a fallback. |
-| **IPFS** | no | Same worker fallback. Content addressing is a real gain for a page that handles keys: a CID cannot be edited. Pin the directory and publish the CID. |
+| **Cloudflare Pages** | yes | Upload `dist/`; `_headers` in the same folder sets the CSP and caching. |
+| **GitHub Pages** | no | The page works, without the CSP header. A host that sets headers is better. |
+| **IPFS** | no | Works the same way, without the CSP header. Content addressing is a real gain for a page that handles keys: a CID cannot be edited. Pin the directory and publish the CID. |
 
 A page served from a subdirectory works too: every path in the page is relative.
 
-**A single HTML file cannot run the wallet.** Isolation comes from response headers, and a service
-worker - the only workaround - must be a separate file of the same origin. One file is possible only
-with a wallet build that does not use threads, which this page does not ship.
+**The page is a folder, not one file.** The wallet's worker and the two bundles are separate files of
+the same origin.
 
-HTTPS is required in every case except `localhost`: `SharedArrayBuffer` and service workers exist
-only in a secure context.
+HTTPS is required in every case except `localhost`: workers and the browser's crypto, which decrypts
+the recovery file, exist only in a secure context.
 
 ## Docker
 
@@ -90,12 +93,11 @@ docker run --rm -p 8080:8080 ninsei-recovery
 
 The image is built in two stages: Bun installs the locked dependencies and runs the checks, then the
 built `dist/` is served by Bun from `serve.bun.mjs`. The server is one file with no dependencies, and
-it sets the isolation headers itself - that is the part a generic static server gets wrong. Running as
+it sets the CSP and the caching headers itself. Running as
 UID 10001, `TZ=UTC`, and a health check that fetches `index.html` over HTTP and looks for the page's own marker.
 
-The container speaks **HTTP**. Terminate TLS in front of it and make sure the reverse proxy passes
-`Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` through untouched; without them the
-wallet cannot start.
+The container speaks **HTTP**. Terminate TLS in front of it and make sure the reverse proxy passes the
+`Content-Security-Policy` through untouched.
 
 ## Releases
 
@@ -121,6 +123,9 @@ archive itself against the published `.sha256`.
 - **The keys stay in the tab.** The page sends the node only what a wallet sends a node: height,
   block requests, the signed transaction. It never sends the recovery file, the password, the spend
   key or a seed.
+- **The settlement chain is read, never written.** The file names the network the deal settled on; the
+  page reads it with `eth_call` through public RPCs that pass CORS (`lib/settlement.js`) and refuses a
+  file whose network it does not know. It holds no EVM key and sends no EVM transaction.
 - **The file is decrypted in the browser**, with the same code path the SDK uses; the page does not
   carry a second implementation of the format.
 - **Verify what you serve.** `dist/build.json` lists a SHA-256 for every file, and a release archive

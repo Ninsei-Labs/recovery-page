@@ -3,106 +3,148 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#07070e">
 <title>Ninsei recovery</title>
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="./recovery.css">
 </head>
 <body>
-  <main>
-    <!-- WHOSE PAGE THIS IS, BEFORE ANY PASSWORD IS TYPED: a person must be able to tell the page
-         apart from a look-alike. The tag names the job, not a product tier. -->
-    <header class="brand">
-      <span class="mark" aria-hidden="true">N</span>
-      <strong>NinseiSwap</strong>
-      <span class="tag">recovery</span>
-    </header>
-
-    <!-- LANGUAGE: the list and the labels come from the locale layer, one folder per language. -->
-    <div class="bar">
-      <label class="field">
+  <!-- WHOSE PAGE THIS IS, BEFORE ANY PASSWORD IS TYPED: a person must be able to tell the page apart from a
+       look-alike, so the header is the site's own wordmark. The tag names the job, not a product tier. -->
+  <header class="site-head">
+    <div class="wrap">
+      <span class="logo">
+        <span class="glitch" data-text="NINSEI" aria-hidden="true">NINSEI</span>
+        <span class="head-tag" aria-hidden="true">recovery</span>
+        <span class="sr-only">Ninsei recovery</span>
+      </span>
+      <!-- LANGUAGE: the list and the labels come from the locale layer, one folder per language. -->
+      <label class="field lang">
         <span data-i18n="page.lang"></span>
         <select id="lang"></select>
       </label>
     </div>
-    <h1 data-i18n="page.h1"></h1>
-    <p class="note" data-i18n="page.intro"></p>
+  </header>
 
-    <div id="preflight" class="status wait" data-i18n="page.preflight"></div>
+  <main class="page">
+    <div class="intro">
+      <h1 data-i18n="page.h1"></h1>
+      <p class="note" data-i18n="page.intro"></p>
+    </div>
 
-    <!-- THE NODE IS THE VISITOR'S CHOICE. The default is a public community node, but the page can
-         be served anywhere and pointed at a node of that operator's own - then it depends on us in
-         nothing. -->
-    <section class="step" id="stepNode">
-      <h2 data-i18n="page.node.h"></h2>
-      <label class="field">
-        <span data-i18n="page.node.label"></span>
-        <input id="node" type="text" spellcheck="false" autocomplete="off" data-i18n-placeholder="page.node.placeholder">
-      </label>
-      <div class="bar">
-        <button id="nodeCheck" type="button" data-i18n="page.node.check"></button>
-      </div>
-      <p class="hint" data-i18n="page.node.hint"></p>
-      <div id="nodeInfo" class="info" hidden></div>
+    <!-- THE FLOW IS ONE CARD: the environment line on top, the steps in the order they run, the log at the foot. -->
+    <div class="card">
+      <div id="preflight" class="status wait" data-i18n="page.preflight"></div>
+
+      <!-- THE NODE IS THE VISITOR'S CHOICE. The page lists public community nodes with their live
+           state and picks the fastest good one, but it can be served anywhere and pointed at a node of
+           that operator's own - then it depends on us in nothing. The listed rows are drawn by
+           recovery.js from lib/node.js, so the list lives in one place; real radio inputs carry the
+           choice and the keyboard. -->
+      <section class="step" id="stepNode">
+        <h2 id="nodeHead" data-i18n="page.node.h"></h2>
+        <fieldset id="nodeList" class="nodes" aria-labelledby="nodeHead">
+          <div class="node node-own" data-state="idle">
+            <label class="node-pick">
+              <input type="radio" name="node" value="own">
+              <span class="node-text">
+                <span class="node-name" id="nodeOwnName" data-i18n="page.node.own"></span>
+                <span class="node-why"></span>
+              </span>
+              <span class="node-signal"><span class="node-dot" aria-hidden="true"></span><span class="node-ms"></span></span>
+            </label>
+            <input id="node" type="text" spellcheck="false" autocomplete="off" aria-labelledby="nodeOwnName" data-i18n-placeholder="page.node.placeholder">
+          </div>
+        </fieldset>
+        <p id="nodeNote" class="hint node-note" aria-live="polite"></p>
+        <p class="hint" data-i18n="page.node.own.hint"></p>
+      </section>
+
+      <!-- THE WITHDRAWAL IN PLAIN STEPS: open the file, read the state of the money, name your address, one
+           button. The button syncs, builds and signs; nothing leaves before "Confirm and send". -->
+      <section class="step" id="stepFile">
+        <h2 data-i18n="page.step1"></h2>
+        <label class="field">
+          <span data-i18n="page.field.file"></span>
+          <input id="file" type="file" accept=".enc,.json,application/json">
+        </label>
+        <!-- The password is asked only for an encrypted file; the envelope says so, not the file name. -->
+        <label class="field" id="passField" hidden>
+          <span data-i18n="page.field.pass"></span>
+          <input id="pass" type="password" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="bar">
+          <button id="unlock" type="button" class="cta" data-i18n="page.btn.unlock"></button>
+        </div>
+        <p id="openError" class="flow-error" role="alert" hidden></p>
+        <!-- THE STATE OF THE MONEY, in words: ready, not yet, nothing there. -->
+        <div id="moneyState" class="money" data-state="" hidden>
+          <p class="money-head" id="moneyHead"></p>
+          <div id="fileInfo" class="money-facts"></div>
+        </div>
+      </section>
+
+      <section class="step" id="stepTransfer" hidden>
+        <h2 data-i18n="page.step2"></h2>
+        <label class="field">
+          <span data-i18n="page.field.dest"></span>
+          <input id="dest" type="text" spellcheck="false" data-i18n-placeholder="page.field.dest.placeholder">
+        </label>
+        <p id="destWarn" class="hint warn" hidden></p>
+        <div class="bar">
+          <button id="withdraw" type="button" class="cta" data-i18n="page.btn.withdraw"></button>
+        </div>
+        <p id="progress" class="progress" aria-live="polite" hidden></p>
+        <p id="withdrawError" class="flow-error" role="alert" hidden></p>
+        <!-- CONFIRM: what leaves, what it costs and where it goes, before anything is sent. -->
+        <div id="confirm" class="confirm" hidden>
+          <h3 data-i18n="page.confirm.h"></h3>
+          <div id="txInfo" class="info"></div>
+          <div class="bar">
+            <button id="send" type="button" class="cta ready" data-i18n="page.btn.send"></button>
+          </div>
+        </div>
+        <div id="done" class="done" hidden>
+          <p class="done-head" data-i18n="page.done.h"></p>
+          <div id="doneInfo" class="info"></div>
+          <p class="hint" data-i18n="page.done.close"></p>
+        </div>
+      </section>
+
+      <!-- DETAILS: the scan height, the log and "Forget the wallet", out of the way until needed. -->
+      <details class="details" id="details">
+        <summary data-i18n="page.details"></summary>
+        <label class="field">
+          <span data-i18n="page.field.height"></span>
+          <input id="restoreHeight" type="text" inputmode="numeric" value="0">
+        </label>
+        <p class="hint" data-i18n="page.hint.height"></p>
+        <pre id="log" class="log" data-i18n="page.log.placeholder"></pre>
+        <div class="bar">
+          <button id="forget" type="button" class="ghost small" data-i18n="page.btn.forget"></button>
+        </div>
+      </details>
+    </div>
+
+    <section class="aside">
+      <h2 data-i18n="page.keys.head"></h2>
+      <ul class="legend">
+        <li data-i18n="page.keys.li1"></li>
+        <li data-i18n="page.keys.li2"></li>
+        <li data-i18n="page.keys.li3"></li>
+        <li data-i18n="page.keys.li4"></li>
+      </ul>
+      <p class="note">
+        <span data-i18n="page.diag.lead"></span><a href="./diagnostics.html">diagnostics.html</a><span data-i18n="page.diag.tail"></span>
+      </p>
     </section>
-
-    <section class="step">
-      <h2 data-i18n="page.step1"></h2>
-      <label class="field">
-        <span data-i18n="page.field.file"></span>
-        <input id="file" type="file" accept=".enc,.json,application/json">
-      </label>
-      <label class="field">
-        <span data-i18n="page.field.pass"></span>
-        <input id="pass" type="password" autocomplete="off" spellcheck="false">
-      </label>
-      <div class="bar">
-        <button id="unlock" type="button" data-i18n="page.btn.unlock"></button>
-      </div>
-      <div id="fileInfo" class="info" hidden></div>
-    </section>
-
-    <section class="step" id="stepTransfer" hidden>
-      <h2 data-i18n="page.step2"></h2>
-      <label class="field">
-        <span data-i18n="page.field.dest"></span>
-        <input id="dest" type="text" spellcheck="false" data-i18n-placeholder="page.field.dest.placeholder">
-      </label>
-      <label class="field">
-        <span data-i18n="page.field.height"></span>
-        <input id="restoreHeight" type="text" inputmode="numeric" value="0">
-      </label>
-      <p class="hint" data-i18n="page.hint.height"></p>
-      <p id="destWarn" class="hint warn" hidden></p>
-      <div class="bar">
-        <button id="sync" type="button" data-i18n="page.btn.sync"></button>
-        <button id="forget" type="button" class="ghost" data-i18n="page.btn.forget"></button>
-      </div>
-      <div id="balance" class="info" hidden></div>
-    </section>
-
-    <section class="step" id="stepSend" hidden>
-      <h2 data-i18n="page.step3"></h2>
-      <div class="bar">
-        <button id="build" type="button" data-i18n="page.btn.build"></button>
-        <button id="send" type="button" hidden data-i18n="page.btn.send"></button>
-      </div>
-      <div id="txInfo" class="info" hidden></div>
-    </section>
-
-    <pre id="log" class="log" data-i18n="page.log.placeholder"></pre>
-
-    <h2 data-i18n="page.keys.head"></h2>
-    <ul class="legend">
-      <li data-i18n="page.keys.li1"></li>
-      <li data-i18n="page.keys.li2"></li>
-      <li data-i18n="page.keys.li3"></li>
-      <li data-i18n="page.keys.li4"></li>
-    </ul>
-
-    <p class="note">
-      <span data-i18n="page.diag.lead"></span><a href="./diagnostics.html">diagnostics.html</a><span data-i18n="page.diag.tail"></span>
-    </p>
   </main>
-  <script src="./coi.js"></script>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <p class="fine"><span data-i18n="page.foot"></span><a href="https://github.com/Ninsei-Labs/recovery-page" rel="noopener noreferrer">github.com/Ninsei-Labs/recovery-page</a></p>
+    </div>
+  </footer>
   <script type="module" src="./recovery.js"></script>
 </body>
 </html>
