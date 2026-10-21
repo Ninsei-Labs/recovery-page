@@ -14,7 +14,7 @@
 // CORE CODE -> WORDS: the demo dictionary (a copy of www/js/sdk/codes.js). Unknown codes pass through.
 import { t, n, d, init as initLocale } from "./locales/index.js";
 import {
-  NODES, nodeUrl, nodeSource, nodeLabelKey, nodeLabelParams, setNodeUrl, clearNodeUrl, parseNodeUrl, nodeHost,
+  NODES, STAGENET_NODE, nodeUrl, nodeSource, nodeLabelKey, nodeLabelParams, setNodeUrl, clearNodeUrl, parseNodeUrl, nodeHost,
   pingNode, medianHeight, nodeVerdict, fastestGood,
 } from "./lib/node.js";
 import { settlementOf, evmCall, evmLogs, evmBlockNumber } from "./lib/settlement.js";
@@ -521,6 +521,12 @@ async function openFoundSwap(found, mnemonic, chain, m) {
   // A key names no Monero network; the settlement network decides it. The testnet factory is paired with
   // stagenet, and the node check later refuses a node of another network instead of silently scanning the wrong chain.
   network = chain.testnet ? "stagenet" : "mainnet";
+  // THE KEY DOES NOT NAME A NODE, BUT A TESTNET KEY NEEDS STAGENET. If the page's current pick is on another
+  // network, use the project's stagenet node; the destination check below still refuses a wrong-network node.
+  if (network === "stagenet" && nodeNetwork !== "stagenet") {
+    setNodeUrl(STAGENET_NODE, { remember: false, by: "pick" });
+    try { await checkNode(() => true); drawCurrent(); } catch { /* the open will name the node failure */ }
+  }
   const halves = m.takerHalves({ mnemonic, chainId: chain.chainId, index: found.index });
   const ownIsLocker = found.side === "locker";
   const otherSpendPoint = ownIsLocker ? found.edPointClaimer : found.edPointLocker;
