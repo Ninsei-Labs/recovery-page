@@ -193,10 +193,10 @@ export async function pingNode(url, probe, timeoutMs = PING_TIMEOUT_MS) {
   return second.ok && second.ms < first.ms ? second : first;
 }
 
-// THE TIMESTAMP OF ONE MONERO BLOCK, in seconds: one `get_block_header_by_height`, the reader the start height of a
-// swap found by the key searches with (lib/start-height.js). The heights asked converge on the swap's time, which
-// the node learns anyway once the wallet asks for blocks from there. No answer, an RPC error or a header without a
-// time throws: a missing time is unknown, never 0.
+// THE TIMESTAMP OF ONE MONERO BLOCK, in seconds: one `get_block_header_by_height`. The heights asked converge on a
+// swap's time, which the node learns anyway once the wallet asks for blocks from there. The genesis block carries
+// the timestamp 0 on every network, and that is its real time, so block 0 is the one 0 passed on; no answer, an
+// RPC error (a height past the top block), another block's header or any other 0 throws: unknown, never 0.
 export async function moneroHeaderTime(url, height, fetchImpl = globalThis.fetch, timeoutMs = PING_TIMEOUT_MS) {
   if (!Number.isSafeInteger(height) || height < 0) throw new Error(`not a block height: ${height}`);
   const response = await fetchImpl(String(url) + "/json_rpc", {
@@ -208,10 +208,11 @@ export async function moneroHeaderTime(url, height, fetchImpl = globalThis.fetch
   if (!response.ok) throw new Error(`get_block_header_by_height ${height}: HTTP ${response.status}`);
   const body = await response.json();
   const header = body && body.result && body.result.block_header;
-  if (!header || header.height !== height || !Number.isSafeInteger(header.timestamp) || header.timestamp <= 0) {
+  const time = header ? header.timestamp : undefined;
+  if (!header || header.height !== height || !Number.isSafeInteger(time) || time < 0 || (time === 0 && height !== 0)) {
     throw new Error(`get_block_header_by_height ${height}: ${body && body.error ? `RPC ${body.error.code ?? "error"}` : "no block time"}`);
   }
-  return header.timestamp;
+  return time;
 }
 
 // THE MEDIAN HEIGHT of the synchronized mainnet answers, or null when there are none: the measure of

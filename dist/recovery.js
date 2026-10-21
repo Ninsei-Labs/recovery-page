@@ -897,8 +897,10 @@ async function syncWallet() {
   let lockWindow = null;
   try {
     const tipHeight = Number(await wallet.getDaemonHeight());
-    const rawT1 = Number((payload.escrow && payload.escrow.t1) ?? (payload.deadlines && payload.deadlines.t1));
-    const t1Sec = Number.isFinite(rawT1) && rawT1 > 0 ? Math.floor(rawT1 >= 1e12 ? rawT1 / 1000 : rawT1) : 0;
+    // The found order's deadline, by the SDK's one conversion (deadlineOf); a deadline of the wrong scale is no
+    // window. The swap is `current`: this page holds no per-swap payload outside the SDK's envelope text.
+    const deadline = deadlineOf(current.swap);
+    const t1Sec = deadline ? Math.floor(deadline / 1000) : 0;
     lockWindow = await restoreWindow({ nodeUrl: nodeUrl(), t1Sec, startHeight: height, tipHeight });
   } catch { lockWindow = null; }
   const t0 = performance.now();

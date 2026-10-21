@@ -66,26 +66,67 @@ const { parseNodeUrl, NODES, DEFAULT_NODE, nodeVerdict, medianHeight, fastestGoo
 );
 const { moneroHeightAtOrAfter, restoreWindow } = await import(pathToFileURL(join(ROOT, "lib", "window.js")).href);
 
-await check("the lock window ends at the block at t1 plus ten", async () => {
-  const fetchImpl = async (_url, options) => {
-    const request = JSON.parse(options.body);
-    const height = Number(request.params.height);
-    return { ok: true, json: async () => ({ result: { block_header: { timestamp: 1_000 + height * 1_000 } } }) };
+// A FAKE MONEROD, shaped as monerod answers (examples, not a recorded chain): get_info's `height` is the number of
+// blocks, so the top block is one lower; a header past the top is refused with monerod's own error; the genesis
+// block's timestamp is 0, as on every Monero network. Block h's time is `stamp(h)` for h > 0.
+const fakeMonerod = (count, stamp, network = "stagenet") => {
+  const asked = [];
+  const fetchImpl = async (url, init) => {
+    const request = JSON.parse(init.body);
+    assert.equal(request.method, "get_block_header_by_height");
+    const height = request.params.height;
+    asked.push(height);
+    const body = height > count - 1
+      ? { jsonrpc: "2.0", id: request.id, error: { code: -2, message: `Requested block height: ${height} greater than current top block height: ${count - 1}` } }
+      : { jsonrpc: "2.0", id: request.id, result: { status: "OK", block_header: { height, timestamp: height === 0 ? 0 : stamp(height) } } };
+    return { ok: true, status: 200, json: async () => body };
   };
-  const at = await moneroHeightAtOrAfter({ nodeUrl: "https://node.example", timestamp: 1_000_500, tipHeight: 2_000, fetchImpl });
+  const probe = async () => ({ ok: true, network, nettype: network, height: count, synchronized: true });
+  return { asked, fetchImpl, probe, top: count - 1 };
+};
+// THE SAME CASES ON EVERY RUN: a seeded generator, so a failure names a case that repeats.
+const seeded = (seed) => () => {
+  seed = (seed + 0x6d2b79f5) >>> 0;
+  let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+  return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+};
+
+await check("the lock window ends at the block at t1 plus ten, on a node that answers like monerod", async () => {
+  const node = fakeMonerod(2_000, (h) => 1_000 + h * 1_000);
+  const at = await moneroHeightAtOrAfter({ nodeUrl: "https://node.example", timestamp: 1_000_500, tipHeight: 2_000, fetchImpl: node.fetchImpl });
   assert.equal(at, 1_000, `height at t1 is ${at}`);
-  const window = await restoreWindow({ nodeUrl: "https://node.example", t1Sec: 1_000_500, startHeight: 500, tipHeight: 2_000, fetchImpl });
+  const window = await restoreWindow({ nodeUrl: "https://node.example", t1Sec: 1_000_500, startHeight: 500, tipHeight: 2_000, fetchImpl: node.fetchImpl });
   assert.deepEqual(window, { nodeUrl: "https://node.example", toHeight: 1_010, tipHeight: 2_000, fallback: true });
+  assert.ok(Math.max(...node.asked) <= node.top, `a header past the top block was asked: ${Math.max(...node.asked)}`);
 });
-await check("a t1 in the future stops at the tip", async () => {
-  const fetchImpl = async (_url, options) => {
-    const request = JSON.parse(options.body);
-    const height = Number(request.params.height);
-    return { ok: true, json: async () => ({ result: { block_header: { timestamp: 1_000 + height * 1_000 } } }) };
-  };
-  const window = await restoreWindow({ nodeUrl: "https://node.example", t1Sec: 9_000_000, startHeight: 500, tipHeight: 2_000, fetchImpl });
-  assert.equal(window.toHeight, 2_000);
+
+// THE TOP BLOCK IS THE NODE'S HEIGHT MINUS ONE: the SDK asks the node for every block of the window, and one past the
+// top fails the whole restore.
+await check("a t1 past the newest block stops the window at the top block, never past it", async () => {
+  const node = fakeMonerod(2_000, (h) => 1_000 + h * 1_000);
+  const window = await restoreWindow({ nodeUrl: "https://node.example", t1Sec: 9_000_000, startHeight: 500, tipHeight: 2_000, fetchImpl: node.fetchImpl });
+  assert.deepEqual(window, { nodeUrl: "https://node.example", toHeight: 1_999, tipHeight: 2_000, fallback: true });
+  const random = seeded(24);
+  let cases = 0;
+  for (let k = 0; k < 200; k += 1) {
+    const count = 100 + Math.floor(random() * 5_000);
+    const steps = [0];
+    for (let h = 1; h < count; h += 1) steps.push((steps[h - 1] || 1_700_000_000) + Math.floor(random() * 241));
+    const chain = fakeMonerod(count, (h) => steps[h]);
+    const t1 = 1_700_000_000 - 600 + Math.floor(random() * (steps[count - 1] - 1_700_000_000 + 1_200));
+    const start = 1 + Math.floor(random() * (count - 1));
+    let first = count - 1;
+    for (let h = count - 1; h >= 0; h -= 1) if ((h === 0 ? 0 : steps[h]) >= t1) first = h;
+    const toHeight = Math.min(count - 1, Math.max(start, first + 10));
+    const got = await restoreWindow({ nodeUrl: "https://node.example", t1Sec: t1, startHeight: start, tipHeight: count, fetchImpl: chain.fetchImpl });
+    assert.deepEqual(got, toHeight > start ? { nodeUrl: "https://node.example", toHeight, tipHeight: count, fallback: true } : null, `count ${count}, t1 ${t1}, start ${start}`);
+    assert.ok(chain.asked.every((h) => h <= count - 1), `count ${count}: a header past the top block was asked`);
+    cases += 1;
+  }
+  return `${cases + 1} cases`;
 });
+
 await check("an empty address is refused with its own reason", () => {
   assert.deepEqual(parseNodeUrl(""), { ok: false, why: "empty", url: null });
   assert.deepEqual(parseNodeUrl("   "), { ok: false, why: "empty", url: null });
@@ -694,13 +735,6 @@ const fakeChain = (top, stamp) => {
     },
   };
 };
-// THE SAME CASES ON EVERY RUN: a seeded generator, so a failure names a case that repeats.
-const seeded = (seed) => () => {
-  seed = (seed + 0x6d2b79f5) >>> 0;
-  let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
-  return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-};
 // THE BOUND ON HEADER READS: a binary search over top + 1 blocks, plus the two ends. A linear walk would read the
 // whole chain, over two million requests on mainnet.
 const searchBound = (top) => Math.ceil(Math.log2(top + 2)) + 2;
@@ -852,12 +886,14 @@ await check("a Monero block's time is one get_block_header_by_height, and no ans
   assert.equal(asks.calls[0].init.method, "POST");
   assert.equal(asks.calls[0].init.headers["content-type"], "application/json");
   assert.deepEqual(asks.calls[0].body, { jsonrpc: "2.0", id: "0", method: "get_block_header_by_height", params: { height: 2_000_000 } });
+  assert.equal(await moneroHeaderTime(url, 0, fakeFetch([header(0, 0)]).fetchImpl), 0, "the genesis block's time is 0");
   const unknowns = [
     ["an HTTP error", { status: 500, body: null }],
-    ["an RPC error", { status: 200, body: { error: { code: -2, message: "Requested block height: 9 greater than current top block height: 3" } } }],
+    ["an RPC error", { status: 200, body: { error: { code: -2, message: "Requested block height: 2000000 greater than current top block height: 1999999" } } }],
     ["another block's header", header(1_999_999, 1_764_246_000)],
     ["a header without a time", header(2_000_000, undefined)],
-    ["a time of 0", header(2_000_000, 0)],
+    ["a time of 0 for a block that is not the genesis block", header(2_000_000, 0)],
+    ["a negative time", header(2_000_000, -5)],
     ["a time that is not a number", header(2_000_000, "1764246150")],
   ];
   for (const [what, answer] of unknowns) {
@@ -869,7 +905,6 @@ await check("a Monero block's time is one get_block_header_by_height, and no ans
   assert.equal(idle.calls.length, 0);
 });
 
-// --- 3. the page's own rules ------------------------------------------------------------
 await check("the SDK entry names package subpaths, not files inside the package", async () => {
   const text = await read("sdk-entry.js");
   const specifiers = [...text.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
@@ -940,6 +975,15 @@ await check("every script the page loads parses as a module", async () => {
   }
   assert.deepEqual(broken, []);
   return `${files.length} files`;
+});
+
+// THE WINDOW NEEDS THE ORDER'S DEADLINE, and a name the function does not have fails inside its try without a word:
+// the window then never forms, and every withdrawal scans the whole chain.
+await check("the lock window is given the found order's deadline", async () => {
+  const sync = bodyOf(await read("recovery.js"), "syncWallet");
+  assert.match(sync, /const deadline = deadlineOf\(current\.swap\);/, "the window's deadline is not the found order's");
+  assert.match(sync, /restoreWindow\(\{[^}]*t1Sec[^}]*\}\)/, "the window is not given the deadline");
+  assert.ok(!/\bpayload\b/.test(sync.replace(/\/\/.*$/gm, "")), "syncWallet reads a payload it does not have");
 });
 
 await check("no eval and no new Function in the page's own code", async () => {
