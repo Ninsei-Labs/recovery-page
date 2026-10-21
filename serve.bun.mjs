@@ -1,13 +1,12 @@
 // THE CONTAINER'S WEB SERVER: Bun, one file, no dependencies.
 //
-// It serves the built page and the two headers the wallet cannot live without. That is the whole
-// reason this file exists instead of `bun --serve`: a static file server that does not set
-// `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` produces a page whose wallet never
-// starts, and the browser's only explanation is a missing `SharedArrayBuffer`.
+// It serves the built page with its Content-Security-Policy and caching rules, which is why this file
+// exists instead of `bun --serve`: the CSP is what keeps any other host's script out of a page that
+// holds spend keys. The wallet needs no cross-origin isolation, so no COEP is sent.
 //
 // WHAT IT DOES NOT DO: TLS. Terminate TLS in front of it (a reverse proxy, a load balancer, a tunnel)
-// and keep the two headers intact there as well - this server sends them, but a proxy that rewrites
-// its own headers can still drop them.
+// and keep the CSP intact there as well - this server sends it, but a proxy that rewrites its own
+// headers can still drop it.
 //
 // Environment:
 //   PORT  (default 8080)  - the port to listen on
@@ -17,9 +16,8 @@ const ROOT = (process.env.ROOT || "/srv/recovery").replace(/[\\/]+$/, "");
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
 
-const ISOLATION = {
+const SECURITY = {
   "Cross-Origin-Opener-Policy": "same-origin",
-  "Cross-Origin-Embedder-Policy": "require-corp",
   "Cross-Origin-Resource-Policy": "same-origin",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
@@ -56,7 +54,7 @@ const TYPES = {
 
 function headersFor(pathname) {
   const ext = pathname.slice(pathname.lastIndexOf("."));
-  const headers = new Headers(ISOLATION);
+  const headers = new Headers(SECURITY);
   headers.set("Content-Security-Policy", CSP);
   headers.set("Content-Type", TYPES[ext] || "application/octet-stream");
   // Bundles are stamped with their content hash in `?v=`, so a year is safe. The page, the service

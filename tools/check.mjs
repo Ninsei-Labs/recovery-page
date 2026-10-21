@@ -430,7 +430,7 @@ await check("no absolute asset paths: the page must work in a subdirectory", asy
 
 await check("no eval and no new Function in the page's own code", async () => {
   const offenders = [];
-  for (const file of ["recovery.js", "diagnostics.js", "lib/node.js", "lib/codes.js", "lib/settlement.js", "lib/withdrawal.js", "coi.js", "sw.js"]) {
+  for (const file of ["recovery.js", "diagnostics.js", "lib/node.js", "lib/codes.js", "lib/settlement.js", "lib/withdrawal.js"]) {
     const text = await read(file);
     if (/\beval\s*\(|new\s+Function\s*\(/.test(text)) offenders.push(file);
   }
@@ -456,8 +456,6 @@ const REQUIRED = [
   "recovery.css",
   "recovery.js",
   "diagnostics.js",
-  "coi.js",
-  "sw.js",
   "monero.worker.js",
   "assets/vendors/monero/monero-ts-browser.js",
   "assets/vendors/sdk/sdk-browser.js",
@@ -534,16 +532,23 @@ await check("both pages name the icon the build ships, so no browser asks for /f
   assert.ok(!/(?:href|src)=|url\(/.test(svg), "favicon.svg loads another file");
 });
 
-await check("the isolation fallback ships with the page", async () => {
-  const html = await readFile(join(DIST, "index.html"), "utf8");
-  assert.ok(html.includes('src="./coi.js"'), "coi.js is not loaded by index.html");
-  assert.ok(existsSync(join(DIST, "sw.js")), "sw.js is missing");
+// THE WALLET NEEDS NO ISOLATION (monero-ts 0.11.20 has no threads). A service worker that adds COEP would
+// keep every request of the tab under require-corp for nothing, so none ships and none is registered.
+await check("no isolation worker ships or is registered", async () => {
+  for (const file of ["index.html", "diagnostics.html"]) {
+    const html = await readFile(join(DIST, file), "utf8");
+    assert.ok(!/coi\.js/.test(html), `${file} loads coi.js`);
+  }
+  assert.ok(!existsSync(join(DIST, "sw.js")) && !existsSync(join(DIST, "coi.js")), "dist/ ships an isolation worker");
+  const page = await read("recovery.js");
+  assert.ok(!/serviceWorker\.register\(/.test(page), "recovery.js registers a service worker");
 });
 
-await check("the header file carries both isolation headers", async () => {
+await check("the header file sets the CSP and no COEP", async () => {
   const headers = await readFile(join(DIST, "_headers"), "utf8");
+  assert.match(headers, /Content-Security-Policy:\s*default-src 'self'/i);
   assert.match(headers, /Cross-Origin-Opener-Policy:\s*same-origin/i);
-  assert.match(headers, /Cross-Origin-Embedder-Policy:\s*require-corp/i);
+  assert.ok(!/Cross-Origin-Embedder-Policy/i.test(headers), "_headers still sets COEP");
 });
 
 await check("the workflows run Bun and never npm", async () => {

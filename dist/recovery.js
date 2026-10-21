@@ -1106,6 +1106,15 @@ withdrawBtn.addEventListener("click", () => busy(withdrawBtn, withdraw, withdraw
 sendBtn.addEventListener("click", () => busy(sendBtn, sendTx, withdrawErrorEl));
 forgetBtn.addEventListener("click", () => busy(forgetBtn, () => forget()));
 
+// AN OLDER BUILD OF THIS PAGE REGISTERED A SERVICE WORKER (sw.js) that added COEP to every answer. The wallet
+// needs no isolation, and a worker outlives its file, so a tab that met the old build stays under require-corp
+// until the registration is removed. Removing it changes nothing for this load and costs nothing when there is none.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistrations()
+    .then((found) => Promise.all(found.map((r) => r.unregister())))
+    .catch(() => {});
+}
+
 // LANGUAGE IS CHOSEN BEFORE THE FIRST LOG LINE; if loading fails the log shows raw keys, visible and not hidden.
 initLocale()
   .then(async () => {

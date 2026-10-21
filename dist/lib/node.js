@@ -11,9 +11,8 @@
 //
 // WHAT A NODE MUST DO to serve this page: answer the wallet's paths (`/json_rpc`, `/getblocks.bin`,
 // `/gethashes.bin`, `/get_blocks.bin`) and allow the page's origin in CORS, including the
-// `Content-Type: application/json` header monero-ts sends. Under the page's `COEP: require-corp` an
-// answer that passes CORS also passes the cross-origin check. A node without CORS fails in the
-// browser, not on the wire, and the page reports that as a node that does not answer.
+// `Content-Type: application/json` header monero-ts sends. A node without CORS fails in the browser,
+// not on the wire, and the page reports that as a node that does not answer.
 //
 // NOTHING SECRET LIVES HERE. A node address is public by nature; the wallet's keys never leave the tab.
 

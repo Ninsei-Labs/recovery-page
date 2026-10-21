@@ -44,9 +44,9 @@ want to name one origin instead, echo the request origin and add `Vary: Origin`.
 
 The preflight must answer `204` for `OPTIONS`. Without it the browser stops before the first JSON call.
 
-`Cross-Origin-Resource-Policy: cross-origin` is required because the page runs under
-`Cross-Origin-Embedder-Policy: require-corp`. A response that passes CORS also passes that check only
-when CORP says so.
+`Cross-Origin-Resource-Policy: cross-origin` lets the answers through for a page served with
+`Cross-Origin-Embedder-Policy: require-corp`. This page no longer is, so the header is harmless and
+only matters to a copy that still sets COEP.
 
 A public node may send its own CORS headers. Hide them in the proxy before adding yours, otherwise the
 browser sees two `Access-Control-Allow-Origin` values and refuses the answer.

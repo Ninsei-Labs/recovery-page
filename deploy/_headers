@@ -1,6 +1,5 @@
 /*
   Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
   Cross-Origin-Resource-Policy: same-origin
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
@@ -13,9 +12,6 @@
   Cache-Control: public, max-age=3600
 
 /*.html
-  Cache-Control: no-cache
-
-/sw.js
   Cache-Control: no-cache
 
 /build.json

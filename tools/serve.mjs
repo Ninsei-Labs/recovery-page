@@ -36,9 +36,8 @@ const TYPES = {
   ".txt": "text/plain; charset=utf-8",
 };
 
-const ISOLATION = {
+const SECURITY = {
   "Cross-Origin-Opener-Policy": "same-origin",
-  "Cross-Origin-Embedder-Policy": "require-corp",
   "Cross-Origin-Resource-Policy": "same-origin",
 };
 
@@ -56,7 +55,7 @@ const CSP = [
 
 function headersFor(file) {
   const headers = { "Content-Type": TYPES[extname(file)] || "application/octet-stream", "Cache-Control": "no-store" };
-  if (!headerArgs) Object.assign(headers, ISOLATION, { "Content-Security-Policy": CSP });
+  if (!headerArgs) Object.assign(headers, SECURITY, { "Content-Security-Policy": CSP });
   return headers;
 }
 
