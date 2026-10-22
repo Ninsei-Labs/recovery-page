@@ -15,7 +15,7 @@
 # passes the two Cross-Origin-* headers through untouched; without them the page cannot use
 # SharedArrayBuffer and the wallet will not start.
 
-FROM oven/bun:1.4-slim AS build
+FROM oven/bun:1.4.4-slim AS build
 WORKDIR /src
 
 # Dependencies first: the lock file changes less often than the page, so this layer is cached.
@@ -26,7 +26,7 @@ COPY . .
 # Build and then the repository's own checks: a broken page fails the image, not a visitor.
 RUN bun build/build.mjs && bun tools/check.mjs
 
-FROM oven/bun:1.4-slim AS runtime
+FROM oven/bun:1.4.4-slim AS runtime
 
 ENV TZ=UTC \
     NODE_ENV=production \

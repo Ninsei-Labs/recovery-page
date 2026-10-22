@@ -1,0 +1,6 @@
+node_modules/
+dist/
+assets/vendors/
+*.min.js
+bun.lock
+package-lock.json

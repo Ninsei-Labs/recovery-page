@@ -25,14 +25,14 @@ reads the maker's half from the escrow, combines the halves, verifies the sum ag
 
 What the page reads for a swap, and where:
 
-| What | From |
-|---|---|
-| the swaps of a key | the factory's `OrderCreated` logs, matched against the key's commitments in the tab (`findSwaps`) |
-| the swap's state | the escrow's `status()`: claimed, refunded or open, and its deadline from the order |
-| the swap's date | the time of the block that holds the order |
-| the Monero start block | the last Monero block at or before that time, minus 60: the SDK's rule in `findSwaps`, with the node's tip and headers read by the page (`lib/node.js`) |
-| the maker's half | the escrow's `revealedHalf()`, read by the SDK's `sweep.plan` |
-| the blocks to scan | from the start block to the block at the order's deadline plus ten (`lib/window.js`), scanned by the SDK's `sweep.restore({ window })`; an empty window falls back to the full scan |
+| What                   | From                                                                                                                                                                                |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the swaps of a key     | the factory's `OrderCreated` logs, matched against the key's commitments in the tab (`findSwaps`)                                                                                   |
+| the swap's state       | the escrow's `status()`: claimed, refunded or open, and its deadline from the order                                                                                                 |
+| the swap's date        | the time of the block that holds the order                                                                                                                                          |
+| the Monero start block | the last Monero block at or before that time, minus 60: the SDK's rule in `findSwaps`, with the node's tip and headers read by the page (`lib/node.js`)                             |
+| the maker's half       | the escrow's `revealedHalf()`, read by the SDK's `sweep.plan`                                                                                                                       |
+| the blocks to scan     | from the start block to the block at the order's deadline plus ten (`lib/window.js`), scanned by the SDK's `sweep.restore({ window })`; an empty window falls back to the full scan |
 
 The SDK's withdrawal (`sweep.plan`, `keys`, `sign`, `relay`) takes a per-swap payload; the page writes a found
 swap into that payload in memory (`lib/found-swap.js`), so every withdrawal rule stays the SDK's.
@@ -44,12 +44,12 @@ answers is not a recovery page.
 
 The page speaks to a Monero node through the wallet's own paths. A scan on stagenet called these:
 
-| Path | Purpose |
-|---|---|
-| `/json_rpc` | `get_info`, chain height, fee estimate |
-| `/gethashes.bin` | the chain's block hashes up to the start block, most of a scan's time |
-| `/getblocks.bin` | block bodies from the start block on |
-| `/get_transaction_pool_hashes.bin` | transactions not yet in a block |
+| Path                               | Purpose                                                               |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| `/json_rpc`                        | `get_info`, chain height, fee estimate                                |
+| `/gethashes.bin`                   | the chain's block hashes up to the start block, most of a scan's time |
+| `/getblocks.bin`                   | block bodies from the start block on                                  |
+| `/get_transaction_pool_hashes.bin` | transactions not yet in a block                                       |
 
 The transfer adds paths of its own, so a node for this page runs with `--restricted-rpc` and its proxy
 passes every path (`deploy/own-node.md`).
@@ -72,7 +72,7 @@ including a public fallback and the exact headers.
 
 ## Build
 
-Bun 1.4 or newer. There is no Node step: the build is esbuild plus file operations, and Bun runs both
+Bun 1.4.4 or newer. There is no Node step: the build is esbuild plus file operations, and Bun runs both
 the build and the checks.
 
 ```
@@ -90,14 +90,25 @@ only when someone changes it.
 
 `bun run serve` serves `dist/` with the page's headers, for looking at a change locally.
 
+## Formatting and the pre-commit hook
+
+The tree uses Bun's built-in formatter, configured in `bunfig.toml`. Install the tracked hook once per clone:
+
+```
+bun run hooks:install
+```
+
+Every commit formats the staged files with `bun fmt --staged`, rebuilds `dist/`, runs `bun run test`, and
+stages the rebuilt page. `bun run fmt` formats the whole tree and `bun run fmt:check` verifies it without writing.
+
 ## Hosting
 
-| Host | Headers | Notes |
-|---|---|---|
-| **Your nginx** | yes | `deploy/nginx.conf`. Best option: nothing between the page and the browser. |
-| **Cloudflare Pages** | yes | Upload `dist/`; `_headers` in the same folder sets the CSP and caching. |
-| **GitHub Pages** | no | The page works, without the CSP header. A host that sets headers is better. |
-| **IPFS** | no | Works the same way, without the CSP header. Content addressing is a real gain for a page that handles keys: a CID cannot be edited. Pin the directory and publish the CID. |
+| Host                 | Headers | Notes                                                                                                                                                                      |
+| -------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Your nginx**       | yes     | `deploy/nginx.conf`. Best option: nothing between the page and the browser.                                                                                                |
+| **Cloudflare Pages** | yes     | Upload `dist/`; `_headers` in the same folder sets the CSP and caching.                                                                                                    |
+| **GitHub Pages**     | no      | The page works, without the CSP header. A host that sets headers is better.                                                                                                |
+| **IPFS**             | no      | Works the same way, without the CSP header. Content addressing is a real gain for a page that handles keys: a CID cannot be edited. Pin the directory and publish the CID. |
 
 A page served from a subdirectory works too: every path in the page is relative.
 
