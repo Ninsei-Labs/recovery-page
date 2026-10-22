@@ -41,7 +41,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.4"
+          bun-version: "1.4.4"
 
       # THE VERSION COMES FROM THE TAG, NOT FROM A HAND-EDITED FILE. `build.json` then names the
       # version of the release it is attached to, and the two cannot disagree. The script replaces the

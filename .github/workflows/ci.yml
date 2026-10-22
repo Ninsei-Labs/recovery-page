@@ -26,10 +26,17 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.4"
+          bun-version: "1.4.4"
 
       - name: Install the locked dependencies
         run: bun install --frozen-lockfile
+
+      - name: Check formatting of the changed files
+        run: |
+          base="${{ github.base_ref }}"
+          if [ -z "$base" ]; then base="main"; fi
+          git fetch --no-tags --depth=1 origin "$base"
+          bun fmt --no-script --check --changed="origin/$base"
 
       - name: Build and check
         run: bun run test

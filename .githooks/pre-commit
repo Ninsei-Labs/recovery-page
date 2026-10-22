@@ -1,0 +1,26 @@
+#!/bin/sh
+# Format what is staged with the pinned Bun, rebuild the page, run its checks, and stage dist/.
+# The hook is installed with `bun run hooks:install` (git config core.hooksPath .githooks).
+set -eu
+
+version="$(bun --version 2>/dev/null || true)"
+if [ "$version" != "1.4.4" ]; then
+  echo "pre-commit: Bun 1.4.4 is required; found '${version:-none}'" >&2
+  exit 1
+fi
+
+# Bun's --staged helper asks git to run; on this Windows checkout that path is not always usable.
+# Name the staged files ourselves and use the native git when the shell's git cannot start.
+git_bin="${GIT_BIN:-git}"
+if ! "$git_bin" rev-parse --git-dir >/dev/null 2>&1; then
+  git_bin="/c/Program Files/Git/cmd/git.exe"
+fi
+files="$("$git_bin" diff --cached --name-only --diff-filter=ACMR)"
+if [ -n "$files" ]; then
+  bun fmt --no-script --ignore-unknown $files
+  bun fmt --no-script --ignore-unknown --check $files
+  "$git_bin" add -- $files
+fi
+
+bun run test
+"$git_bin" add dist
