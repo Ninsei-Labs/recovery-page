@@ -2,9 +2,10 @@
 // address -> one button that syncs, builds and signs -> confirm -> send.
 //
 // THE RULES LIVE IN @ninsei-labs/sdk: importRecoveryKey, openRecoveryKeyFile, takerHalves, findSwaps, order.status,
-// order.jointAddress, sweep.plan, sweep.keys, sweep.wallet, sweep.restore, sweep.destination, sweep.sign,
-// sweep.relay, formatXmr, probeMoneroNode. A found swap reaches the sweep through the SDK's own payload, written in
-// memory (lib/found-swap.js), because the sweep takes no other form yet.
+// order.jointAddress, sweep.plan, sweep.fromOrder, sweep.keys, sweep.wallet, sweep.restore, sweep.destination,
+// sweep.sign, sweep.relay, formatXmr, probeMoneroNode. A found swap reaches the sweep through sweep.fromOrder: the
+// SDK takes the key and the order, checks the points, builds the joint address and returns the same file plan/keys
+// accept, so the page keeps no payload rule of its own.
 //
 // The page keeps the DOM, the node address, state, display and texts. What it says about a swap and its money
 // comes from lib/withdrawal.js. A found swap's start height is the SDK's (findSwaps), from the page's readers of the
@@ -17,13 +18,34 @@
 // CORE CODE -> WORDS: the demo dictionary (a copy of www/js/sdk/codes.js). Unknown codes pass through.
 import { t, n, d, init as initLocale } from "./locales/index.js";
 import {
-  NODES, STAGENET_NODE, nodeUrl, nodeSource, nodeLabelKey, nodeLabelParams, setNodeUrl, clearNodeUrl, parseNodeUrl, nodeHost,
-  pingNode, medianHeight, nodeVerdict, fastestGood, moneroReaders, nodeFor,
+  NODES,
+  STAGENET_NODE,
+  nodeUrl,
+  nodeSource,
+  nodeLabelKey,
+  nodeLabelParams,
+  setNodeUrl,
+  clearNodeUrl,
+  parseNodeUrl,
+  nodeHost,
+  pingNode,
+  medianHeight,
+  nodeVerdict,
+  fastestGood,
+  moneroReaders,
+  nodeFor,
 } from "./lib/node.js";
 import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
 import { restoreWindow } from "./lib/window.js";
-import { sideOf, partsOf, payloadOf } from "./lib/found-swap.js";
 import { swapState, moneyState } from "./lib/withdrawal.js";
+
+// THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
+// anything else; this function only names the row before the withdrawal is opened.
+function sideOf(found) {
+  if (found && found.side === "locker") return "buy";
+  if (found && found.side === "claimer") return "sell";
+  return null;
+}
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=__V_MONERO__";
@@ -33,7 +55,9 @@ const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=__V_SDK__";
 // fallback, the "withdrawn" mark) get this fetch, which answers "unavailable" without a request: the height comes
 // from the chain or the person, the half from the chain, and a withdrawal needs nobody told. So only the Monero
 // node and the settlement chain's RPCs ever hear from this tab, as the page promises.
-const noService = async () => { throw new TypeError("this page talks to no service"); };
+const noService = async () => {
+  throw new TypeError("this page talks to no service");
+};
 
 const EXPLORER = {
   mainnet: "https://xmrchain.net/tx/",
@@ -77,26 +101,34 @@ const sendBtn = $("send");
 const doneEl = $("done");
 const doneInfoEl = $("doneInfo");
 
-let api = null;          // monero-ts namespace
-let mod = null;          // built SDK core
+let api = null; // monero-ts namespace
+let mod = null; // built SDK core
 const facades = new Map(); // "<settlement>/<monero network>" -> core facade (createNinsei)
-let adapter = null;      // core wallet adapter (connect/sync/unlockedBalance/driver)
-let wallet = null;       // library wallet: driver() of the adapter
-let keyFileText = null;  // the chosen key file's text, until the search reads it
-let key = null;          // { mnemonic, fingerprint } of the last search: the words live here and nowhere else
-let search = null;       // the last search: { rows, failed } - rows are { swap, net, side, status, time }
-let current = null;      // the row being withdrawn
-let contents = null;     // the current swap as the SDK's payload, a plain envelope in memory (lib/found-swap.js)
-let plan = null;         // core plan: address, height, missing, revealed half
-let network = null;      // Monero network of the current swap
-let nodeNetwork = null;  // Monero network the chosen node answered with (checkNode)
-let settlement = null;   // settlement network of the current swap, one lib/settlement.js knows
-let balance = null;      // { total, unlocked, txs } after a sync, null before one
-let signedToken = null;  // signing token (sweep.sign -> sweep.relay)
-let lastTx = null;       // signed transfer data for the confirmation
+let adapter = null; // core wallet adapter (connect/sync/unlockedBalance/driver)
+let wallet = null; // library wallet: driver() of the adapter
+let keyFileText = null; // the chosen key file's text, until the search reads it
+let key = null; // { mnemonic, fingerprint } of the last search: the words live here and nowhere else
+let search = null; // the last search: { rows, failed } - rows are { swap, net, side, status, time }
+let current = null; // the row being withdrawn
+let contents = null; // the current swap's file from sweep.fromOrder, a plain envelope in memory
+let plan = null; // core plan: address, height, missing, revealed half
+let network = null; // Monero network of the current swap
+let nodeNetwork = null; // Monero network the chosen node answered with (checkNode)
+let settlement = null; // settlement network of the current swap, one lib/settlement.js knows
+let balance = null; // { total, unlocked, txs } after a sync, null before one
+let signedToken = null; // signing token (sweep.sign -> sweep.relay)
+let lastTx = null; // signed transfer data for the confirmation
 
 // Console and test state: no secrets (no words, no keys, no halves).
-window.__sweepFlow = { ready: false, network: null, address: null, restoreHeight: null, unlocked: 0n, signed: false, steps: [] };
+window.__sweepFlow = {
+  ready: false,
+  network: null,
+  address: null,
+  restoreHeight: null,
+  unlocked: 0n,
+  signed: false,
+  steps: [],
+};
 
 const looksLikeXmrAddress = (text) => /^[1-9A-HJ-NP-Za-km-z]{95}$|^[1-9A-HJ-NP-Za-km-z]{106}$/.test(text);
 const wordCount = () => keyWordsInput.value.trim().split(/\s+/).filter(Boolean).length;
@@ -108,8 +140,13 @@ function updateButtons() {
   const keyReady = keyFileText ? keyPassField.hidden || Boolean(keyPassInput.value) : wordCount() === 12;
   findSwapsBtn.classList.toggle("ready", keyReady);
   const state = currentState();
-  withdrawBtn.classList.toggle("ready", Boolean(state && state.state === "ready") && looksLikeXmrAddress(destInput.value.trim())
-    && !signedToken && doneEl.hidden);
+  withdrawBtn.classList.toggle(
+    "ready",
+    Boolean(state && state.state === "ready") &&
+      looksLikeXmrAddress(destInput.value.trim()) &&
+      !signedToken &&
+      doneEl.hidden,
+  );
 }
 
 // ONE PLAIN LINE PER STEP for a stop; the detail is in the technical log. `tone` is "bad" for an error and
@@ -160,7 +197,9 @@ function hideProgress() {
 // TIME LEFT OF A SCAN, from its own pace so far: said only once there is a pace to go by.
 function timeLeft(seconds) {
   if (!(seconds > 0) || !Number.isFinite(seconds)) return "";
-  return seconds < 90 ? t("flow.time.sec", { n: n(Math.max(1, Math.round(seconds))) }) : t("flow.time.min", { n: n(Math.round(seconds / 60)) });
+  return seconds < 90
+    ? t("flow.time.sec", { n: n(Math.max(1, Math.round(seconds))) })
+    : t("flow.time.min", { n: n(Math.round(seconds / 60)) });
 }
 
 // A SIGNED TRANSFER BELONGS TO THE ADDRESS IT WAS SIGNED FOR: a changed address puts the confirmation away, and the
@@ -269,7 +308,11 @@ document.addEventListener("i18n:applied", () => {
 // XMR AMOUNTS ARE A PACKAGE RULE (formatXmr, BigInt): one atomic unit is "0.000000000001", and above 9007 XMR
 // nothing is rounded the way Number rounded it.
 const xmr = (atomic) => {
-  try { return mod.formatXmr(atomic); } catch { return String(atomic); }
+  try {
+    return mod.formatXmr(atomic);
+  } catch {
+    return String(atomic);
+  }
 };
 // REFUSAL IN WORDS BY CODE: the core holds SdkError.code, the language holds the wording. A plain Error (a
 // transport of the page's own) is its message.
@@ -312,14 +355,17 @@ async function facadeFor(chainId, xmrNetwork) {
   const m = await sdkBundle();
   const id = chainId + "/" + xmrNetwork;
   if (!facades.has(id)) {
-    facades.set(id, m.createNinsei({
-      settlement: { chain: chainId },
-      xmrNetwork,
-      mode: "live",
-      fetch: noService,
-      storage: m.memoryAdapter(),
-      evmCall: (request) => evmCall(chainId, request),
-    }));
+    facades.set(
+      id,
+      m.createNinsei({
+        settlement: { chain: chainId },
+        xmrNetwork,
+        mode: "live",
+        fetch: noService,
+        storage: m.memoryAdapter(),
+        evmCall: (request) => evmCall(chainId, request),
+      }),
+    );
   }
   return facades.get(id);
 }
@@ -357,8 +403,11 @@ async function loadWallet() {
     try {
       const r = await fetch(WORKER);
       const buf = await r.arrayBuffer();
-      if (r.status !== 200 || buf.byteLength < 1_000_000) throw new Error(t("preflight.fail.workerBytes", { bytes: n(buf.byteLength) }));
-      log(t("log.worker.ok", { mb: n(buf.byteLength / 1048576, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }));
+      if (r.status !== 200 || buf.byteLength < 1_000_000)
+        throw new Error(t("preflight.fail.workerBytes", { bytes: n(buf.byteLength) }));
+      log(
+        t("log.worker.ok", { mb: n(buf.byteLength / 1048576, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }),
+      );
     } catch (e) {
       failed.push(["preflight.fail.worker", { message: e.message }]);
     }
@@ -409,7 +458,14 @@ async function checkNode(isCurrent) {
     setCheck("node", "bad", why);
     return false;
   }
-  log(t("log.node.answering", { height: n(probe.height), sync: probe.synchronized, nettype: probe.nettype, node: t(nodeLabelKey(), nodeLabelParams()) }));
+  log(
+    t("log.node.answering", {
+      height: n(probe.height),
+      sync: probe.synchronized,
+      nettype: probe.nettype,
+      node: t(nodeLabelKey(), nodeLabelParams()),
+    }),
+  );
   setCheck("node", "ok");
   return true;
 }
@@ -554,7 +610,16 @@ async function findKeySwaps() {
       search.failed.push(net.name);
       continue;
     }
-    log(t("log.key.searched", { network: net.name, count: n(found.swaps.length), numbers: n(found.scanned), from: n(net.since), to: n(latest) }), found.swaps.length ? "ok" : "");
+    log(
+      t("log.key.searched", {
+        network: net.name,
+        count: n(found.swaps.length),
+        numbers: n(found.scanned),
+        from: n(net.since),
+        to: n(latest),
+      }),
+      found.swaps.length ? "ok" : "",
+    );
     const core = await facadeFor(net.id, net.monero);
     for (const swap of found.swaps) {
       const row = { swap, net, side: sideOf(swap), status: null, time: null };
@@ -588,9 +653,14 @@ async function findKeySwaps() {
 
 // THE DEADLINE OF A FOUND ORDER in ms, by the SDK's one conversion; a value of the wrong scale is unknown.
 function deadlineOf(swap) {
-  try { return mod.msFromOrderSeconds(swap.t1, "t1"); } catch { return null; }
+  try {
+    return mod.msFromOrderSeconds(swap.t1, "t1");
+  } catch {
+    return null;
+  }
 }
-const swapStateOf = (row) => swapState({ side: row.side, status: row.status, deadline: deadlineOf(row.swap), now: Date.now() });
+const swapStateOf = (row) =>
+  swapState({ side: row.side, status: row.status, deadline: deadlineOf(row.swap), now: Date.now() });
 
 // THE ORDER'S AMOUNT in the settlement chain's coin, for display: the escrow holds it in its smallest unit.
 function coinAmount(row) {
@@ -616,7 +686,11 @@ function drawSwaps() {
   }
   keyPrintEl.textContent = t("key.print", { fp: key.fingerprint });
   const rows = search.rows;
-  keyCountEl.textContent = !search.done ? t("key.searching") : rows.length ? t("key.count", { count: rows.length }) : "";
+  keyCountEl.textContent = !search.done
+    ? t("key.searching")
+    : rows.length
+      ? t("key.count", { count: rows.length })
+      : "";
   keyNoneEl.hidden = !search.done || rows.length > 0 || search.failed.length > 0;
   keyPartialEl.hidden = !search.done || !search.failed.length;
   keyPartialEl.textContent = search.failed.length ? t("key.partial", { list: search.failed.join(", ") }) : "";
@@ -629,27 +703,40 @@ function swapRow(row) {
   const side = t(row.side === "buy" ? "value.side.buy" : row.side === "sell" ? "value.side.sell" : "swap.side.unknown");
   let action;
   if (state.action === "withdraw") {
-    action = h("button", { type: "button", class: current === row ? "small ready" : "small", text: t("swap.action.withdraw") });
+    action = h("button", {
+      type: "button",
+      class: current === row ? "small ready" : "small",
+      text: t("swap.action.withdraw"),
+    });
     action.addEventListener("click", () => busy(action, () => openSwap(row), openErrorEl));
   } else {
-    action = h("span", { class: "swap-action", text: t("swap.action." + state.action, { deadline: state.params.deadline ? d(state.params.deadline) : "" }) });
+    action = h("span", {
+      class: "swap-action",
+      text: t("swap.action." + state.action, { deadline: state.params.deadline ? d(state.params.deadline) : "" }),
+    });
   }
-  return h("li", { class: "swap", "data-action": state.action, ...(current === row ? { "aria-current": "true" } : {}) }, [
-    h("div", { class: "swap-top" }, [
-      h("span", { class: "swap-side", text: side }),
-      h("span", { class: "swap-amount", text: coinAmount(row) }),
-      h("span", { class: "swap-date", text: `${when} · ${row.net.name}` }),
-    ]),
-    h("p", { class: "swap-state", text: t("swap.state." + state.state, { deadline: state.params.deadline ? d(state.params.deadline) : "" }) }),
-    h("div", { class: "swap-do" }, [action]),
-  ]);
+  return h(
+    "li",
+    { class: "swap", "data-action": state.action, ...(current === row ? { "aria-current": "true" } : {}) },
+    [
+      h("div", { class: "swap-top" }, [
+        h("span", { class: "swap-side", text: side }),
+        h("span", { class: "swap-amount", text: coinAmount(row) }),
+        h("span", { class: "swap-date", text: `${when} · ${row.net.name}` }),
+      ]),
+      h("p", {
+        class: "swap-state",
+        text: t("swap.state." + state.state, { deadline: state.params.deadline ? d(state.params.deadline) : "" }),
+      }),
+      h("div", { class: "swap-do" }, [action]),
+    ],
+  );
 }
 
 // --- 2. One swap: its keys, its start height, the SDK's plan ---
 
-// OPEN ONE SWAP FOR THE WITHDRAWAL. The halves of its number come from the key, the other side's points from the
-// order, checked against the chain (lib/found-swap.js); the SDK builds the joint address and reads the plan from
-// the payload written in memory. Nothing is written to disk.
+// OPEN ONE SWAP FOR THE WITHDRAWAL. sweep.fromOrder takes the key and the order, checks the chain's points against
+// the key, builds the joint address and returns the file the plan reads. Nothing is written to disk.
 async function openSwap(row) {
   quiet(openErrorEl);
   if (!key) return say(keyErrorEl, "key.gone", {}, "wait");
@@ -670,38 +757,45 @@ async function openSwap(row) {
   // chosen; the withdrawal still refuses a node of another network instead of scanning the wrong chain.
   if (network === "stagenet" && nodeNetwork !== "stagenet" && !nodeLocked()) {
     setNodeUrl(STAGENET_NODE, { remember: false, by: "pick" });
-    try { await checkNode(() => true); drawCurrent(); } catch { /* the withdrawal names the node failure */ }
-  }
-  const m = await sdkBundle();
-  const halves = m.takerHalves({ mnemonic: key.mnemonic, chainId: row.net.chainId, index: row.swap.index });
-  const parts = partsOf(row.swap, halves);
-  if (!parts.ok) {
-    log(t("log.order." + parts.why, { escrow: row.swap.escrow }), "bad");
-    moneyEl.hidden = true;
-    return say(openErrorEl, parts.why === "maker-view-point" ? "flow.err.view" : "flow.err.order");
+    try {
+      await checkNode(() => true);
+      drawCurrent();
+    } catch {
+      /* the withdrawal names the node failure */
+    }
   }
   const core = await facadeFor(settlement, network);
-  let joint;
+  // THE SDK BUILDS THE WITHDRAWAL FROM THE KEY AND THE ORDER. It decides the side, checks the chain's points against
+  // the key, builds the joint address and returns the file plan/keys accept. The page keeps no payload rule.
+  let material;
   try {
-    joint = core.order.jointAddress({
-      ownSpendHalf: halves.spendHalf, ownViewHalf: halves.viewHalf,
-      otherSpendPoint: parts.otherSpendPoint, otherViewPoint: parts.otherViewPoint, network,
+    material = await core.sweep.fromOrder({
+      mnemonic: key.mnemonic,
+      chainId: row.net.chainId,
+      network: settlement,
+      moneroNetwork: network,
+      order: row.swap,
     });
   } catch (e) {
-    log(t("log.key.addressFailed", { words: sdkWords(e) }), "bad");
+    const why = e && e.params && e.params.why;
+    log(t("log.order." + (why || "bad"), { escrow: row.swap.escrow }), "bad");
     moneyEl.hidden = true;
-    return say(openErrorEl, "flow.err.keys");
+    return say(openErrorEl, why === "maker-view-point" ? "flow.err.view" : "flow.err.order");
   }
-  log(t(parts.viewChecked ? "log.swap.address.checked" : "log.swap.address.unchecked", { address: joint.address, escrow: row.swap.escrow }));
+  const address = material.address;
+  // The chain holds the locker's view point. On a buy that is the person's own, so the maker's view half is on no
+  // chain and only the scan can show it; on a sell the maker's point was checked against the key by fromOrder.
+  log(
+    t(row.side === "buy" ? "log.swap.address.unchecked" : "log.swap.address.checked", {
+      address,
+      escrow: row.swap.escrow,
+    }),
+  );
   // THE START HEIGHT CAME WITH THE SEARCH (findSwaps). None is said with the SDK's reason, and the step asks for one.
   const startHeight = Number(row.swap.startHeight) > 0 ? Number(row.swap.startHeight) : null;
   if (startHeight) log(t("log.height.found", { height: n(startHeight), block: n(row.swap.blockNumber) }));
   else log(t("log.height.failed", { why: row.swap.startHeightReason || "?" }), "wait");
-  const payload = payloadOf({
-    buildPayload: m.buildPayload, found: row.swap, settlement, network, halves, parts,
-    address: joint.address, startHeight, createdAt: row.time ? row.time * 1000 : null,
-  });
-  contents = await m.createRecoveryFile(payload, "");
+  contents = material.contents;
   // PLAN IS THE CORE'S (sweep.plan): the address, the height and the maker's half, read from the escrow.
   try {
     plan = await core.sweep.plan({ file: { contents }, passphrase: "" });
@@ -711,7 +805,12 @@ async function openSwap(row) {
     moneyEl.hidden = true;
     return say(openErrorEl, "flow.err.plan");
   }
-  window.__sweepFlow.plan = { address: plan.address, restoreHeight: plan.restoreHeight, missing: [...plan.missing], revealedHalf: plan.revealedHalf };
+  window.__sweepFlow.plan = {
+    address: plan.address,
+    restoreHeight: plan.restoreHeight,
+    missing: [...plan.missing],
+    revealedHalf: plan.revealedHalf,
+  };
   window.__sweepFlow.address = plan.address;
   if (plan.missing.includes("revealed-half")) log(t("log.miss.revealedHalf"), "wait");
   const height = Number(plan.restoreHeight) > 0 ? Number(plan.restoreHeight) : 0;
@@ -787,7 +886,11 @@ async function withdraw() {
 
 // A WALLET THAT DID NOT OPEN, said by cause: the core refused to build it, the keys do not give the swap's address,
 // or the node did not serve it.
-const WALLET_STOPS = { "bad-input": "flow.err.walletBuild", "wrong-chain": "flow.err.walletBuild", "recovery-failed": "flow.err.keys" };
+const WALLET_STOPS = {
+  "bad-input": "flow.err.walletBuild",
+  "wrong-chain": "flow.err.walletBuild",
+  "recovery-failed": "flow.err.keys",
+};
 
 // THE WALLET OF THE SWAP + SYNC. Returns true, or the key of the plain line that says why not; the detail is logged.
 async function syncWallet() {
@@ -803,7 +906,10 @@ async function syncWallet() {
     log(t("log.dest.refused", { words: sdkWords(e) }), "bad");
     return "flow.err.dest";
   }
-  if (!verdict.ok) { log(t("log.dest.refused", { words: verdict.reason || "?" }), "bad"); return "flow.err.dest"; }
+  if (!verdict.ok) {
+    log(t("log.dest.refused", { words: verdict.reason || "?" }), "bad");
+    return "flow.err.dest";
+  }
   log(t("log.dest.accepted", { network }));
 
   // KEYS ARE THE CORE'S: sweep.keys sums the key's half and the maker's REVEALED half and checks (s_a + s_b)*G.
@@ -814,7 +920,11 @@ async function syncWallet() {
     log(t("log.keys.failed", { words: sdkWords(e) }), "bad");
     return "flow.err.keys";
   }
-  const fields = { privateSpendKey: keys.privateSpendKey, privateViewKey: keys.privateViewKey, primaryAddress: keys.address };
+  const fields = {
+    privateSpendKey: keys.privateSpendKey,
+    privateViewKey: keys.privateViewKey,
+    primaryAddress: keys.address,
+  };
   log(t("log.keys.summed"), "ok");
 
   // WALLET IS THE CORE'S (sweep.wallet), including network name to library enum; the page passes monero-ts and the facts.
@@ -876,7 +986,9 @@ async function syncWallet() {
     listener = null;
   }
   showProgress("flow.progress.scanning", { sub: soFar });
-  const ticker = setInterval(() => { if (progress && progress.sub === soFar) drawProgress(); }, 1000);
+  const ticker = setInterval(() => {
+    if (progress && progress.sub === soFar) drawProgress();
+  }, 1000);
 
   // RESTORE IS A PACKAGE RULE (sweep.restore): the blocks around the lock first, then the full scan only if
   // that window holds nothing. The window ends at the Monero block at or after the order's t1, plus ten.
@@ -890,7 +1002,9 @@ async function syncWallet() {
     const deadline = deadlineOf(current.swap);
     const t1Sec = deadline ? Math.floor(deadline / 1000) : 0;
     lockWindow = await restoreWindow({ nodeUrl: nodeUrl(), t1Sec, startHeight: height, tipHeight });
-  } catch { lockWindow = null; }
+  } catch {
+    lockWindow = null;
+  }
   const t0 = performance.now();
   let restored;
   try {
@@ -902,7 +1016,11 @@ async function syncWallet() {
   } finally {
     clearInterval(ticker);
     if (listener) {
-      try { await wallet.removeListener(listener); } catch { /* the wallet may be closing; progress is display only */ }
+      try {
+        await wallet.removeListener(listener);
+      } catch {
+        /* the wallet may be closing; progress is display only */
+      }
     }
   }
   const ms = Math.round(performance.now() - t0);
@@ -911,21 +1029,51 @@ async function syncWallet() {
   // HOW MANY TRANSACTIONS THE WALLET SEES tells "withdrawn" (XMR came and left) from "unseen" (nothing ever came to
   // the address this key gives); a wallet that cannot say leaves it unknown.
   let txs = null;
-  try { txs = (await wallet.getTxs()).length; } catch (e) { log(t("log.diag.failed", { why: String((e && e.message) || e) }), "wait"); }
+  try {
+    txs = (await wallet.getTxs()).length;
+  } catch (e) {
+    log(t("log.diag.failed", { why: String((e && e.message) || e) }), "wait");
+  }
   balance = { total, unlocked, txs };
-  log(t("log.restored.passes", { passes: n(restored.passes), locked: restored.lockedPass ? t("value.yes") : t("value.no") }), "ok");
+  log(
+    t("log.restored.passes", {
+      passes: n(restored.passes),
+      locked: restored.lockedPass ? t("value.yes") : t("value.no"),
+    }),
+    "ok",
+  );
   if (restored.window && restored.window.used) {
-    log(t("log.scan.window", { from: n(restored.window.fromHeight), to: n(restored.window.toHeight), txs: n(restored.window.txs) }), "ok");
+    log(
+      t("log.scan.window", {
+        from: n(restored.window.fromHeight),
+        to: n(restored.window.toHeight),
+        txs: n(restored.window.txs),
+      }),
+      "ok",
+    );
   } else if (lockWindow) {
-    log(t("log.scan.window.skipped", { why: restored.window && restored.window.skipped ? restored.window.skipped : t("value.no") }), "wait");
+    log(
+      t("log.scan.window.skipped", {
+        why: restored.window && restored.window.skipped ? restored.window.skipped : t("value.no"),
+      }),
+      "wait",
+    );
   }
 
   const walletHeight = await wallet.getHeight();
   const nodeHeight = await wallet.getDaemonHeight();
   window.__sweepFlow.unlocked = unlocked;
-  window.__sweepFlow.syncInfo = { walletHeight, nodeHeight, txs, balance: String(total), unlocked: String(unlocked), scanHeight: height };
+  window.__sweepFlow.syncInfo = {
+    walletHeight,
+    nodeHeight,
+    txs,
+    balance: String(total),
+    unlocked: String(unlocked),
+    scanHeight: height,
+  };
   log(t("log.sync.took", { ms: n(ms), height: n(height || 0) }));
-  if (unlocked > 0n) log(t("log.synced.ok", { xmr: xmr(unlocked), walletHeight: n(walletHeight), nodeHeight: n(nodeHeight) }), "ok");
+  if (unlocked > 0n)
+    log(t("log.synced.ok", { xmr: xmr(unlocked), walletHeight: n(walletHeight), nodeHeight: n(nodeHeight) }), "ok");
   else if (total > 0n) log(t("log.synced.zero.locked", { total: xmr(total) }), "wait");
   else if (txs === 0) log(t("log.synced.unseen", { address: plan.address, height: n(height) }), "warn");
   else log(t("log.synced.zero.empty", { txs: txs === null ? "?" : n(txs) }), "wait");
@@ -945,7 +1093,10 @@ async function buildTx() {
     log(t("log.dest.refused", { words: sdkWords(e) }), "bad");
     return "flow.err.dest";
   }
-  if (!verdict.ok) { log(t("log.dest.refused", { words: verdict.reason || "?" }), "bad"); return "flow.err.dest"; }
+  if (!verdict.ok) {
+    log(t("log.dest.refused", { words: verdict.reason || "?" }), "bad");
+    return "flow.err.dest";
+  }
 
   // SIGNING IS THE CORE'S (sweep.sign): plan -> wallet -> sync -> unlocked balance -> signature WITHOUT sending.
   // An empty balance stops with `insufficient-funds` BEFORE signing, on the SAME wallet scanned above.
@@ -955,12 +1106,13 @@ async function buildTx() {
       file: { contents },
       passphrase: "",
       to: dest,
-      connectWallet: async () => mod.moneroWallet({
-        createWallet: async () => wallet,
-        serverUri: nodeUrl(),
-        password: "ninsei-sweep-session",
-        fields: {},
-      }),
+      connectWallet: async () =>
+        mod.moneroWallet({
+          createWallet: async () => wallet,
+          serverUri: nodeUrl(),
+          password: "ninsei-sweep-session",
+          fields: {},
+        }),
     });
   } catch (e) {
     const words = sdkWords(e);
@@ -1005,15 +1157,26 @@ function showTx() {
   const tx = lastTx;
   renderInfo(txInfoEl, [
     ["info.amount", () => t("value.amount", { xmr: xmr(tx.amount) })],
-    ["info.fee", () => (tx.fee === null ? t("value.fee.unknown") : xmr(BigInt(tx.fee)) + " XMR"), tx.fee === null ? "warn" : ""],
-    ["info.receive", () => (tx.receive === null ? t("value.receive.unknown") : xmr(BigInt(tx.receive)) + " XMR"), tx.receive === null ? "warn" : "good"],
+    [
+      "info.fee",
+      () => (tx.fee === null ? t("value.fee.unknown") : xmr(BigInt(tx.fee)) + " XMR"),
+      tx.fee === null ? "warn" : "",
+    ],
+    [
+      "info.receive",
+      () => (tx.receive === null ? t("value.receive.unknown") : xmr(BigInt(tx.receive)) + " XMR"),
+      tx.receive === null ? "warn" : "good",
+    ],
     ["info.recipient", tx.dest],
   ]);
 }
 
 async function sendTx() {
   quiet(withdrawErrorEl);
-  if (!signedToken) { log(t("log.nothing.toSend"), "bad"); return say(withdrawErrorEl, "flow.err.send"); }
+  if (!signedToken) {
+    log(t("log.nothing.toSend"), "bad");
+    return say(withdrawErrorEl, "flow.err.send");
+  }
   showProgress("flow.progress.send");
   let out;
   try {
@@ -1049,7 +1212,11 @@ function showDone(txid) {
 
 // THE WALLET CLOSES and the node choice opens again; a failed close must not keep the rest in memory.
 async function closeWallet() {
-  try { if (adapter) await adapter.close(); } catch { /* the keys go below either way */ }
+  try {
+    if (adapter) await adapter.close();
+  } catch {
+    /* the keys go below either way */
+  }
   adapter = null;
   wallet = null;
   updateNodeLock();
@@ -1067,7 +1234,16 @@ async function closeSwap() {
   balance = null;
   signedToken = null;
   lastTx = null;
-  window.__sweepFlow = { ready: window.__sweepFlow.ready, network: null, address: null, restoreHeight: null, unlocked: 0n, signed: false, steps: window.__sweepFlow.steps, search: window.__sweepFlow.search };
+  window.__sweepFlow = {
+    ready: window.__sweepFlow.ready,
+    network: null,
+    address: null,
+    restoreHeight: null,
+    unlocked: 0n,
+    signed: false,
+    steps: window.__sweepFlow.steps,
+    search: window.__sweepFlow.search,
+  };
   stepSwap.hidden = true;
   stepTransfer.hidden = true;
   moneyEl.hidden = true;
@@ -1140,8 +1316,8 @@ const RECHECK_AFTER_MS = 60_000;
 // older one (another address in the own field, an earlier round) is dropped.
 const listed = NODES.map((url) => ({ url, answer: null, ask: 0, el: null, radio: null }));
 const own = { url: null, answer: null, ask: 0, refused: null, el: ownRow };
-let picking = false;  // the page holds the choice, not the person: a re-check may pick again
-let note = null;      // [key, params] of the line under the list
+let picking = false; // the page holds the choice, not the person: a re-check may pick again
+let note = null; // [key, params] of the line under the list
 
 function nodeLocked() {
   return Boolean(adapter || wallet);
@@ -1164,12 +1340,20 @@ function stateOf(url) {
 function buildRows() {
   for (const row of listed) {
     row.radio = h("input", { type: "radio", name: "node", value: row.url });
-    row.radio.addEventListener("change", () => { if (row.radio.checked) chooseListed(row.url); });
+    row.radio.addEventListener("change", () => {
+      if (row.radio.checked) chooseListed(row.url);
+    });
     row.el = h("div", { class: "node", "data-state": "checking" }, [
       h("label", { class: "node-pick", title: row.url }, [
         row.radio,
-        h("span", { class: "node-text" }, [h("span", { class: "node-name", text: nodeHost(row.url) }), h("span", { class: "node-why" })]),
-        h("span", { class: "node-signal" }, [h("span", { class: "node-dot", "aria-hidden": "true" }), h("span", { class: "node-ms" })]),
+        h("span", { class: "node-text" }, [
+          h("span", { class: "node-name", text: nodeHost(row.url) }),
+          h("span", { class: "node-why" }),
+        ]),
+        h("span", { class: "node-signal" }, [
+          h("span", { class: "node-dot", "aria-hidden": "true" }),
+          h("span", { class: "node-ms" }),
+        ]),
       ]),
     ]);
     nodeList.insertBefore(row.el, ownRow);
@@ -1185,10 +1369,15 @@ function drawRows() {
     if (row === own && own.refused) why = t("node.why." + own.refused);
     else if (verdict.why) {
       const p = verdict.params;
-      why = t("node.state." + verdict.why, { ...p, height: p.height === undefined ? undefined : n(p.height), blocks: p.blocks === undefined ? undefined : n(p.blocks) });
+      why = t("node.state." + verdict.why, {
+        ...p,
+        height: p.height === undefined ? undefined : n(p.height),
+        blocks: p.blocks === undefined ? undefined : n(p.blocks),
+      });
     }
     row.el.querySelector(".node-why").textContent = why;
-    row.el.querySelector(".node-ms").textContent = row.answer && row.answer.ok ? t("node.ms", { ms: n(row.answer.ms) }) : "";
+    row.el.querySelector(".node-ms").textContent =
+      row.answer && row.answer.ok ? t("node.ms", { ms: n(row.answer.ms) }) : "";
   }
   drawCurrent();
 }
@@ -1227,12 +1416,14 @@ async function pingRows(rows) {
   });
   drawRows();
   if (!core) return;
-  await Promise.all(asked.map(async ({ row, url, ask }) => {
-    const answer = await pingNode(url, core.probeMoneroNode);
-    if (row.ask !== ask || row.url !== url) return;
-    row.answer = answer;
-    drawRows();
-  }));
+  await Promise.all(
+    asked.map(async ({ row, url, ask }) => {
+      const answer = await pingNode(url, core.probeMoneroNode);
+      if (row.ask !== ask || row.url !== url) return;
+      row.answer = answer;
+      drawRows();
+    }),
+  );
 }
 
 const pingAll = () => pingRows(own.url ? [...listed, own] : listed);
@@ -1255,7 +1446,11 @@ function autoPick() {
 }
 
 function chooseListed(url) {
-  if (nodeLocked()) { markChoice(nodeUrl()); drawNote(); return; }
+  if (nodeLocked()) {
+    markChoice(nodeUrl());
+    drawNote();
+    return;
+  }
   picking = false;
   setNodeUrl(url);
   markChoice(url);
@@ -1267,7 +1462,11 @@ function chooseListed(url) {
 // THE OWN ROW: chosen by its radio or by a change in its field. The field goes through the one parser; a
 // refusal is said in its own words and leaves no node chosen, never the previous one in disguise.
 function chooseOwn() {
-  if (nodeLocked()) { markChoice(nodeUrl()); drawNote(); return; }
+  if (nodeLocked()) {
+    markChoice(nodeUrl());
+    drawNote();
+    return;
+  }
   picking = false;
   const parsed = parseNodeUrl(nodeInput.value);
   if (parsed.ok && NODES.includes(parsed.url)) {
@@ -1301,14 +1500,19 @@ function chooseOwn() {
   checkEnvironment();
 }
 
-ownRadio.addEventListener("change", () => { if (ownRadio.checked) chooseOwn(); });
+ownRadio.addEventListener("change", () => {
+  if (ownRadio.checked) chooseOwn();
+});
 nodeInput.addEventListener("change", chooseOwn);
 
 // A TAB BACK FROM A LONG ABSENCE asks again, and only while no wallet holds the choice. The page's own pick
 // moves only when its node is no longer good; the person's choice never moves.
 let hiddenAt = null;
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { hiddenAt = performance.now(); return; }
+  if (document.hidden) {
+    hiddenAt = performance.now();
+    return;
+  }
   const away = hiddenAt === null ? 0 : performance.now() - hiddenAt;
   hiddenAt = null;
   if (away > RECHECK_AFTER_MS && !nodeLocked()) recheck();
@@ -1316,13 +1520,19 @@ document.addEventListener("visibilitychange", () => {
 
 async function recheck() {
   const before = stateOf(nodeUrl());
-  if (picking) { note = ["node.note.checking"]; drawNote(); }
+  if (picking) {
+    note = ["node.note.checking"];
+    drawNote();
+  }
   await pingAll();
   if (nodeLocked()) return;
   let moved = false;
   if (picking) {
     if (stateOf(nodeUrl()) !== "good") moved = autoPick();
-    else { note = ["node.note.picked", { host: nodeHost(nodeUrl()) }]; drawNote(); }
+    else {
+      note = ["node.note.picked", { host: nodeHost(nodeUrl()) }];
+      drawNote();
+    }
   }
   if (moved || stateOf(nodeUrl()) !== before) checkEnvironment();
 }
@@ -1382,7 +1592,10 @@ function checkEnvironment() {
   return runPreflight().catch((e) => log(String((e && e.message) || e), "bad"));
 }
 
-document.addEventListener("i18n:applied", () => { drawRows(); drawNote(); });
+document.addEventListener("i18n:applied", () => {
+  drawRows();
+  drawNote();
+});
 
 // THE LOG LEAVES ONLY BY HAND: the person copies it for whoever helps. It holds no key and no password, but it
 // names addresses, so sharing it is their choice.
@@ -1395,10 +1608,14 @@ copyLogBtn.addEventListener("click", async () => {
     key = "page.log.copyFailed";
   }
   copyLogBtn.textContent = t(key);
-  setTimeout(() => { copyLogBtn.textContent = t("page.log.copy"); }, 2000);
+  setTimeout(() => {
+    copyLogBtn.textContent = t("page.log.copy");
+  }, 2000);
 });
 
-keyFileInput.addEventListener("change", () => { onKeyFileChosen().catch((e) => log(String((e && e.message) || e), "bad")); });
+keyFileInput.addEventListener("change", () => {
+  onKeyFileChosen().catch((e) => log(String((e && e.message) || e), "bad"));
+});
 findSwapsBtn.addEventListener("click", () => busy(findSwapsBtn, findKeySwaps, keyErrorEl));
 withdrawBtn.addEventListener("click", () => busy(withdrawBtn, withdraw, withdrawErrorEl));
 sendBtn.addEventListener("click", () => busy(sendBtn, sendTx, withdrawErrorEl));
@@ -1407,7 +1624,8 @@ sendBtn.addEventListener("click", () => busy(sendBtn, sendTx, withdrawErrorEl));
 // needs no isolation, and a worker outlives its file, so a tab that met the old build stays under require-corp
 // until the registration is removed. Removing it changes nothing for this load and costs nothing when there is none.
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.getRegistrations()
+  navigator.serviceWorker
+    .getRegistrations()
     .then((found) => Promise.all(found.map((r) => r.unregister())))
     .catch(() => {});
 }

@@ -34,8 +34,9 @@ What the page reads for a swap, and where:
 | the maker's half       | the escrow's `revealedHalf()`, read by the SDK's `sweep.plan`                                                                                                                       |
 | the blocks to scan     | from the start block to the block at the order's deadline plus ten (`lib/window.js`), scanned by the SDK's `sweep.restore({ window })`; an empty window falls back to the full scan |
 
-The SDK's withdrawal (`sweep.plan`, `keys`, `sign`, `relay`) takes a per-swap payload; the page writes a found
-swap into that payload in memory (`lib/found-swap.js`), so every withdrawal rule stays the SDK's.
+The SDK's withdrawal (`sweep.plan`, `keys`, `sign`, `relay`) takes a per-swap payload. The page asks
+`sweep.fromOrder` for that payload: the SDK takes the key and the found order, checks the points, builds the joint
+address and returns the file the withdrawal accepts. The page keeps no payload rule of its own.
 
 That is also why the page must be hostable anywhere. A recovery page that only works while our domain
 answers is not a recovery page.

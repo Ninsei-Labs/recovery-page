@@ -48,7 +48,10 @@ const withoutComments = (html) => {
   let at = 0;
   while (at < html.length) {
     const open = html.indexOf("<!--", at);
-    if (open < 0) { out += html.slice(at); break; }
+    if (open < 0) {
+      out += html.slice(at);
+      break;
+    }
     out += html.slice(at, open);
     const close = html.indexOf("-->", open + 4);
     if (close < 0) break;
@@ -58,7 +61,10 @@ const withoutComments = (html) => {
 };
 // THE PAGE'S MODULES, read from the folder the build ships whole (build/build.mjs): every rule over the sources and
 // the list of files a host must receive cover a new module without a second list to remember.
-const LIB = (await readdir(join(ROOT, "lib"))).filter((name) => name.endsWith(".js")).sort().map((name) => `lib/${name}`);
+const LIB = (await readdir(join(ROOT, "lib")))
+  .filter((name) => name.endsWith(".js"))
+  .sort()
+  .map((name) => `lib/${name}`);
 
 // --- 1. the node address ----------------------------------------------------------------
 const { parseNodeUrl, NODES, DEFAULT_NODE, nodeVerdict, medianHeight, fastestGood, pingNode } = await import(
@@ -76,9 +82,21 @@ const fakeMonerod = (count, stamp, network = "stagenet") => {
     assert.equal(request.method, "get_block_header_by_height");
     const height = request.params.height;
     asked.push(height);
-    const body = height > count - 1
-      ? { jsonrpc: "2.0", id: request.id, error: { code: -2, message: `Requested block height: ${height} greater than current top block height: ${count - 1}` } }
-      : { jsonrpc: "2.0", id: request.id, result: { status: "OK", block_header: { height, timestamp: height === 0 ? 0 : stamp(height) } } };
+    const body =
+      height > count - 1
+        ? {
+            jsonrpc: "2.0",
+            id: request.id,
+            error: {
+              code: -2,
+              message: `Requested block height: ${height} greater than current top block height: ${count - 1}`,
+            },
+          }
+        : {
+            jsonrpc: "2.0",
+            id: request.id,
+            result: { status: "OK", block_header: { height, timestamp: height === 0 ? 0 : stamp(height) } },
+          };
     return { ok: true, status: 200, json: async () => body };
   };
   const probe = async () => ({ ok: true, network, nettype: network, height: count, synchronized: true });
@@ -94,9 +112,20 @@ const seeded = (seed) => () => {
 
 await check("the lock window ends at the block at t1 plus ten, on a node that answers like monerod", async () => {
   const node = fakeMonerod(2_000, (h) => 1_000 + h * 1_000);
-  const at = await moneroHeightAtOrAfter({ nodeUrl: "https://node.example", timestamp: 1_000_500, tipHeight: 2_000, fetchImpl: node.fetchImpl });
+  const at = await moneroHeightAtOrAfter({
+    nodeUrl: "https://node.example",
+    timestamp: 1_000_500,
+    tipHeight: 2_000,
+    fetchImpl: node.fetchImpl,
+  });
   assert.equal(at, 1_000, `height at t1 is ${at}`);
-  const window = await restoreWindow({ nodeUrl: "https://node.example", t1Sec: 1_000_500, startHeight: 500, tipHeight: 2_000, fetchImpl: node.fetchImpl });
+  const window = await restoreWindow({
+    nodeUrl: "https://node.example",
+    t1Sec: 1_000_500,
+    startHeight: 500,
+    tipHeight: 2_000,
+    fetchImpl: node.fetchImpl,
+  });
   assert.deepEqual(window, { nodeUrl: "https://node.example", toHeight: 1_010, tipHeight: 2_000, fallback: true });
   assert.ok(Math.max(...node.asked) <= node.top, `a header past the top block was asked: ${Math.max(...node.asked)}`);
 });
@@ -105,7 +134,13 @@ await check("the lock window ends at the block at t1 plus ten, on a node that an
 // top fails the whole restore.
 await check("a t1 past the newest block stops the window at the top block, never past it", async () => {
   const node = fakeMonerod(2_000, (h) => 1_000 + h * 1_000);
-  const window = await restoreWindow({ nodeUrl: "https://node.example", t1Sec: 9_000_000, startHeight: 500, tipHeight: 2_000, fetchImpl: node.fetchImpl });
+  const window = await restoreWindow({
+    nodeUrl: "https://node.example",
+    t1Sec: 9_000_000,
+    startHeight: 500,
+    tipHeight: 2_000,
+    fetchImpl: node.fetchImpl,
+  });
   assert.deepEqual(window, { nodeUrl: "https://node.example", toHeight: 1_999, tipHeight: 2_000, fallback: true });
   const random = seeded(24);
   let cases = 0;
@@ -119,9 +154,22 @@ await check("a t1 past the newest block stops the window at the top block, never
     let first = count - 1;
     for (let h = count - 1; h >= 0; h -= 1) if ((h === 0 ? 0 : steps[h]) >= t1) first = h;
     const toHeight = Math.min(count - 1, Math.max(start, first + 10));
-    const got = await restoreWindow({ nodeUrl: "https://node.example", t1Sec: t1, startHeight: start, tipHeight: count, fetchImpl: chain.fetchImpl });
-    assert.deepEqual(got, toHeight > start ? { nodeUrl: "https://node.example", toHeight, tipHeight: count, fallback: true } : null, `count ${count}, t1 ${t1}, start ${start}`);
-    assert.ok(chain.asked.every((h) => h <= count - 1), `count ${count}: a header past the top block was asked`);
+    const got = await restoreWindow({
+      nodeUrl: "https://node.example",
+      t1Sec: t1,
+      startHeight: start,
+      tipHeight: count,
+      fetchImpl: chain.fetchImpl,
+    });
+    assert.deepEqual(
+      got,
+      toHeight > start ? { nodeUrl: "https://node.example", toHeight, tipHeight: count, fallback: true } : null,
+      `count ${count}, t1 ${t1}, start ${start}`,
+    );
+    assert.ok(
+      chain.asked.every((h) => h <= count - 1),
+      `count ${count}: a header past the top block was asked`,
+    );
     cases += 1;
   }
   return `${cases + 1} cases`;
@@ -170,7 +218,15 @@ await check("every listed node is https and written the way the parser gives it 
 });
 
 // AN ANSWER as the SDK's probeMoneroNode gives it; heights and times are example values.
-const answer = (fields) => ({ ok: true, network: "mainnet", nettype: "mainnet", synchronized: true, height: 3_500_000, ms: 100, ...fields });
+const answer = (fields) => ({
+  ok: true,
+  network: "mainnet",
+  nettype: "mainnet",
+  synchronized: true,
+  height: 3_500_000,
+  ms: 100,
+  ...fields,
+});
 
 // [what it is, answer, median height, expected state, expected why, expected params]
 const VERDICTS = [
@@ -181,14 +237,35 @@ const VERDICTS = [
   ["four blocks behind", answer({ height: 3_499_996 }), 3_500_000, "bad", "behind", { blocks: 4 }],
   ["three blocks ahead", answer({ height: 3_500_003 }), 3_500_000, "good", "good", { height: 3_500_003 }],
   ["four blocks ahead", answer({ height: 3_500_004 }), 3_500_000, "bad", "ahead", { blocks: 4 }],
-  ["stagenet", answer({ network: "stagenet", nettype: "stagenet", height: 2_000_000 }), 3_500_000, "bad", "network", { network: "stagenet" }],
+  [
+    "stagenet",
+    answer({ network: "stagenet", nettype: "stagenet", height: 2_000_000 }),
+    3_500_000,
+    "bad",
+    "network",
+    { network: "stagenet" },
+  ],
   ["not synchronized", answer({ synchronized: false }), 3_500_000, "bad", "sync", {}],
-  ["no answer (CORS or offline)", { ok: false, why: "unreachable", ms: 40 }, 3_500_000, "bad", "unreachable", { status: "?" }],
+  [
+    "no answer (CORS or offline)",
+    { ok: false, why: "unreachable", ms: 40 },
+    3_500_000,
+    "bad",
+    "unreachable",
+    { status: "?" },
+  ],
   ["timed out", { ok: false, why: "timeout", ms: 5000 }, 3_500_000, "bad", "timeout", { status: "?" }],
   ["an HTTP error", { ok: false, why: "http", status: 403, ms: 90 }, 3_500_000, "bad", "http", { status: 403 }],
   ["not JSON", { ok: false, why: "not-json", ms: 90 }, 3_500_000, "bad", "answer", { status: "?" }],
   ["an RPC error", { ok: false, why: "rpc", rpc: -1, ms: 90 }, 3_500_000, "bad", "answer", { status: "?" }],
-  ["an unknown network", { ok: false, why: "nettype", nettype: "fakenet", ms: 90 }, 3_500_000, "bad", "network", { network: "fakenet" }],
+  [
+    "an unknown network",
+    { ok: false, why: "nettype", nettype: "fakenet", ms: 90 },
+    3_500_000,
+    "bad",
+    "network",
+    { network: "fakenet" },
+  ],
 ];
 await check("a node is good only when it answers on mainnet, synchronized, within 3 blocks of the median", () => {
   for (const [what, a, top, state, why, params] of VERDICTS) {
@@ -201,14 +278,23 @@ await check("the reference height is the median of the mainnet answers, so one i
   assert.equal(medianHeight([]), null);
   assert.equal(medianHeight([null, { ok: false, why: "timeout" }]), null);
   // Another network's height and a syncing node's height never count.
-  const others = [answer({ height: 3_500_002 }), answer({ network: "stagenet", height: 2_000_000 }), answer({ network: "testnet", height: 9_000_000 }), answer({ synchronized: false, height: 1_000 }), null];
+  const others = [
+    answer({ height: 3_500_002 }),
+    answer({ network: "stagenet", height: 2_000_000 }),
+    answer({ network: "testnet", height: 9_000_000 }),
+    answer({ synchronized: false, height: 1_000 }),
+    null,
+  ];
   assert.equal(medianHeight(others), 3_500_002);
   // Five nodes, one claiming a million blocks more: the median stays with the four that agree.
   const inflated = [3_500_000, 3_500_001, 99_999_999, 3_500_000, 3_499_999].map((height) => answer({ height }));
   assert.equal(medianHeight(inflated), 3_500_000);
   // An even count takes the lower middle.
   assert.equal(medianHeight([3_500_000, 3_500_010].map((height) => answer({ height }))), 3_500_000);
-  assert.equal(medianHeight([3_500_000, 3_500_001, 3_500_002, 3_500_003].map((height) => answer({ height }))), 3_500_001);
+  assert.equal(
+    medianHeight([3_500_000, 3_500_001, 3_500_002, 3_500_003].map((height) => answer({ height }))),
+    3_500_001,
+  );
 });
 
 await check("the page picks the fastest good node, and nothing when none is good", () => {
@@ -234,7 +320,13 @@ await check("the page picks the fastest good node, and nothing when none is good
   assert.equal(fastestGood(entries.filter((e) => !/[abd]\./.test(e.url))), null);
   assert.equal(fastestGood([]), null);
   // Equal times: the list order decides.
-  assert.equal(fastestGood([{ url: "https://x.example", answer: answer({ ms: 50 }) }, { url: "https://y.example", answer: answer({ ms: 50 }) }]), "https://x.example");
+  assert.equal(
+    fastestGood([
+      { url: "https://x.example", answer: answer({ ms: 50 }) },
+      { url: "https://y.example", answer: answer({ ms: 50 }) },
+    ]),
+    "https://x.example",
+  );
 });
 
 await check("a ping asks twice and keeps the faster answer; a failed first answer is not asked again", async () => {
@@ -251,7 +343,10 @@ await check("a ping asks twice and keeps the faster answer; a failed first answe
   const url = "https://node.example";
   const slowThenFast = probeOf([answer({ ms: 310 }), answer({ ms: 42 })]);
   assert.equal((await pingNode(url, slowThenFast.probe, 1234)).ms, 42);
-  assert.deepEqual(slowThenFast.calls, [{ url, timeoutMs: 1234 }, { url, timeoutMs: 1234 }]);
+  assert.deepEqual(slowThenFast.calls, [
+    { url, timeoutMs: 1234 },
+    { url, timeoutMs: 1234 },
+  ]);
   const fastThenSlow = probeOf([answer({ ms: 42 }), answer({ ms: 310 })]);
   assert.equal((await pingNode(url, fastThenSlow.probe)).ms, 42);
   const failsFirst = probeOf([{ ok: false, why: "unreachable", ms: 12 }, answer({})]);
@@ -349,8 +444,9 @@ await check("the node list has no check button, and its rows are radios of one g
 
 // --- 2b. the recovery key, the swaps it finds, the state of their money --------------------------
 const { swapState, moneyState } = await import(pathToFileURL(join(ROOT, "lib", "withdrawal.js")).href);
-const { sideOf, partsOf, payloadOf } = await import(pathToFileURL(join(ROOT, "lib", "found-swap.js")).href);
-const { SETTLEMENT, settlementOf, evmCall, keyNetworks, evmLogs, LOG_WINDOW } = await import(pathToFileURL(join(ROOT, "lib", "settlement.js")).href);
+const { SETTLEMENT, settlementOf, evmCall, keyNetworks, evmLogs, LOG_WINDOW } = await import(
+  pathToFileURL(join(ROOT, "lib", "settlement.js")).href
+);
 // THE 128-BIT TEST VECTORS OF THE BIP39 SPECIFICATION: valid twelve-word keys that are nobody's.
 const TEST_WORDS = [
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
@@ -371,50 +467,132 @@ await check("a key file's password is asked only when the SDK's reader stops at 
   const { createRecoveryKeyFile, openRecoveryKeyFile, importRecoveryKey } = await import("@ninsei-labs/sdk/recovery");
   const words = TEST_WORDS[0];
   const plain = await createRecoveryKeyFile({ mnemonic: words, createdAt: "2026-10-21" });
-  const sealed = await createRecoveryKeyFile({ mnemonic: words, createdAt: "2026-10-21", passphrase: "example-password-1234" });
+  const sealed = await createRecoveryKeyFile({
+    mnemonic: words,
+    createdAt: "2026-10-21",
+    passphrase: "example-password-1234",
+  });
   const stageOf = async (text, pass) => {
-    try { return (await openRecoveryKeyFile(text, pass)).mnemonic === words ? "opened" : "another key"; } catch (e) { return `${e.code}:${e.params && e.params.stage}`; }
+    try {
+      return (await openRecoveryKeyFile(text, pass)).mnemonic === words ? "opened" : "another key";
+    } catch (e) {
+      return `${e.code}:${e.params && e.params.stage}`;
+    }
   };
   assert.equal(await stageOf(plain, ""), "opened", "a plain key file does not open without a password");
   assert.equal(await stageOf(sealed, ""), "recovery-failed:passphrase");
   assert.equal(await stageOf(sealed, "wrong-password-1234"), "recovery-failed:decrypt");
   assert.equal(await stageOf(sealed, "example-password-1234"), "opened");
   assert.equal(await stageOf("NOT A KEY\n\n" + words, ""), "recovery-failed:parse");
-  assert.equal((await openRecoveryKeyFile(sealed, "example-password-1234")).fingerprint, importRecoveryKey(words).fingerprint);
+  assert.equal(
+    (await openRecoveryKeyFile(sealed, "example-password-1234")).fingerprint,
+    importRecoveryKey(words).fingerprint,
+  );
   const page = await read("recovery.js");
   const chosen = bodyOf(page, "onKeyFileChosen");
-  assert.match(chosen, /openRecoveryKeyFile\(keyFileText, ""\)/, "the page does not ask the SDK whether the key file needs a password");
-  assert.match(chosen, /e\.params\.stage === "passphrase"\) \{\s*keyPassField\.hidden = false;/, "the password field does not follow the SDK's stage");
+  assert.match(
+    chosen,
+    /openRecoveryKeyFile\(keyFileText, ""\)/,
+    "the page does not ask the SDK whether the key file needs a password",
+  );
+  assert.match(
+    chosen,
+    /e\.params\.stage === "passphrase"\) \{\s*keyPassField\.hidden = false;/,
+    "the password field does not follow the SDK's stage",
+  );
   assert.ok(!/startsWith\("\{"\)/.test(page), "the page keeps its own rule for a protected key file");
 });
 
 // WHAT A FOUND SWAP NEEDS, from the escrow's status() and its deadline. The expected answers come from the
 // contract: a claim reveals the claimer's half and a refund the locker's; the person is the locker on a buy and the
 // claimer on a sell, so the maker's half is on chain after a claim on a buy and after a refund on a sell.
-const funded = (fields = {}) => ({ isFunded: true, isClaimed: false, isRefunded: false, balance: 10n ** 16n, ...fields });
+const funded = (fields = {}) => ({
+  isFunded: true,
+  isClaimed: false,
+  isRefunded: false,
+  balance: 10n ** 16n,
+  ...fields,
+});
 const DEADLINE = 1_800_000_000_000;
 // [what it is, request, expected state, expected action, expected params]
 const SWAP_STATES = [
-  ["a buy the maker claimed", { side: "buy", status: funded({ isClaimed: true, balance: 0n }) }, "buy.claimed", "withdraw", {}],
-  ["a buy refunded to the wallet that paid", { side: "buy", status: funded({ isRefunded: true, balance: 0n }) }, "buy.refunded", "none", {}],
-  ["a buy still open", { side: "buy", status: funded(), deadline: DEADLINE, now: DEADLINE - 1 }, "buy.open", "later", { deadline: DEADLINE }],
-  ["a buy at its deadline", { side: "buy", status: funded(), deadline: DEADLINE, now: DEADLINE }, "buy.late", "later", { deadline: DEADLINE }],
-  ["a sell paid out to the person", { side: "sell", status: funded({ isClaimed: true, balance: 0n }) }, "sell.claimed", "none", {}],
-  ["a sell the maker refunded", { side: "sell", status: funded({ isRefunded: true, balance: 0n }) }, "sell.refunded", "withdraw", {}],
-  ["a sell still open", { side: "sell", status: funded(), deadline: DEADLINE, now: DEADLINE - 60_000 }, "sell.open", "later", { deadline: DEADLINE }],
-  ["a sell past its deadline", { side: "sell", status: funded(), deadline: DEADLINE, now: DEADLINE + 1 }, "sell.late", "later", { deadline: DEADLINE }],
+  [
+    "a buy the maker claimed",
+    { side: "buy", status: funded({ isClaimed: true, balance: 0n }) },
+    "buy.claimed",
+    "withdraw",
+    {},
+  ],
+  [
+    "a buy refunded to the wallet that paid",
+    { side: "buy", status: funded({ isRefunded: true, balance: 0n }) },
+    "buy.refunded",
+    "none",
+    {},
+  ],
+  [
+    "a buy still open",
+    { side: "buy", status: funded(), deadline: DEADLINE, now: DEADLINE - 1 },
+    "buy.open",
+    "later",
+    { deadline: DEADLINE },
+  ],
+  [
+    "a buy at its deadline",
+    { side: "buy", status: funded(), deadline: DEADLINE, now: DEADLINE },
+    "buy.late",
+    "later",
+    { deadline: DEADLINE },
+  ],
+  [
+    "a sell paid out to the person",
+    { side: "sell", status: funded({ isClaimed: true, balance: 0n }) },
+    "sell.claimed",
+    "none",
+    {},
+  ],
+  [
+    "a sell the maker refunded",
+    { side: "sell", status: funded({ isRefunded: true, balance: 0n }) },
+    "sell.refunded",
+    "withdraw",
+    {},
+  ],
+  [
+    "a sell still open",
+    { side: "sell", status: funded(), deadline: DEADLINE, now: DEADLINE - 60_000 },
+    "sell.open",
+    "later",
+    { deadline: DEADLINE },
+  ],
+  [
+    "a sell past its deadline",
+    { side: "sell", status: funded(), deadline: DEADLINE, now: DEADLINE + 1 },
+    "sell.late",
+    "later",
+    { deadline: DEADLINE },
+  ],
   ["the status read failed", { side: "buy", status: null }, "unknown", "unknown", {}],
   ["an escrow that was never funded", { side: "sell", status: funded({ isFunded: false }) }, "unknown", "unknown", {}],
   ["an order with no side", { side: null, status: funded({ isClaimed: true }) }, "unknown", "unknown", {}],
   ["an open swap without a deadline", { side: "buy", status: funded(), deadline: null }, "unknown", "unknown", {}],
-  ["an open swap with a NaN deadline", { side: "sell", status: funded(), deadline: Number.NaN }, "unknown", "unknown", {}],
+  [
+    "an open swap with a NaN deadline",
+    { side: "sell", status: funded(), deadline: Number.NaN },
+    "unknown",
+    "unknown",
+    {},
+  ],
 ];
-await check("a found swap needs a withdrawal only once the maker's half is on chain; an unread chain is unknown", () => {
-  for (const [what, request, state, action, params] of SWAP_STATES) {
-    assert.deepEqual(swapState(request), { state, action, params }, what);
-  }
-  return `${SWAP_STATES.length} cases`;
-});
+await check(
+  "a found swap needs a withdrawal only once the maker's half is on chain; an unread chain is unknown",
+  () => {
+    for (const [what, request, state, action, params] of SWAP_STATES) {
+      assert.deepEqual(swapState(request), { state, action, params }, what);
+    }
+    return `${SWAP_STATES.length} cases`;
+  },
+);
 
 // [what it is, request, expected state]
 const MONEY_STATES = [
@@ -422,10 +600,26 @@ const MONEY_STATES = [
   ["the half could not be read", { plan: { revealedHalf: false } }, "unread"],
   ["no plan", { plan: null }, "unread"],
   ["synced and spendable", { plan: { revealedHalf: true }, balance: { total: 5n, unlocked: 5n, txs: 1 } }, "ready"],
-  ["synced, the XMR still locked", { plan: { revealedHalf: true }, balance: { total: 5n, unlocked: 0n, txs: 1 } }, "locked"],
-  ["synced, XMR came and left", { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: 2 } }, "withdrawn"],
-  ["synced, nothing ever arrived", { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: 0 } }, "unseen"],
-  ["synced, the wallet could not count", { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: null } }, "nothing"],
+  [
+    "synced, the XMR still locked",
+    { plan: { revealedHalf: true }, balance: { total: 5n, unlocked: 0n, txs: 1 } },
+    "locked",
+  ],
+  [
+    "synced, XMR came and left",
+    { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: 2 } },
+    "withdrawn",
+  ],
+  [
+    "synced, nothing ever arrived",
+    { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: 0 } },
+    "unseen",
+  ],
+  [
+    "synced, the wallet could not count",
+    { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: null } },
+    "nothing",
+  ],
 ];
 await check("the money of a found swap: ready, unread, locked, withdrawn, never arrived, or unknown", () => {
   for (const [what, request, state] of MONEY_STATES) {
@@ -444,32 +638,43 @@ await check("every word a swap row, the state of the money and the flow's stops 
   keys.add("money.reading");
   for (const why of ["side", "spend-point", "own-view-point", "maker-view-point"]) keys.add("log.order." + why);
   // The flow's keys are written as data (say(el, key)), not as t() calls.
-  for (const m of (await read("recovery.js")).matchAll(/"((?:money|flow|key|swap)\.[A-Za-z.]+[A-Za-z])"/g)) keys.add(m[1]);
+  for (const m of (await read("recovery.js")).matchAll(/"((?:money|flow|key|swap)\.[A-Za-z.]+[A-Za-z])"/g))
+    keys.add(m[1]);
   const missing = [...keys].filter((key) => !(key in strings));
   assert.deepEqual(missing, []);
   return `${keys.size} keys`;
 });
 
-// THE BRIDGE FROM A FOUND ORDER TO THE SDK'S WITHDRAWAL (lib/found-swap.js). The order is built the way the chain
-// holds it, from two independent keys: the person's, and a stand-in for the maker's own spend half. The maker
-// computes the address it pays from ITS side; the page's payload must open exactly that address, and the maker's
-// revealed half must sum with the payload's half to keys of that address, checked on the curve.
-await check("a found order's payload opens the address the maker paid, on a buy and a sell", async () => {
+// THE PAGE HANDS THE KEY AND THE FOUND ORDER TO THE SDK. sweep.fromOrder decides the side, checks the chain's
+// points against the key, builds the joint address and returns the file plan/keys accept. The order is built the
+// way the chain holds it, from two independent keys: the person's, and a stand-in for the maker's own spend half.
+await check("sweep.fromOrder opens the address the maker paid, on a buy and a sell", async () => {
   const sdk = await import("@ninsei-labs/sdk");
   const { memoryAdapter } = await import("@ninsei-labs/sdk/adapters");
-  const { takerHalves, buildPayload, createRecoveryFile, validatePayload } = await import("@ninsei-labs/sdk/recovery");
-  const { createHalves, spendKeysFromRevealedHalf, scalarFromMoneroHex, decodeAddressKeys } = await import("@ninsei-labs/sdk/xmr");
+  const { takerHalves, validatePayload } = await import("@ninsei-labs/sdk/recovery");
+  const { createHalves, spendKeysFromRevealedHalf, scalarFromMoneroHex, decodeAddressKeys } =
+    await import("@ninsei-labs/sdk/xmr");
   const { ed25519 } = await import("@noble/curves/ed25519.js");
   const { secp256k1 } = await import("@noble/curves/secp256k1.js");
   const { keccak_256 } = await import("@noble/hashes/sha3.js");
   const { randomBytes } = await import("node:crypto");
-  const halvesLib = createHalves({ ed25519, secp256k1, keccak256: (data) => keccak_256(typeof data === "string" ? new TextEncoder().encode(data) : data), randomBytes: (n) => new Uint8Array(randomBytes(n)) });
+  const halvesLib = createHalves({
+    ed25519,
+    secp256k1,
+    keccak256: (data) => keccak_256(typeof data === "string" ? new TextEncoder().encode(data) : data),
+    randomBytes: (n) => new Uint8Array(randomBytes(n)),
+  });
   const word = (hex) => "0x" + String(hex).replace(/^0x/, "").padStart(64, "0");
   const escrow = "0x" + "e5".repeat(20);
   let revealed = null;
   const core = sdk.createNinsei({
-    settlement: { chain: "arbitrum-sepolia" }, xmrNetwork: "stagenet", mode: "live",
-    fetch: async () => { throw new TypeError("no service"); }, storage: memoryAdapter(),
+    settlement: { chain: "arbitrum-sepolia" },
+    xmrNetwork: "stagenet",
+    mode: "live",
+    fetch: async () => {
+      throw new TypeError("no service");
+    },
+    storage: memoryAdapter(),
     // revealedHalf() as the escrow answers it: one bytes32 word.
     evmCall: async ({ to, data }) => {
       assert.equal(to, escrow);
@@ -483,50 +688,87 @@ await check("a found order's payload opens the address the maker paid, on a buy 
       for (const side of ["buy", "sell"]) {
         const person = takerHalves({ mnemonic: TEST_WORDS[k], chainId: 421614, index });
         // The maker's own spend half: any half the person's key does not give (here another key's number).
-        const makerSpend = takerHalves({ mnemonic: TEST_WORDS[(k + 1) % TEST_WORDS.length], chainId: 421614, index: index + 1000 }).spendHalf;
+        const makerSpend = takerHalves({
+          mnemonic: TEST_WORDS[(k + 1) % TEST_WORDS.length],
+          chainId: 421614,
+          index: index + 1000,
+        }).spendHalf;
         const makerSpendPoint = halvesLib.publicHalves(BigInt(makerSpend)).ed;
         const buy = side === "buy";
         const found = {
-          escrow, side: buy ? "locker" : "claimer", index, readyBy: 1_790_000_000, t1: 1_790_003_600, blockNumber: 321_000_000,
+          escrow,
+          side: buy ? "locker" : "claimer",
+          index,
+          readyBy: 1_790_000_000,
+          t1: 1_790_003_600,
+          startHeight: 2_100_000,
+          blockNumber: 321_000_000,
           edPointLocker: word(buy ? person.spendPoint : makerSpendPoint),
           edPointClaimer: word(buy ? makerSpendPoint : person.spendPoint),
           edViewPointLocker: word(buy ? person.viewPoint : person.makerViewPoint),
         };
         // THE MAKER'S OWN VIEW OF THE ADDRESS: its spend half and the view half the key gave it, the person's points.
         const paid = core.order.jointAddress({
-          ownSpendHalf: makerSpend, ownViewHalf: person.makerViewHalf,
-          otherSpendPoint: word(person.spendPoint), otherViewPoint: word(person.viewPoint), network: "stagenet",
+          ownSpendHalf: makerSpend,
+          ownViewHalf: person.makerViewHalf,
+          otherSpendPoint: word(person.spendPoint),
+          otherViewPoint: word(person.viewPoint),
+          network: "stagenet",
         }).address;
         const what = `${side}, key ${k}, number ${index}`;
-        assert.equal(sideOf(found), side, what);
-        const parts = partsOf(found, person);
-        assert.equal(parts.ok, true, `${what}: ${parts.why}`);
-        assert.equal(parts.viewChecked, !buy, what);
-        const joint = core.order.jointAddress({
-          ownSpendHalf: person.spendHalf, ownViewHalf: person.viewHalf,
-          otherSpendPoint: parts.otherSpendPoint, otherViewPoint: parts.otherViewPoint, network: "stagenet",
+        const built = await core.sweep.fromOrder({
+          mnemonic: TEST_WORDS[k],
+          chainId: 421614,
+          network: "arbitrum-sepolia",
+          moneroNetwork: "stagenet",
+          order: found,
         });
-        assert.equal(joint.address, paid, `${what}: the page's address is not the one the maker paid`);
-        const payload = payloadOf({ buildPayload, found, settlement: "arbitrum-sepolia", network: "stagenet", halves: person, parts, address: joint.address, startHeight: 2_100_000, createdAt: null });
+        assert.equal(built.address, paid, `${what}: the SDK's address is not the one the maker paid`);
+        const payload = built.payload;
         validatePayload(payload);
         assert.equal(payload.swapId, escrow, what);
         assert.equal(payload.moneroWallet.escrowAddress, escrow, what);
         assert.equal(payload.receive.address, null, `${what}: a payload promising an address the chain does not hold`);
-        const contents = await createRecoveryFile(payload, "");
         revealed = makerSpend;
-        const plan = await core.sweep.plan({ file: { contents }, passphrase: "" });
+        const plan = await core.sweep.plan({ file: { contents: built.contents }, passphrase: "" });
         assert.equal(plan.address, paid, what);
         assert.equal(plan.restoreHeight, 2_100_000, what);
         assert.equal(plan.revealedHalf, true, what);
         // THE SUM, by the function sweep.keys runs, from the payload's own fields and the maker's whole half; the
         // keys are then checked against the address on the curve, not by the SDK.
         const w = payload.moneroWallet;
-        const keys = spendKeysFromRevealedHalf({ halves: halvesLib, ownSpendHalf: w.spendHalf, ownViewHalf: w.viewHalf, otherSpendPoint: w.otherSpendPoint, otherViewHalf: w.otherViewHalf, revealedHalf: makerSpend });
+        const keys = spendKeysFromRevealedHalf({
+          halves: halvesLib,
+          ownSpendHalf: w.spendHalf,
+          ownViewHalf: w.viewHalf,
+          otherSpendPoint: w.otherSpendPoint,
+          otherViewHalf: w.otherViewHalf,
+          revealedHalf: makerSpend,
+        });
         const address = decodeAddressKeys(paid);
-        assert.equal(ed25519.Point.BASE.multiply(scalarFromMoneroHex(keys.privateSpendKey)).toHex(), String(address.spendPub).replace(/^0x/, ""), `${what}: spend key`);
-        assert.equal(ed25519.Point.BASE.multiply(scalarFromMoneroHex(keys.privateViewKey)).toHex(), String(address.viewPub).replace(/^0x/, ""), `${what}: view key`);
+        assert.equal(
+          ed25519.Point.BASE.multiply(scalarFromMoneroHex(keys.privateSpendKey)).toHex(),
+          String(address.spendPub).replace(/^0x/, ""),
+          `${what}: spend key`,
+        );
+        assert.equal(
+          ed25519.Point.BASE.multiply(scalarFromMoneroHex(keys.privateViewKey)).toHex(),
+          String(address.viewPub).replace(/^0x/, ""),
+          `${what}: view key`,
+        );
         // The person's OWN half (a refunded buy, a sell they claimed) never gives keys: the sum check refuses it.
-        assert.throws(() => spendKeysFromRevealedHalf({ halves: halvesLib, ownSpendHalf: w.spendHalf, ownViewHalf: w.viewHalf, otherSpendPoint: w.otherSpendPoint, otherViewHalf: w.otherViewHalf, revealedHalf: person.spendHalf }), what);
+        assert.throws(
+          () =>
+            spendKeysFromRevealedHalf({
+              halves: halvesLib,
+              ownSpendHalf: w.spendHalf,
+              ownViewHalf: w.viewHalf,
+              otherSpendPoint: w.otherSpendPoint,
+              otherViewHalf: w.otherViewHalf,
+              revealedHalf: person.spendHalf,
+            }),
+          what,
+        );
         cases += 1;
       }
     }
@@ -534,36 +776,84 @@ await check("a found order's payload opens the address the maker paid, on a buy 
   return `${cases} orders`;
 });
 
-await check("an order that does not fit the key is refused before any scan, by what does not fit", async () => {
+await check("sweep.fromOrder refuses an order that does not fit the key, by what does not fit", async () => {
+  const sdk = await import("@ninsei-labs/sdk");
+  const { memoryAdapter } = await import("@ninsei-labs/sdk/adapters");
   const { takerHalves } = await import("@ninsei-labs/sdk/recovery");
+  const core = sdk.createNinsei({
+    settlement: { chain: "arbitrum-sepolia" },
+    xmrNetwork: "stagenet",
+    mode: "live",
+    fetch: async () => {
+      throw new TypeError("no service");
+    },
+    storage: memoryAdapter(),
+  });
   const person = takerHalves({ mnemonic: TEST_WORDS[1], chainId: 421614, index: 4 });
   const other = takerHalves({ mnemonic: TEST_WORDS[2], chainId: 421614, index: 4 });
   const word = (hex) => "0x" + String(hex).replace(/^0x/, "").padStart(64, "0");
-  const buy = { side: "locker", edPointLocker: word(person.spendPoint), edPointClaimer: word(other.spendPoint), edViewPointLocker: word(person.viewPoint) };
-  const sell = { side: "claimer", edPointLocker: word(other.spendPoint), edPointClaimer: word(person.spendPoint), edViewPointLocker: word(person.makerViewPoint) };
-  assert.equal(partsOf(buy, person).ok, true);
-  assert.equal(partsOf(sell, person).ok, true);
+  const base = { escrow: "0x" + "e5".repeat(20), index: 4, readyBy: 1_790_000_000, t1: 1_790_003_600 };
+  const buy = {
+    ...base,
+    side: "locker",
+    edPointLocker: word(person.spendPoint),
+    edPointClaimer: word(other.spendPoint),
+    edViewPointLocker: word(person.viewPoint),
+  };
+  const sell = {
+    ...base,
+    side: "claimer",
+    edPointLocker: word(other.spendPoint),
+    edPointClaimer: word(person.spendPoint),
+    edViewPointLocker: word(person.makerViewPoint),
+  };
+  const verdict = async (order, mnemonic = TEST_WORDS[1], chainId = 421614) => {
+    try {
+      await core.sweep.fromOrder({ mnemonic, chainId, network: "arbitrum-sepolia", moneroNetwork: "stagenet", order });
+      return "ok";
+    } catch (e) {
+      return (e.params && (e.params.why || e.params.field)) || e.code;
+    }
+  };
+  assert.equal(await verdict(buy), "ok", "a buy that fits is refused");
+  assert.equal(await verdict(sell), "ok", "a sell that fits is refused");
   // The same order read in the chain's other spelling (uppercase hex) fits as well.
-  assert.equal(partsOf({ ...buy, edPointLocker: buy.edPointLocker.toUpperCase().replace("0X", "0x") }, person).ok, true);
+  assert.equal(await verdict({ ...buy, edPointLocker: buy.edPointLocker.toUpperCase().replace("0X", "0x") }), "ok");
   const refusals = [
     ["a buy whose locker point is another key's", { ...buy, edPointLocker: word(other.spendPoint) }, "spend-point"],
     ["a sell whose claimer point is another key's", { ...sell, edPointClaimer: word(other.spendPoint) }, "spend-point"],
     ["a buy whose view point is another key's", { ...buy, edViewPointLocker: word(other.viewPoint) }, "own-view-point"],
-    ["a sell whose maker chose its own view half", { ...sell, edViewPointLocker: word(other.makerViewPoint) }, "maker-view-point"],
-    ["the person's halves read for another swap number", buy, "spend-point", takerHalves({ mnemonic: TEST_WORDS[1], chainId: 421614, index: 5 })],
-    ["the person's halves read on another chain", buy, "spend-point", takerHalves({ mnemonic: TEST_WORDS[1], chainId: 42161, index: 4 })],
-    ["an order with no side", { ...buy, side: "maker" }, "side"],
+    [
+      "a sell whose maker chose its own view half",
+      { ...sell, edViewPointLocker: word(other.makerViewPoint) },
+      "maker-view-point",
+    ],
+    ["the person's halves read for another swap number", buy, "spend-point", TEST_WORDS[1], 421614, 5],
+    ["the person's halves read on another chain", buy, "spend-point", TEST_WORDS[1], 42161, 4],
+    ["an order with no side", { ...buy, side: "maker" }, "order.side"],
   ];
-  for (const [what, order, why, halves = person] of refusals) {
-    assert.deepEqual(partsOf(order, halves), { ok: false, why }, what);
+  for (const [what, order, why, mnemonic, chainId, index] of refusals) {
+    const adjusted = index === undefined ? order : { ...order, index };
+    assert.equal(await verdict(adjusted, mnemonic, chainId), why, what);
   }
   return `${refusals.length} refusals`;
 });
 
-await check("the chain read is a real eth_call, never the \"0x\" stub", async () => {
+await check("the page builds a withdrawal through sweep.fromOrder, not a local payload", async () => {
+  const page = await read("recovery.js");
+  assert.match(page, /sweep\.fromOrder\(\{/, "the page does not call sweep.fromOrder");
+  assert.ok(!/found-swap|payloadOf|buildPayload/.test(page), "the page still builds a payload of its own");
+  return "one call";
+});
+
+await check('the chain read is a real eth_call, never the "0x" stub', async () => {
   const page = await read("recovery.js");
   assert.ok(!/evmCall:\s*(?:async\s*)?\([^)]*\)\s*=>\s*["']0x["']/.test(page), "evmCall answers a constant");
-  assert.match(page, /evmCall: \(request\) => evmCall\(chainId, request\)/, "the facade does not read the chain through lib/settlement.js");
+  assert.match(
+    page,
+    /evmCall: \(request\) => evmCall\(chainId, request\)/,
+    "the facade does not read the chain through lib/settlement.js",
+  );
   const to = "0x" + "a".repeat(40);
   const data = "0x12345678";
   const fake = (answers) => {
@@ -584,17 +874,33 @@ await check("the chain read is a real eth_call, never the \"0x\" stub", async ()
   assert.equal(ok.calls[0].url, first);
   assert.equal(ok.calls[0].init.method, "POST");
   assert.equal(ok.calls[0].init.headers["content-type"], "application/json");
-  assert.deepEqual(JSON.parse(ok.calls[0].init.body), { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] });
+  assert.deepEqual(JSON.parse(ok.calls[0].init.body), {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "eth_call",
+    params: [{ to, data }, "latest"],
+  });
   // A failed transport moves on; the next RPC's answer counts.
-  const moves = fake([{ status: 503, body: null }, new TypeError("Failed to fetch"), { status: 200, body: { result: "0x" } }]);
+  const moves = fake([
+    { status: 503, body: null },
+    new TypeError("Failed to fetch"),
+    { status: 200, body: { result: "0x" } },
+  ]);
   assert.equal(await evmCall("arbitrum-sepolia", { to, data }, moves.fetchImpl), "0x");
-  assert.deepEqual(moves.calls.map((c) => c.url), [first, second, third]);
+  assert.deepEqual(
+    moves.calls.map((c) => c.url),
+    [first, second, third],
+  );
   // A revert is the chain's answer: thrown at once, the next RPC is not asked.
   const reverts = fake([{ status: 200, body: { error: { code: 3, message: "execution reverted" } } }]);
   await assert.rejects(evmCall("arbitrum-sepolia", { to, data }, reverts.fetchImpl), /reverted/);
   assert.equal(reverts.calls.length, 1);
   // Nobody answers: unknown, thrown, never "0x".
-  const none = fake([new TypeError("Failed to fetch"), { status: 429, body: null }, { status: 200, body: { error: { code: -32005, message: "limit" } } }]);
+  const none = fake([
+    new TypeError("Failed to fetch"),
+    { status: 429, body: null },
+    { status: 200, body: { error: { code: -32005, message: "limit" } } },
+  ]);
   await assert.rejects(evmCall("arbitrum-sepolia", { to, data }, none.fetchImpl), /no arbitrum-sepolia RPC answered/);
   assert.equal(none.calls.length, 3);
   // An unknown network or a malformed request is refused before any request.
@@ -604,210 +910,348 @@ await check("the chain read is a real eth_call, never the \"0x\" stub", async ()
   assert.equal(idle.calls.length, 0);
 });
 
-await check("every settlement network is one the SDK knows, with its chain id, https RPCs and a Monero network of its kind", async () => {
-  const { CHAINS } = await import("@ninsei-labs/sdk/networks");
-  const names = Object.keys(SETTLEMENT);
-  assert.ok(names.length > 0, "no settlement network listed");
-  for (const name of names) {
-    const chain = CHAINS.find((c) => c.id === name);
-    assert.ok(chain, `${name} is not a chain the SDK knows`);
-    assert.equal(SETTLEMENT[name].chainId, chain.chainId, `${name}: chain id`);
-    assert.ok(SETTLEMENT[name].rpcs.length >= 2, `${name}: one RPC is one point of failure`);
-    for (const url of SETTLEMENT[name].rpcs) assert.match(url, /^https:\/\/[^/?#]+\/?[^?#]*$/, `${name}: ${url}`);
-    // TESTNET AND MAINNET NEVER MIX: a testnet settlement chain pairs with a test Monero network, a mainnet one with
-    // mainnet, so a swap is never scanned on the other kind of chain.
-    assert.ok(["mainnet", "stagenet", "testnet"].includes(SETTLEMENT[name].monero), `${name}: Monero network ${SETTLEMENT[name].monero}`);
-    assert.equal(SETTLEMENT[name].monero === "mainnet", !chain.testnet, `${name}: a ${chain.testnet ? "testnet" : "mainnet"} chain paired with Monero ${SETTLEMENT[name].monero}`);
-    for (const [factory, since] of Object.entries(SETTLEMENT[name].factories)) {
-      assert.match(factory, /^0x[0-9a-f]{40}$/, `${name}: factory ${factory} is not a lowercase address`);
-      assert.ok(Number.isSafeInteger(since) && since > 0, `${name}: factory ${factory} starts at ${since}`);
+await check(
+  "every settlement network is one the SDK knows, with its chain id, https RPCs and a Monero network of its kind",
+  async () => {
+    const { CHAINS } = await import("@ninsei-labs/sdk/networks");
+    const names = Object.keys(SETTLEMENT);
+    assert.ok(names.length > 0, "no settlement network listed");
+    for (const name of names) {
+      const chain = CHAINS.find((c) => c.id === name);
+      assert.ok(chain, `${name} is not a chain the SDK knows`);
+      assert.equal(SETTLEMENT[name].chainId, chain.chainId, `${name}: chain id`);
+      assert.ok(SETTLEMENT[name].rpcs.length >= 2, `${name}: one RPC is one point of failure`);
+      for (const url of SETTLEMENT[name].rpcs) assert.match(url, /^https:\/\/[^/?#]+\/?[^?#]*$/, `${name}: ${url}`);
+      // TESTNET AND MAINNET NEVER MIX: a testnet settlement chain pairs with a test Monero network, a mainnet one with
+      // mainnet, so a swap is never scanned on the other kind of chain.
+      assert.ok(
+        ["mainnet", "stagenet", "testnet"].includes(SETTLEMENT[name].monero),
+        `${name}: Monero network ${SETTLEMENT[name].monero}`,
+      );
+      assert.equal(
+        SETTLEMENT[name].monero === "mainnet",
+        !chain.testnet,
+        `${name}: a ${chain.testnet ? "testnet" : "mainnet"} chain paired with Monero ${SETTLEMENT[name].monero}`,
+      );
+      for (const [factory, since] of Object.entries(SETTLEMENT[name].factories)) {
+        assert.match(factory, /^0x[0-9a-f]{40}$/, `${name}: factory ${factory} is not a lowercase address`);
+        assert.ok(Number.isSafeInteger(since) && since > 0, `${name}: factory ${factory} starts at ${since}`);
+      }
     }
-  }
-  assert.equal(settlementOf("base"), null);
-  assert.equal(settlementOf("__proto__"), null);
-  return names.join(", ");
-});
+    assert.equal(settlementOf("base"), null);
+    assert.equal(settlementOf("__proto__"), null);
+    return names.join(", ");
+  },
+);
 
 // A KEY IS SEARCHED WHERE THE SDK HAS A LIVE FACTORY. A factory the SDK names that this page cannot read (no RPCs,
 // no deployment block) must fail here, on the bump that brings it, instead of being searched from a guess or
 // silently left out of "no swaps for this key".
-await check("the key is searched on every live factory the SDK names, from a block at or before its deployment", async () => {
-  const { CHAINS } = await import("@ninsei-labs/sdk/networks");
-  const { search, unreadable } = keyNetworks(CHAINS);
-  assert.deepEqual(unreadable, [], "the SDK names a live factory this page cannot search");
-  const live = CHAINS.filter((c) => c.escrow && c.escrow.mode === "live" && c.escrow.address && !c.hidden);
-  assert.ok(live.length > 0, "the SDK names no live factory");
-  assert.deepEqual(search.map((net) => net.id), live.map((c) => c.id));
-  for (const net of search) {
-    const chain = CHAINS.find((c) => c.id === net.id);
-    assert.equal(net.factory, chain.escrow.address);
-    assert.equal(net.chainId, chain.chainId);
-    assert.equal(net.since, SETTLEMENT[net.id].factories[chain.escrow.address.toLowerCase()]);
-    assert.equal(net.monero, SETTLEMENT[net.id].monero);
-  }
-  // Examples, not the registry: a live chain the page has no RPCs for, a factory without a block, a hidden test
-  // chain and a simulated one.
-  const example = [
-    { id: "base", chainId: 8453, escrow: { address: "0x" + "b".repeat(40), mode: "live" } },
-    { id: "arbitrum", chainId: 42161, escrow: { address: "0x" + "c".repeat(40), mode: "live" } },
-    { id: "arbitrum-sepolia", chainId: 421614, hidden: true, escrow: { address: "0x" + "d".repeat(40), mode: "live" } },
-    { id: "arbitrum-sepolia", chainId: 1, escrow: { address: Object.keys(SETTLEMENT["arbitrum-sepolia"].factories)[0], mode: "live" } },
-    { id: "mainnet", chainId: 1, escrow: { address: null, mode: "simulated" } },
-  ];
-  assert.deepEqual(keyNetworks(example), { search: [], unreadable: ["base", "arbitrum", "arbitrum-sepolia"] });
-  return search.map((net) => `${net.id} from block ${net.since}`).join(", ");
-});
+await check(
+  "the key is searched on every live factory the SDK names, from a block at or before its deployment",
+  async () => {
+    const { CHAINS } = await import("@ninsei-labs/sdk/networks");
+    const { search, unreadable } = keyNetworks(CHAINS);
+    assert.deepEqual(unreadable, [], "the SDK names a live factory this page cannot search");
+    const live = CHAINS.filter((c) => c.escrow && c.escrow.mode === "live" && c.escrow.address && !c.hidden);
+    assert.ok(live.length > 0, "the SDK names no live factory");
+    assert.deepEqual(
+      search.map((net) => net.id),
+      live.map((c) => c.id),
+    );
+    for (const net of search) {
+      const chain = CHAINS.find((c) => c.id === net.id);
+      assert.equal(net.factory, chain.escrow.address);
+      assert.equal(net.chainId, chain.chainId);
+      assert.equal(net.since, SETTLEMENT[net.id].factories[chain.escrow.address.toLowerCase()]);
+      assert.equal(net.monero, SETTLEMENT[net.id].monero);
+    }
+    // Examples, not the registry: a live chain the page has no RPCs for, a factory without a block, a hidden test
+    // chain and a simulated one.
+    const example = [
+      { id: "base", chainId: 8453, escrow: { address: "0x" + "b".repeat(40), mode: "live" } },
+      { id: "arbitrum", chainId: 42161, escrow: { address: "0x" + "c".repeat(40), mode: "live" } },
+      {
+        id: "arbitrum-sepolia",
+        chainId: 421614,
+        hidden: true,
+        escrow: { address: "0x" + "d".repeat(40), mode: "live" },
+      },
+      {
+        id: "arbitrum-sepolia",
+        chainId: 1,
+        escrow: { address: Object.keys(SETTLEMENT["arbitrum-sepolia"].factories)[0], mode: "live" },
+      },
+      { id: "mainnet", chainId: 1, escrow: { address: null, mode: "simulated" } },
+    ];
+    assert.deepEqual(keyNetworks(example), { search: [], unreadable: ["base", "arbitrum", "arbitrum-sepolia"] });
+    return search.map((net) => `${net.id} from block ${net.since}`).join(", ");
+  },
+);
 
-await check("a log search is read in windows that cover its range exactly, and a window nobody answers fails it all", async () => {
-  const factory = "0x" + "f".repeat(40);
-  const topics = ["0x" + "1".repeat(64)];
-  // Every window answers with one log naming the window it came from.
-  const windowsOf = async (from, to) => {
-    const asked = [];
-    const fetchImpl = async (url, init) => {
-      const filter = JSON.parse(init.body).params[0];
-      asked.push(filter);
-      return { ok: true, status: 200, json: async () => ({ result: [{ window: [filter.fromBlock, filter.toBlock] }] }) };
+await check(
+  "a log search is read in windows that cover its range exactly, and a window nobody answers fails it all",
+  async () => {
+    const factory = "0x" + "f".repeat(40);
+    const topics = ["0x" + "1".repeat(64)];
+    // Every window answers with one log naming the window it came from.
+    const windowsOf = async (from, to) => {
+      const asked = [];
+      const fetchImpl = async (url, init) => {
+        const filter = JSON.parse(init.body).params[0];
+        asked.push(filter);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ result: [{ window: [filter.fromBlock, filter.toBlock] }] }),
+        };
+      };
+      const logs = await evmLogs(
+        "arbitrum-sepolia",
+        { address: factory, topics, fromBlock: from, toBlock: to },
+        fetchImpl,
+      );
+      return { asked, logs };
     };
-    const logs = await evmLogs("arbitrum-sepolia", { address: factory, topics, fromBlock: from, toBlock: to }, fetchImpl);
-    return { asked, logs };
-  };
-  const ranges = [[0, 0], [5, 5 + LOG_WINDOW - 1], [5, 5 + LOG_WINDOW], [318_911_595, 321_471_445], [1, 3 * LOG_WINDOW + 7], [7, 7 + 10 * LOG_WINDOW - 1]];
-  for (const [from, to] of ranges) {
-    const { asked, logs } = await windowsOf(from, to);
-    const spans = asked.map((f) => [Number(BigInt(f.fromBlock)), Number(BigInt(f.toBlock))]);
-    assert.equal(spans.length, Math.ceil((to - from + 1) / LOG_WINDOW), `${from}..${to}: ${spans.length} windows`);
-    assert.equal(spans[0][0], from, `${from}..${to}: starts at ${spans[0][0]}`);
-    assert.equal(spans[spans.length - 1][1], to, `${from}..${to}: ends at ${spans[spans.length - 1][1]}`);
-    for (let i = 0; i < spans.length; i += 1) {
-      assert.ok(spans[i][1] - spans[i][0] + 1 <= LOG_WINDOW && spans[i][1] >= spans[i][0], `${from}..${to}: window ${spans[i]}`);
-      if (i > 0) assert.equal(spans[i][0], spans[i - 1][1] + 1, `${from}..${to}: a gap or an overlap before ${spans[i]}`);
+    const ranges = [
+      [0, 0],
+      [5, 5 + LOG_WINDOW - 1],
+      [5, 5 + LOG_WINDOW],
+      [318_911_595, 321_471_445],
+      [1, 3 * LOG_WINDOW + 7],
+      [7, 7 + 10 * LOG_WINDOW - 1],
+    ];
+    for (const [from, to] of ranges) {
+      const { asked, logs } = await windowsOf(from, to);
+      const spans = asked.map((f) => [Number(BigInt(f.fromBlock)), Number(BigInt(f.toBlock))]);
+      assert.equal(spans.length, Math.ceil((to - from + 1) / LOG_WINDOW), `${from}..${to}: ${spans.length} windows`);
+      assert.equal(spans[0][0], from, `${from}..${to}: starts at ${spans[0][0]}`);
+      assert.equal(spans[spans.length - 1][1], to, `${from}..${to}: ends at ${spans[spans.length - 1][1]}`);
+      for (let i = 0; i < spans.length; i += 1) {
+        assert.ok(
+          spans[i][1] - spans[i][0] + 1 <= LOG_WINDOW && spans[i][1] >= spans[i][0],
+          `${from}..${to}: window ${spans[i]}`,
+        );
+        if (i > 0)
+          assert.equal(spans[i][0], spans[i - 1][1] + 1, `${from}..${to}: a gap or an overlap before ${spans[i]}`);
+      }
+      for (const filter of asked) {
+        assert.equal(filter.address, factory);
+        assert.deepEqual(filter.topics, topics);
+      }
+      assert.deepEqual(
+        logs.map((log) => log.window),
+        asked.map((f) => [f.fromBlock, f.toBlock]),
+        `${from}..${to}: logs lost or out of order`,
+      );
     }
-    for (const filter of asked) {
-      assert.equal(filter.address, factory);
-      assert.deepEqual(filter.topics, topics);
-    }
-    assert.deepEqual(logs.map((log) => log.window), asked.map((f) => [f.fromBlock, f.toBlock]), `${from}..${to}: logs lost or out of order`);
-  }
-  // The wide RPC refuses the range: the next RPC answers the same window.
-  const [first, second] = SETTLEMENT["arbitrum-sepolia"].rpcs;
-  const urls = [];
-  const moved = await evmLogs("arbitrum-sepolia", { address: factory, topics, fromBlock: 10, toBlock: 20 }, async (url) => {
-    urls.push(url);
-    return url === first
-      ? { ok: true, status: 200, json: async () => ({ error: { code: -32602, message: "query spans too many blocks" } }) }
-      : { ok: true, status: 200, json: async () => ({ result: [{ n: 1 }] }) };
-  });
-  assert.deepEqual(moved, [{ n: 1 }]);
-  assert.deepEqual(urls, [first, second]);
-  // One window that no RPC answers fails the whole read: no list with a hole in it.
-  let calls = 0;
-  await assert.rejects(evmLogs("arbitrum-sepolia", { address: factory, topics, fromBlock: 0, toBlock: 2 * LOG_WINDOW }, async (url, init) => {
-    calls += 1;
-    const filter = JSON.parse(init.body).params[0];
-    return filter.fromBlock === "0x" + LOG_WINDOW.toString(16)
-      ? { ok: false, status: 503, json: async () => null }
-      : { ok: true, status: 200, json: async () => ({ result: [{ n: 1 }] }) };
-  }), /no arbitrum-sepolia RPC answered eth_getLogs/);
-  assert.ok(calls >= 2, `${calls} requests`);
-  // A range that is not two block numbers is one request, as given.
-  const { asked } = await windowsOf(1000, "latest");
-  assert.deepEqual(asked.map((f) => [f.fromBlock, f.toBlock]), [["0x3e8", "latest"]]);
-  return `${ranges.length} ranges`;
-});
+    // The wide RPC refuses the range: the next RPC answers the same window.
+    const [first, second] = SETTLEMENT["arbitrum-sepolia"].rpcs;
+    const urls = [];
+    const moved = await evmLogs(
+      "arbitrum-sepolia",
+      { address: factory, topics, fromBlock: 10, toBlock: 20 },
+      async (url) => {
+        urls.push(url);
+        return url === first
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => ({ error: { code: -32602, message: "query spans too many blocks" } }),
+            }
+          : { ok: true, status: 200, json: async () => ({ result: [{ n: 1 }] }) };
+      },
+    );
+    assert.deepEqual(moved, [{ n: 1 }]);
+    assert.deepEqual(urls, [first, second]);
+    // One window that no RPC answers fails the whole read: no list with a hole in it.
+    let calls = 0;
+    await assert.rejects(
+      evmLogs(
+        "arbitrum-sepolia",
+        { address: factory, topics, fromBlock: 0, toBlock: 2 * LOG_WINDOW },
+        async (url, init) => {
+          calls += 1;
+          const filter = JSON.parse(init.body).params[0];
+          return filter.fromBlock === "0x" + LOG_WINDOW.toString(16)
+            ? { ok: false, status: 503, json: async () => null }
+            : { ok: true, status: 200, json: async () => ({ result: [{ n: 1 }] }) };
+        },
+      ),
+      /no arbitrum-sepolia RPC answered eth_getLogs/,
+    );
+    assert.ok(calls >= 2, `${calls} requests`);
+    // A range that is not two block numbers is one request, as given.
+    const { asked } = await windowsOf(1000, "latest");
+    assert.deepEqual(
+      asked.map((f) => [f.fromBlock, f.toBlock]),
+      [["0x3e8", "latest"]],
+    );
+    return `${ranges.length} ranges`;
+  },
+);
 
 // --- 2c. the start height of a found swap: the SDK's rule, the page's readers -------------------
 const { evmBlockTime } = await import(pathToFileURL(join(ROOT, "lib", "settlement.js")).href);
-const { moneroHeaderTime, moneroReaders, nodeFor, STAGENET_NODE } = await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
+const { moneroHeaderTime, moneroReaders, nodeFor, STAGENET_NODE } = await import(
+  pathToFileURL(join(ROOT, "lib", "node.js")).href
+);
 
 // THE SDK OWNS THE START-HEIGHT RULE (findSwaps); the page owns the readers it hands over. The reported case: a
 // reader that takes get_info's height for the top block, or refuses the genesis block's timestamp 0, gets no
 // height from a real node. Orders are built the way the factory logs them, from a BIP39 test key.
-await check("the SDK's start height comes back through the page's readers from a node that answers like monerod", async () => {
-  const { findSwaps, takerHalves } = await import("@ninsei-labs/sdk/recovery");
-  const { ORDER_CREATED_TOPIC } = await import("@ninsei-labs/sdk/evm");
-  const words = "legal winner thank year wave sausage worth useful legal winner thank yellow";
-  const w = (v) => String(v).replace(/^0x/, "").padStart(64, "0");
-  const logsFor = (blocks) => blocks.map((block, index) => {
-    const me = takerHalves({ mnemonic: words, chainId: 421614, index });
-    return {
-      topics: [ORDER_CREATED_TOPIC, "0x" + w((0xe000 + index).toString(16)), "0x" + w("44".repeat(20)), "0x" + w("55".repeat(20))],
-      data: "0x" + [me.spendCommitment, "1".repeat(64), me.spendPoint, "2".repeat(64), me.viewPoint, "1", "1", "1", "1", "0", "0", "0"].map(w).join(""),
-      blockNumber: "0x" + block.toString(16), transactionHash: "0x" + w((0xab00 + index).toString(16)), logIndex: "0x0",
+await check(
+  "the SDK's start height comes back through the page's readers from a node that answers like monerod",
+  async () => {
+    const { findSwaps, takerHalves } = await import("@ninsei-labs/sdk/recovery");
+    const { ORDER_CREATED_TOPIC } = await import("@ninsei-labs/sdk/evm");
+    const words = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+    const w = (v) => String(v).replace(/^0x/, "").padStart(64, "0");
+    const logsFor = (blocks) =>
+      blocks.map((block, index) => {
+        const me = takerHalves({ mnemonic: words, chainId: 421614, index });
+        return {
+          topics: [
+            ORDER_CREATED_TOPIC,
+            "0x" + w((0xe000 + index).toString(16)),
+            "0x" + w("44".repeat(20)),
+            "0x" + w("55".repeat(20)),
+          ],
+          data:
+            "0x" +
+            [
+              me.spendCommitment,
+              "1".repeat(64),
+              me.spendPoint,
+              "2".repeat(64),
+              me.viewPoint,
+              "1",
+              "1",
+              "1",
+              "1",
+              "0",
+              "0",
+              "0",
+            ]
+              .map(w)
+              .join(""),
+          blockNumber: "0x" + block.toString(16),
+          transactionHash: "0x" + w((0xab00 + index).toString(16)),
+          logIndex: "0x0",
+        };
+      });
+    const search = async (node, times) => {
+      const readers = await moneroReaders("https://node.example", "stagenet", node.probe, node.fetchImpl);
+      assert.ok(readers, "no readers for a node on the swap's network");
+      const blocks = times.map((_, i) => 1_000 + i);
+      const found = await findSwaps({
+        mnemonic: words,
+        chainId: 421614,
+        factory: "0x" + "f".repeat(40),
+        evmLogs: async () => logsFor(blocks),
+        evmBlockTime: async (block) => times[block - 1_000],
+        ...readers,
+      });
+      assert.equal(found.swaps.length, times.length, "not every order was found");
+      return found.swaps.sort((a, b) => a.index - b.index);
     };
-  });
-  const search = async (node, times) => {
-    const readers = await moneroReaders("https://node.example", "stagenet", node.probe, node.fetchImpl);
-    assert.ok(readers, "no readers for a node on the swap's network");
-    const blocks = times.map((_, i) => 1_000 + i);
-    const found = await findSwaps({
-      mnemonic: words, chainId: 421614, factory: "0x" + "f".repeat(40), evmLogs: async () => logsFor(blocks),
-      evmBlockTime: async (block) => times[block - 1_000], ...readers,
-    });
-    assert.equal(found.swaps.length, times.length, "not every order was found");
-    return found.swaps.sort((a, b) => a.index - b.index);
-  };
-  const random = seeded(76);
-  let cases = 0;
-  for (let c = 0; c < 8; c += 1) {
-    const count = 2 + Math.floor(random() * 3_000);
-    const stamps = [0];
-    let at = 1_700_000_000;
-    for (let h = 1; h < count; h += 1) stamps.push((at += Math.floor(random() * 241)));
-    const times = Array.from({ length: 5 }, () => stamps[1] - 600 + Math.floor(random() * (stamps[count - 1] - stamps[1] + 1_200)));
-    const node = fakeMonerod(count, (h) => stamps[h]);
-    const swaps = await search(node, times);
-    for (let i = 0; i < times.length; i += 1) {
-      // The expected answer reads every block, independently of the search: the last one at or before the order.
-      let last = 0;
-      for (let h = 0; h < count; h += 1) if (stamps[h] <= times[i]) last = h;
-      assert.equal(swaps[i].startHeight, Math.max(0, last - 60), `count ${count}, order ${times[i]}: ${swaps[i].startHeightReason}`);
-      cases += 1;
+    const random = seeded(76);
+    let cases = 0;
+    for (let c = 0; c < 8; c += 1) {
+      const count = 2 + Math.floor(random() * 3_000);
+      const stamps = [0];
+      let at = 1_700_000_000;
+      for (let h = 1; h < count; h += 1) stamps.push((at += Math.floor(random() * 241)));
+      const times = Array.from(
+        { length: 5 },
+        () => stamps[1] - 600 + Math.floor(random() * (stamps[count - 1] - stamps[1] + 1_200)),
+      );
+      const node = fakeMonerod(count, (h) => stamps[h]);
+      const swaps = await search(node, times);
+      for (let i = 0; i < times.length; i += 1) {
+        // The expected answer reads every block, independently of the search: the last one at or before the order.
+        let last = 0;
+        for (let h = 0; h < count; h += 1) if (stamps[h] <= times[i]) last = h;
+        assert.equal(
+          swaps[i].startHeight,
+          Math.max(0, last - 60),
+          `count ${count}, order ${times[i]}: ${swaps[i].startHeightReason}`,
+        );
+        cases += 1;
+      }
+      assert.ok(
+        node.asked.every((h) => h <= node.top),
+        `count ${count}: a header past the top block was asked`,
+      );
     }
-    assert.ok(node.asked.every((h) => h <= node.top), `count ${count}: a header past the top block was asked`);
-  }
-  // A mainnet-sized chain at two minutes a block, and the ends: an order newer than the tip starts 60 below the top
-  // block; one older than block 1 starts at 0.
-  const t0 = 1_397_818_193;
-  const mainnet = fakeMonerod(3_500_000, (h) => t0 + 120 * h);
-  const ends = await search(mainnet, [t0 + 120 * 1_000_000, t0 + 120 * 3_400_000 + 119, t0 + 120 * 9_000_000, t0 + 60]);
-  assert.deepEqual(ends.map((s) => s.startHeight), [1_000_000 - 60, 3_400_000 - 60, 3_499_999 - 60, 0]);
-  return `${cases + 4} orders`;
-});
+    // A mainnet-sized chain at two minutes a block, and the ends: an order newer than the tip starts 60 below the top
+    // block; one older than block 1 starts at 0.
+    const t0 = 1_397_818_193;
+    const mainnet = fakeMonerod(3_500_000, (h) => t0 + 120 * h);
+    const ends = await search(mainnet, [
+      t0 + 120 * 1_000_000,
+      t0 + 120 * 3_400_000 + 119,
+      t0 + 120 * 9_000_000,
+      t0 + 60,
+    ]);
+    assert.deepEqual(
+      ends.map((s) => s.startHeight),
+      [1_000_000 - 60, 3_400_000 - 60, 3_499_999 - 60, 0],
+    );
+    return `${cases + 4} orders`;
+  },
+);
 
-await check("the page's Monero readers: the top block is get_info's height minus one, and genesis has the time 0", async () => {
-  const node = fakeMonerod(1_000, (h) => 1_760_000_000 + 120 * h);
-  const readers = await moneroReaders("https://node.example", "stagenet", node.probe, node.fetchImpl);
-  assert.equal(await readers.moneroTip(), 999);
-  assert.equal(await readers.moneroBlockTimestamp(0), 0);
-  assert.equal(await readers.moneroBlockTimestamp(999), 1_760_000_000 + 120 * 999);
-  await assert.rejects(readers.moneroBlockTimestamp(1_000), /get_block_header_by_height 1000: RPC -2/);
-  // No reader for a node that does not answer on the swap's network, or does not answer at all.
-  for (const [what, probe] of [
-    ["another network", async () => ({ ok: true, network: "mainnet", height: 3_500_000 })],
-    ["no answer", async () => ({ ok: false, why: "unreachable" })],
-    ["a probe that throws", async () => { throw new Error("offline"); }],
-    ["no blocks", async () => ({ ok: true, network: "stagenet", height: 0 })],
-  ]) assert.equal(await moneroReaders("https://node.example", "stagenet", probe, node.fetchImpl), null, what);
-  assert.equal(await moneroReaders(null, "stagenet", node.probe, node.fetchImpl), null);
-  // THE NODE FOR A SWAP: in this process the chosen node is the module's default (no link, no tab choice). On the
-  // swap's network it is used; otherwise a stagenet swap takes the project's stagenet node and a mainnet one none.
-  assert.equal(nodeFor("mainnet", "mainnet"), DEFAULT_NODE);
-  assert.equal(nodeFor("stagenet", "stagenet"), DEFAULT_NODE);
-  assert.equal(nodeFor("stagenet", "mainnet"), STAGENET_NODE);
-  assert.equal(nodeFor("mainnet", "stagenet"), null);
-  // The search hands findSwaps these readers, never the SDK's own node reader (xmrNodes), which asks for a header
-  // past the top block.
-  const page = (await read("recovery.js")).replace(/\/\/.*$/gm, "");
-  const call = page.slice(page.indexOf("findSwaps({"), page.indexOf("});", page.indexOf("findSwaps({")));
-  assert.match(call, /\.\.\.\(await moneroReaders\(/, "the search does not hand findSwaps the page's Monero readers");
-  assert.match(call, /evmBlockTime: \(block\) => evmBlockTime\(/, "the search does not hand findSwaps the order's block time");
-  assert.ok(!/xmrNodes/.test(page), "the page hands findSwaps the SDK's own node reader");
-  // The swap opens with the height the search returned; none is said with the SDK's reason.
-  const open = bodyOf(page, "openSwap");
-  assert.match(open, /const startHeight = Number\(row\.swap\.startHeight\) > 0 \? Number\(row\.swap\.startHeight\) : null;/, "the swap does not open with the SDK's start height");
-  assert.match(open, /row\.swap\.startHeightReason/, "a missing start height is not said with the SDK's reason");
-});
+await check(
+  "the page's Monero readers: the top block is get_info's height minus one, and genesis has the time 0",
+  async () => {
+    const node = fakeMonerod(1_000, (h) => 1_760_000_000 + 120 * h);
+    const readers = await moneroReaders("https://node.example", "stagenet", node.probe, node.fetchImpl);
+    assert.equal(await readers.moneroTip(), 999);
+    assert.equal(await readers.moneroBlockTimestamp(0), 0);
+    assert.equal(await readers.moneroBlockTimestamp(999), 1_760_000_000 + 120 * 999);
+    await assert.rejects(readers.moneroBlockTimestamp(1_000), /get_block_header_by_height 1000: RPC -2/);
+    // No reader for a node that does not answer on the swap's network, or does not answer at all.
+    for (const [what, probe] of [
+      ["another network", async () => ({ ok: true, network: "mainnet", height: 3_500_000 })],
+      ["no answer", async () => ({ ok: false, why: "unreachable" })],
+      [
+        "a probe that throws",
+        async () => {
+          throw new Error("offline");
+        },
+      ],
+      ["no blocks", async () => ({ ok: true, network: "stagenet", height: 0 })],
+    ])
+      assert.equal(await moneroReaders("https://node.example", "stagenet", probe, node.fetchImpl), null, what);
+    assert.equal(await moneroReaders(null, "stagenet", node.probe, node.fetchImpl), null);
+    // THE NODE FOR A SWAP: in this process the chosen node is the module's default (no link, no tab choice). On the
+    // swap's network it is used; otherwise a stagenet swap takes the project's stagenet node and a mainnet one none.
+    assert.equal(nodeFor("mainnet", "mainnet"), DEFAULT_NODE);
+    assert.equal(nodeFor("stagenet", "stagenet"), DEFAULT_NODE);
+    assert.equal(nodeFor("stagenet", "mainnet"), STAGENET_NODE);
+    assert.equal(nodeFor("mainnet", "stagenet"), null);
+    // The search hands findSwaps these readers, never the SDK's own node reader (xmrNodes), which asks for a header
+    // past the top block.
+    const page = (await read("recovery.js")).replace(/\/\/.*$/gm, "");
+    const call = page.slice(page.indexOf("findSwaps({"), page.indexOf("});", page.indexOf("findSwaps({")));
+    assert.match(call, /\.\.\.\(await moneroReaders\(/, "the search does not hand findSwaps the page's Monero readers");
+    assert.match(
+      call,
+      /evmBlockTime: \(block\) => evmBlockTime\(/,
+      "the search does not hand findSwaps the order's block time",
+    );
+    assert.ok(!/xmrNodes/.test(page), "the page hands findSwaps the SDK's own node reader");
+    // The swap opens with the height the search returned; none is said with the SDK's reason.
+    const open = bodyOf(page, "openSwap");
+    assert.match(
+      open,
+      /const startHeight = Number\(row\.swap\.startHeight\) > 0 \? Number\(row\.swap\.startHeight\) : null;/,
+      "the swap does not open with the SDK's start height",
+    );
+    assert.match(open, /row\.swap\.startHeightReason/, "a missing start height is not said with the SDK's reason");
+  },
+);
 
 // THE TWO READERS: what they ask, and that a missing answer throws instead of reading as 0.
 const fakeFetch = (answers) => {
@@ -824,23 +1268,45 @@ const fakeFetch = (answers) => {
 await check("the order's block time is one eth_getBlockByNumber, and no answer is unknown, never 0", async () => {
   const [first, second, third] = SETTLEMENT["arbitrum-sepolia"].rpcs;
   // The block of an example order; the answer is shaped as the JSON-RPC spec gives it (timestamp in hex seconds).
-  const asks = fakeFetch([{ status: 200, body: { jsonrpc: "2.0", id: 1, result: { number: "0x13293393", timestamp: "0x6a1c3f80" } } }]);
+  const asks = fakeFetch([
+    { status: 200, body: { jsonrpc: "2.0", id: 1, result: { number: "0x13293393", timestamp: "0x6a1c3f80" } } },
+  ]);
   assert.equal(await evmBlockTime("arbitrum-sepolia", 321_467_283, asks.fetchImpl), 0x6a1c3f80);
   assert.equal(asks.calls.length, 1);
   assert.equal(asks.calls[0].url, first);
   assert.equal(asks.calls[0].init.method, "POST");
-  assert.deepEqual(asks.calls[0].body, { jsonrpc: "2.0", id: 1, method: "eth_getBlockByNumber", params: ["0x13293393", false] });
+  assert.deepEqual(asks.calls[0].body, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "eth_getBlockByNumber",
+    params: ["0x13293393", false],
+  });
   // A failed transport, an unknown block (result null) and an RPC error move on; the next answer counts.
-  const moves = fakeFetch([{ status: 503, body: null }, { status: 200, body: { result: null } }, { status: 200, body: { result: { timestamp: "0x10" } } }]);
+  const moves = fakeFetch([
+    { status: 503, body: null },
+    { status: 200, body: { result: null } },
+    { status: 200, body: { result: { timestamp: "0x10" } } },
+  ]);
   assert.equal(await evmBlockTime("arbitrum-sepolia", 7, moves.fetchImpl), 16);
-  assert.deepEqual(moves.calls.map((c) => c.url), [first, second, third]);
+  assert.deepEqual(
+    moves.calls.map((c) => c.url),
+    [first, second, third],
+  );
   // Nobody answers with a time: thrown, never 0.
-  const none = fakeFetch([new TypeError("Failed to fetch"), { status: 200, body: { error: { code: -32000, message: "header not found" } } }, { status: 200, body: { result: { timestamp: "0x0" } } }]);
-  await assert.rejects(evmBlockTime("arbitrum-sepolia", 7, none.fetchImpl), /no arbitrum-sepolia RPC answered the time of block 7/);
+  const none = fakeFetch([
+    new TypeError("Failed to fetch"),
+    { status: 200, body: { error: { code: -32000, message: "header not found" } } },
+    { status: 200, body: { result: { timestamp: "0x0" } } },
+  ]);
+  await assert.rejects(
+    evmBlockTime("arbitrum-sepolia", 7, none.fetchImpl),
+    /no arbitrum-sepolia RPC answered the time of block 7/,
+  );
   assert.equal(none.calls.length, 3);
   // A bad block number or an unknown network is refused before any request.
   const idle = fakeFetch([]);
-  for (const bad of [-1, 1.5, Number.NaN, "7", null]) await assert.rejects(evmBlockTime("arbitrum-sepolia", bad, idle.fetchImpl), /bad block number/);
+  for (const bad of [-1, 1.5, Number.NaN, "7", null])
+    await assert.rejects(evmBlockTime("arbitrum-sepolia", bad, idle.fetchImpl), /bad block number/);
   await assert.rejects(evmBlockTime("base", 7, idle.fetchImpl), /unknown settlement network/);
   assert.equal(idle.calls.length, 0);
 });
@@ -848,18 +1314,37 @@ await check("the order's block time is one eth_getBlockByNumber, and no answer i
 await check("a Monero block's time is one get_block_header_by_height, and no answer is unknown, never 0", async () => {
   const url = "https://node.example";
   // An answer shaped as monerod's get_block_header_by_height gives it; the height and the time are examples.
-  const header = (height, timestamp) => ({ status: 200, body: { jsonrpc: "2.0", id: "0", result: { status: "OK", block_header: { height, timestamp } } } });
+  const header = (height, timestamp) => ({
+    status: 200,
+    body: { jsonrpc: "2.0", id: "0", result: { status: "OK", block_header: { height, timestamp } } },
+  });
   const asks = fakeFetch([header(2_000_000, 1_764_246_150)]);
   assert.equal(await moneroHeaderTime(url, 2_000_000, asks.fetchImpl), 1_764_246_150);
   assert.equal(asks.calls.length, 1);
   assert.equal(asks.calls[0].url, url + "/json_rpc");
   assert.equal(asks.calls[0].init.method, "POST");
   assert.equal(asks.calls[0].init.headers["content-type"], "application/json");
-  assert.deepEqual(asks.calls[0].body, { jsonrpc: "2.0", id: "0", method: "get_block_header_by_height", params: { height: 2_000_000 } });
+  assert.deepEqual(asks.calls[0].body, {
+    jsonrpc: "2.0",
+    id: "0",
+    method: "get_block_header_by_height",
+    params: { height: 2_000_000 },
+  });
   assert.equal(await moneroHeaderTime(url, 0, fakeFetch([header(0, 0)]).fetchImpl), 0, "the genesis block's time is 0");
   const unknowns = [
     ["an HTTP error", { status: 500, body: null }],
-    ["an RPC error", { status: 200, body: { error: { code: -2, message: "Requested block height: 2000000 greater than current top block height: 1999999" } } }],
+    [
+      "an RPC error",
+      {
+        status: 200,
+        body: {
+          error: {
+            code: -2,
+            message: "Requested block height: 2000000 greater than current top block height: 1999999",
+          },
+        },
+      },
+    ],
     ["another block's header", header(1_999_999, 1_764_246_000)],
     ["a header without a time", header(2_000_000, undefined)],
     ["a time of 0 for a block that is not the genesis block", header(2_000_000, 0)],
@@ -867,11 +1352,19 @@ await check("a Monero block's time is one get_block_header_by_height, and no ans
     ["a time that is not a number", header(2_000_000, "1764246150")],
   ];
   for (const [what, answer] of unknowns) {
-    await assert.rejects(moneroHeaderTime(url, 2_000_000, fakeFetch([answer]).fetchImpl), /get_block_header_by_height 2000000/, what);
+    await assert.rejects(
+      moneroHeaderTime(url, 2_000_000, fakeFetch([answer]).fetchImpl),
+      /get_block_header_by_height 2000000/,
+      what,
+    );
   }
-  await assert.rejects(moneroHeaderTime(url, 2_000_000, fakeFetch([new TypeError("Failed to fetch")]).fetchImpl), TypeError);
+  await assert.rejects(
+    moneroHeaderTime(url, 2_000_000, fakeFetch([new TypeError("Failed to fetch")]).fetchImpl),
+    TypeError,
+  );
   const idle = fakeFetch([]);
-  for (const bad of [-1, 2.5, Number.NaN, "5"]) await assert.rejects(moneroHeaderTime(url, bad, idle.fetchImpl), /not a block height/);
+  for (const bad of [-1, 2.5, Number.NaN, "5"])
+    await assert.rejects(moneroHeaderTime(url, bad, idle.fetchImpl), /not a block height/);
   assert.equal(idle.calls.length, 0);
 });
 
@@ -896,7 +1389,8 @@ await check("no absolute asset paths: the page must work in a subdirectory", asy
   }
   // The stylesheet's files (the fonts) follow the same rule, and a URL with a scheme would be another host.
   const css = await read("recovery.css");
-  for (const m of css.matchAll(/url\(\s*["']?(?:\/|(?!data:)[a-z][a-z0-9+.-]*:)[^)]*\)/gi)) offenders.push(`recovery.css: ${m[0]}`);
+  for (const m of css.matchAll(/url\(\s*["']?(?:\/|(?!data:)[a-z][a-z0-9+.-]*:)[^)]*\)/gi))
+    offenders.push(`recovery.css: ${m[0]}`);
   assert.deepEqual(offenders, []);
 });
 
@@ -923,7 +1417,9 @@ await check("no page code declares a name that hides the browser's window, docum
   const offenders = [];
   for (const file of ["recovery.js", "diagnostics.js", ...LIB]) {
     const text = (await read(file)).replace(/\/\/.*$/gm, "");
-    for (const m of text.matchAll(/\b(?:let|const|var|function)\s+(window|document|location|self|navigator|globalThis)\b|[(,]\s*(window|document|location)\s*(?=[,)=])/g)) {
+    for (const m of text.matchAll(
+      /\b(?:let|const|var|function)\s+(window|document|location|self|navigator|globalThis)\b|[(,]\s*(window|document|location)\s*(?=[,)=])/g,
+    )) {
       offenders.push(`${file}: ${m[0].trim()}`);
     }
   }
@@ -973,7 +1469,14 @@ await check("the keys leave the tab once the transfer is sent", async () => {
   const send = bodyOf(page, "sendTx");
   assert.ok(/sweep\.relay\([\s\S]*await dropKeys\(\)/.test(send), "sendTx does not drop the keys after relaying");
   const drop = bodyOf(page, "dropKeys");
-  for (const name of ["await closeWallet()", "key = null", "search = null", "contents = null", "signedToken = null", "clearKeyFields()"]) {
+  for (const name of [
+    "await closeWallet()",
+    "key = null",
+    "search = null",
+    "contents = null",
+    "signedToken = null",
+    "clearKeyFields()",
+  ]) {
     assert.ok(drop.includes(name), `dropKeys leaves ${name} out`);
   }
   assert.ok(bodyOf(page, "closeWallet").includes("adapter.close()"), "closeWallet does not close the wallet");
@@ -988,28 +1491,39 @@ await check("nothing is sent before the confirmation", async () => {
   const confirm = /<div id="confirm"[^>]*>([\s\S]*?)<\/div>\s*<div id="done"/.exec(html);
   assert.ok(confirm, "no confirmation step");
   assert.match(confirm[1], /id="txInfo"/, "the confirmation does not show the transfer");
-  assert.match(confirm[1], /<button id="send" [^>]*data-i18n="page\.btn\.send"/, "the send button is not in the confirmation");
+  assert.match(
+    confirm[1],
+    /<button id="send" [^>]*data-i18n="page\.btn\.send"/,
+    "the send button is not in the confirmation",
+  );
   for (const name of ["findKeySwaps", "openSwap", "withdraw", "syncWallet", "buildTx"]) {
     assert.ok(!/sweep\.relay|sendTx\(/.test(bodyOf(page, name)), `${name}() can send`);
   }
   assert.match(bodyOf(page, "sendTx"), /sweep\.relay\(/);
   assert.equal([...page.matchAll(/sweep\.relay\(/g)].length, 1, "sweep.relay is called from more than one place");
-  assert.match(page, /sendBtn\.addEventListener\("click", \(\) => busy\(sendBtn, sendTx/, "the send button does not send");
+  assert.match(
+    page,
+    /sendBtn\.addEventListener\("click", \(\) => busy\(sendBtn, sendTx/,
+    "the send button does not send",
+  );
 });
 
 // THE START HEIGHT IS NEVER SHOWN AS 0: zero means "scan from Monero's first block", hours of work. The field is empty
 // until the chain fills it, and a swap without a height is said in the step, with the field beside the warning.
-await check("the start height is empty until the chain fills it, and a missing one is asked for in the step", async () => {
-  const page = await read("recovery.js");
-  const html = await read("index.html");
-  assert.match(html, /<input id="restoreHeight"[^>]*value=""/, "the height field starts with a value");
-  assert.ok(!/heightInput\.value = "0"/.test(page), "the page writes 0 into the height field");
-  const box = html.slice(html.indexOf('<div id="heightBox"'), html.indexOf('<div id="stepTransfer"'));
-  assert.ok(box.length > 0, "no height box before the transfer");
-  assert.match(box, /data-i18n="page\.warn\.height"/, "no warning for a swap without a start block");
-  assert.match(box, /<input id="restoreHeight"/, "the height field is not beside the warning");
-  assert.match(page, /heightBox\.hidden = height > 0/, "the field and the warning do not follow the height");
-});
+await check(
+  "the start height is empty until the chain fills it, and a missing one is asked for in the step",
+  async () => {
+    const page = await read("recovery.js");
+    const html = await read("index.html");
+    assert.match(html, /<input id="restoreHeight"[^>]*value=""/, "the height field starts with a value");
+    assert.ok(!/heightInput\.value = "0"/.test(page), "the page writes 0 into the height field");
+    const box = html.slice(html.indexOf('<div id="heightBox"'), html.indexOf('<div id="stepTransfer"'));
+    assert.ok(box.length > 0, "no height box before the transfer");
+    assert.match(box, /data-i18n="page\.warn\.height"/, "no warning for a swap without a start block");
+    assert.match(box, /<input id="restoreHeight"/, "the height field is not beside the warning");
+    assert.match(page, /heightBox\.hidden = height > 0/, "the field and the warning do not follow the height");
+  },
+);
 
 // NOTHING OPENS BY ITSELF but what the person must answer: the start height (above) and the node list when no node
 // answers well. The log is folded under the card, and no panel holds the flow.
@@ -1019,13 +1533,21 @@ await check("nothing folds the flow, and only the node list opens by itself, whe
   const card = html.slice(html.indexOf('<div class="card">'), html.indexOf('<section class="aside">'));
   assert.ok(card.length > 0, "no card in index.html");
   assert.ok(!/<details/.test(card), "a fold is back inside the card");
-  assert.match(html, /<details class="techlog" id="techlog">[\s\S]*<pre id="log"/, "the log is not in the folded technical log");
+  assert.match(
+    html,
+    /<details class="techlog" id="techlog">[\s\S]*<pre id="log"/,
+    "the log is not in the folded technical log",
+  );
   assert.ok(!/\.open\s*=\s*true/.test(page), "the page opens a fold by itself");
   const opens = page.match(/setPanel\(true\)/g) || [];
   assert.equal(opens.length, 1, "the node list opens by itself in " + opens.length + " places");
   const drawAt = page.indexOf("function drawChecks(");
   const draw = page.slice(drawAt, page.indexOf("\n}\n", drawAt));
-  assert.match(draw, /if \(checks\.node\.state === "bad" && !panelOpen\) setPanel\(true\);/, "the list does not open when the node fails");
+  assert.match(
+    draw,
+    /if \(checks\.node\.state === "bad" && !panelOpen\) setPanel\(true\);/,
+    "the list does not open when the node fails",
+  );
 });
 
 // THE PAGE TALKS TO NO SERVICE: its promise is that only the Monero node and the settlement chain hear from the tab.
@@ -1037,10 +1559,14 @@ await check("the page talks to no service, so only the node and the chain hear f
   const build = bodyOf(page, "facadeFor");
   assert.match(build, /fetch: noService,/, "the SDK gets the browser's fetch for its service routes");
   assert.equal([...page.matchAll(/createNinsei\(/g)].length, 1, "a facade is built outside facadeFor");
-  const body = page.slice(page.indexOf("const noService ="), page.indexOf("\n", page.indexOf("const noService =")));
+  const at = page.indexOf("const noService =");
+  const body = page.slice(at, page.indexOf("};", at) + 2);
   assert.match(body, /throw new TypeError/, "noService does not refuse");
   assert.ok(!/fetch\(/.test(body), "noService sends a request");
-  assert.ok(!/sweep\.report|restoreHeight\(\{|reportRetry/.test(page), "the page still asks a service for the height or reports the withdrawal");
+  assert.ok(
+    !/sweep\.report|restoreHeight\(\{|reportRetry/.test(page),
+    "the page still asks a service for the height or reports the withdrawal",
+  );
 });
 
 // WHAT THE PAGE CHECKED IS SAID LINE BY LINE, and a change of node asks the node again, never the wallet: loading
@@ -1051,8 +1577,13 @@ await check("the checks are said line by line, and a change of node asks only th
   const { default: en } = await import(pathToFileURL(join(ROOT, "locales", "en", "index.js")).href);
   const names = ["wallet", "node", "secure"];
   for (const name of names) {
-    assert.match(html, new RegExp(`<li id="check${name[0].toUpperCase() + name.slice(1)}"`), `no ${name} line in index.html`);
-    for (const state of ["wait", "ok", "bad"]) assert.ok(en.strings[`check.${name}.${state}`], `no words for check.${name}.${state}`);
+    assert.match(
+      html,
+      new RegExp(`<li id="check${name[0].toUpperCase() + name.slice(1)}"`),
+      `no ${name} line in index.html`,
+    );
+    for (const state of ["wait", "ok", "bad"])
+      assert.ok(en.strings[`check.${name}.${state}`], `no words for check.${name}.${state}`);
   }
   assert.match(page, /if \(!walletCheck\) walletCheck = loadWallet\(\);/, "the wallet is loaded again on every check");
   const run = page.slice(page.indexOf("async function runPreflight("), page.indexOf("function checkEnvironment("));
@@ -1064,7 +1595,10 @@ await check("the checks are said line by line, and a change of node asks only th
 
 await check("the page stores nothing: no key, no word, no password in any storage", async () => {
   const page = await read("recovery.js");
-  assert.ok(!/localStorage|sessionStorage|indexedDB|document\.cookie/.test(page), "recovery.js touches a browser storage");
+  assert.ok(
+    !/localStorage|sessionStorage|indexedDB|document\.cookie/.test(page),
+    "recovery.js touches a browser storage",
+  );
   // The one thing a module keeps is the node a person chose, for the tab.
   const writes = [];
   for (const file of LIB) {
@@ -1079,36 +1613,61 @@ await check("the page stores nothing: no key, no word, no password in any storag
 // is built from SDK codes and public chain data; the window state carries the fingerprint, never the key.
 await check("the 12 words never reach the log, the window state or a field after the search", async () => {
   const page = await read("recovery.js");
-  const secret = /mnemonic|keyWordsInput\.value|keyPassInput\.value|keyFileText|spendHalf|viewHalf|privateSpendKey|privateViewKey/;
+  const secret =
+    /mnemonic|keyWordsInput\.value|keyPassInput\.value|keyFileText|spendHalf|viewHalf|privateSpendKey|privateViewKey/;
   const logs = [...page.matchAll(/\blog\((t\([^;]*)\);/g)].map((m) => m[1]);
   assert.ok(logs.length > 20, `only ${logs.length} log lines found`);
   for (const line of logs) assert.ok(!secret.test(line), `a log line names a secret: log(${line})`);
   const states = [...page.matchAll(/window\.__sweepFlow(?:\.\w+)? = ([^;]*);/g)].map((m) => m[1]);
   assert.ok(states.length > 5, `only ${states.length} window state writes found`);
-  for (const state of states) assert.ok(!secret.test(state) && !/\bkey\b(?!\.fingerprint)/.test(state), `window state names a secret: ${state}`);
+  for (const state of states)
+    assert.ok(!secret.test(state) && !/\bkey\b(?!\.fingerprint)/.test(state), `window state names a secret: ${state}`);
   const find = bodyOf(page, "findKeySwaps");
-  assert.ok(find.indexOf("clearKeyFields()") >= 0 && find.indexOf("clearKeyFields()") < find.indexOf("keyNetworks("), "the words stay in the fields while the chain is searched");
-  assert.match(bodyOf(page, "clearKeyFields"), /keyWordsInput\.value = "";[\s\S]*keyFileText = null;[\s\S]*keyPassInput\.value = "";/);
+  assert.ok(
+    find.indexOf("clearKeyFields()") >= 0 && find.indexOf("clearKeyFields()") < find.indexOf("keyNetworks("),
+    "the words stay in the fields while the chain is searched",
+  );
+  assert.match(
+    bodyOf(page, "clearKeyFields"),
+    /keyWordsInput\.value = "";[\s\S]*keyFileText = null;[\s\S]*keyPassInput\.value = "";/,
+  );
 });
 
 // IT IS THE "NINSEI KEY", NEVER A SEED. A word "seed" on the page only says that the key is not one, and "recovery
 // key" appears only in the file's own first line (NINSEI RECOVERY KEY), which the SDK writes and people search for;
 // the file name (ninsei-recovery-key-...) is the SDK's too.
-await check("the key is the Ninsei key, never a seed, and the page says it is not a wallet seed and Ninsei never asks for it", async () => {
-  const html = await read("index.html");
-  const texts = [...Object.entries(strings)].filter(([, v]) => typeof v === "string");
-  // Every "seed" must be the one in "not a wallet seed": a text that says both still calls the key a seed once.
-  const seeds = texts.filter(([, v]) => (v.match(/seed/gi) || []).length !== (v.match(/not a wallet seed/gi) || []).length);
-  assert.deepEqual(seeds.map(([k]) => k), [], "a text calls something a seed");
-  assert.ok(!/seed/i.test(withoutComments(html)), "index.html says seed");
-  assert.match(strings["page.hint.key"], /not a wallet seed/i);
-  assert.match(strings["page.hint.key"], /Ninsei never asks for it/);
-  assert.match(strings["page.hint.key"], /Ninsei key/);
-  const named = texts.filter(([, v]) => /recovery key/i.test(v.replace(/NINSEI RECOVERY KEY/g, "")));
-  assert.deepEqual(named.map(([k]) => k), [], "a text calls it a recovery key");
-  assert.ok(!/recovery key/i.test(withoutComments(html)), "index.html calls it a recovery key");
-  assert.match(strings["page.find.lead"], /`ninsei-recovery-key`/, "the find block does not name the file the SDK writes");
-});
+await check(
+  "the key is the Ninsei key, never a seed, and the page says it is not a wallet seed and Ninsei never asks for it",
+  async () => {
+    const html = await read("index.html");
+    const texts = [...Object.entries(strings)].filter(([, v]) => typeof v === "string");
+    // Every "seed" must be the one in "not a wallet seed": a text that says both still calls the key a seed once.
+    const seeds = texts.filter(
+      ([, v]) => (v.match(/seed/gi) || []).length !== (v.match(/not a wallet seed/gi) || []).length,
+    );
+    assert.deepEqual(
+      seeds.map(([k]) => k),
+      [],
+      "a text calls something a seed",
+    );
+    assert.ok(!/seed/i.test(withoutComments(html)), "index.html says seed");
+    assert.match(strings["page.hint.key"], /not a wallet seed/i);
+    assert.match(strings["page.hint.key"], /Ninsei never asks for it/);
+    assert.match(strings["page.hint.key"], /Ninsei key/);
+    const named = texts.filter(([, v]) => /recovery key/i.test(v.replace(/NINSEI RECOVERY KEY/g, "")));
+    assert.deepEqual(
+      named.map(([k]) => k),
+      [],
+      "a text calls it a recovery key",
+    );
+    assert.ok(!/recovery key/i.test(withoutComments(html)), "index.html calls it a recovery key");
+    assert.match(
+      strings["page.find.lead"],
+      /`ninsei-recovery-key`/,
+      "the find block does not name the file the SDK writes",
+    );
+  },
+);
 
 // THE PER-SWAP FILE IS GONE WITH NO TRANSITION: no field opens one, and nothing the page loads reads one.
 await check("no per-swap recovery file can be opened any more", async () => {
@@ -1116,8 +1675,14 @@ await check("no per-swap recovery file can be opened any more", async () => {
   const page = await read("recovery.js");
   const entry = await read("sdk-entry.js");
   assert.ok(!/id="file"|\.enc|page\.btn\.unlock|page\.step\.file/.test(html), "index.html still opens a per-swap file");
-  assert.ok(!/decryptFile|isEncrypted|recovery\.open\(|onFileChosen|function openFile/.test(page), "recovery.js still reads a per-swap file");
-  assert.ok(!/decryptFile|isEncrypted|validatePayload/.test(entry), "the SDK entry still exports the per-swap file reader");
+  assert.ok(
+    !/decryptFile|isEncrypted|recovery\.open\(|onFileChosen|function openFile/.test(page),
+    "recovery.js still reads a per-swap file",
+  );
+  assert.ok(
+    !/decryptFile|isEncrypted|validatePayload/.test(entry),
+    "the SDK entry still exports the per-swap file reader",
+  );
   assert.match(html, /<input id="keyFile" type="file" accept="\.txt,text\/plain">/, "no field for the key file");
 });
 
@@ -1237,13 +1802,15 @@ await check("the workflows run Bun and never npm", async () => {
     if (BUILD_WORKFLOWS.includes(file) && !/oven-sh\/setup-bun/.test(text)) problems.push(`${file}: no setup-bun`);
   }
   const release = await readFile(join(dir, "release.yml"), "utf8");
-  if (!/workflow_dispatch:/.test(release)) problems.push("release.yml cannot publish an existing tag whose first run failed");
+  if (!/workflow_dispatch:/.test(release))
+    problems.push("release.yml cannot publish an existing tag whose first run failed");
   if (!/\$TAG/.test(release)) problems.push("release.yml does not use the tag it was asked about");
   const codeql = await readFile(join(dir, "codeql.yml"), "utf8");
   if (!/github\/codeql-action\/init@v\d/.test(codeql) || !/github\/codeql-action\/analyze@v\d/.test(codeql)) {
     problems.push("codeql.yml does not run the CodeQL init and analyze actions");
   }
-  if (!/security-events:\s*write/.test(codeql)) problems.push("codeql.yml cannot upload its findings: no security-events: write");
+  if (!/security-events:\s*write/.test(codeql))
+    problems.push("codeql.yml cannot upload its findings: no security-events: write");
   if (!/build-mode:\s*none/.test(codeql)) problems.push("codeql.yml tries to build a language that has no compiler");
   assert.deepEqual(problems, []);
   return `${files.length} workflows`;
