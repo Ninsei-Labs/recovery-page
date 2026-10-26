@@ -28,9 +28,10 @@ export const NODES = Object.freeze([
   "https://xmr.0xrpc.io",
 ]);
 export const DEFAULT_NODE = NODES[0];
-// THE PROJECT'S OWN STAGENET NODE. It is not in the mainnet list above: the page chooses it when a key
-// names a testnet factory, because the settlement network then pairs with stagenet.
-export const STAGENET_NODE = "https://xmr.arrakisswap.trade";
+// THE PROJECT'S OWN STAGENET NODE, served through its restricted RPC port with CORS for this page's origin.
+// It is not in the mainnet list above: the page chooses it when a key names a testnet factory, because the
+// settlement network then pairs with stagenet.
+export const STAGENET_NODE = "https://xmr-stagenet.ninsei.finance";
 
 // A NODE MORE THAN THIS MANY BLOCKS FROM THE MEDIAN ANSWER is out of step. Behind: a wallet synced
 // against it would miss the newest blocks, which is where a fresh swap's XMR is. Ahead: the other
@@ -210,7 +211,9 @@ export async function moneroHeaderTime(url, height, fetchImpl = globalThis.fetch
   const header = body && body.result && body.result.block_header;
   const time = header ? header.timestamp : undefined;
   if (!header || header.height !== height || !Number.isSafeInteger(time) || time < 0 || (time === 0 && height !== 0)) {
-    throw new Error(`get_block_header_by_height ${height}: ${body && body.error ? `RPC ${body.error.code ?? "error"}` : "no block time"}`);
+    throw new Error(
+      `get_block_header_by_height ${height}: ${body && body.error ? `RPC ${body.error.code ?? "error"}` : "no block time"}`,
+    );
   }
   return time;
 }
@@ -226,7 +229,8 @@ export async function moneroReaders(url, network, probe, fetchImpl = globalThis.
   } catch {
     return null;
   }
-  if (!answer || !answer.ok || answer.network !== network || !Number.isSafeInteger(answer.height) || answer.height < 1) return null;
+  if (!answer || !answer.ok || answer.network !== network || !Number.isSafeInteger(answer.height) || answer.height < 1)
+    return null;
   return {
     moneroTip: async () => answer.height - 1,
     moneroBlockTimestamp: (height) => moneroHeaderTime(url, height, fetchImpl),
@@ -249,7 +253,8 @@ export function nodeFor(network, chosenNetwork) {
 export function medianHeight(answers) {
   const heights = [];
   for (const a of answers) {
-    if (a && a.ok && a.network === "mainnet" && a.synchronized === true && Number.isInteger(a.height)) heights.push(a.height);
+    if (a && a.ok && a.network === "mainnet" && a.synchronized === true && Number.isInteger(a.height))
+      heights.push(a.height);
   }
   if (heights.length === 0) return null;
   heights.sort((x, y) => x - y);
