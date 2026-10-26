@@ -35,6 +35,8 @@ export const SETTLEMENT = Object.freeze({
       // Release contracts-testnet-2026.10.21 (SDK 0.46.2). The block is the first of 2026-10-14 UTC, a week before
       // the release: public RPCs keep no state that old, so the deployment block itself cannot be read back.
       "0x3ee25f12758ec28e5b3045d16132d89cd0bf341f": 318_911_595,
+      // Release contracts-testnet-2026.10.26 (SDK 0.52.0): the factory creation block from its receipt.
+      "0x69b5a6878b542960af4d239ecc60ad1c9e3e6932": 323_014_007,
     }),
     rpcs: Object.freeze([
       "https://sepolia-rollup.arbitrum.io/rpc",
@@ -68,8 +70,13 @@ export function keyNetworks(chains) {
       continue;
     }
     search.push({
-      id: chain.id, name: chain.name || chain.id, chainId: chain.chainId, factory: escrow.address, since,
-      monero: own.monero, native: chain.native || null,
+      id: chain.id,
+      name: chain.name || chain.id,
+      chainId: chain.chainId,
+      factory: escrow.address,
+      since,
+      monero: own.monero,
+      native: chain.native || null,
     });
   }
   return { search, unreadable };
@@ -122,7 +129,6 @@ export async function evmCall(network, request, fetchImpl = globalThis.fetch) {
   throw new Error(`no ${network} RPC answered (${failures.join("; ")})`);
 }
 
-
 // THE SDK'S LOG-READ SEAM: ({ address, topics, fromBlock, toBlock }) -> logs. The recovery key search sends the
 // factory and the OrderCreated topic; it never sends the key, a half or a commitment. The same public RPCs and the
 // same timeout as the call above. A transport failure or an RPC error (a range one RPC refuses, a rate limit) moves
@@ -156,7 +162,8 @@ export async function evmLogs(network, request, fetchImpl = globalThis.fetch) {
   const to = request && request.toBlock;
   const windows = [];
   if (Number.isSafeInteger(from) && Number.isSafeInteger(to) && from >= 0 && to >= from) {
-    for (let start = from; start <= to; start += LOG_WINDOW) windows.push([blockTag(start), blockTag(Math.min(to, start + LOG_WINDOW - 1))]);
+    for (let start = from; start <= to; start += LOG_WINDOW)
+      windows.push([blockTag(start), blockTag(Math.min(to, start + LOG_WINDOW - 1))]);
   } else {
     windows.push([blockTag(from, "earliest"), blockTag(to, "latest")]);
   }
@@ -197,9 +204,10 @@ async function logWindow(network, chain, filter, fetchImpl) {
     }
     return body.result;
   }
-  throw new Error(`no ${network} RPC answered eth_getLogs ${filter.fromBlock}..${filter.toBlock} (${failures.join("; ")})`);
+  throw new Error(
+    `no ${network} RPC answered eth_getLogs ${filter.fromBlock}..${filter.toBlock} (${failures.join("; ")})`,
+  );
 }
-
 
 // THE TIME OF ONE BLOCK, in seconds: the block that holds a found order's OrderCreated, from which the SDK derives
 // the swap's Monero start height (findSwaps). The request names a block number, never a key. A transport
@@ -216,7 +224,12 @@ export async function evmBlockTime(network, blockNumber, fetchImpl = globalThis.
       const response = await fetchImpl(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBlockByNumber", params: ["0x" + blockNumber.toString(16), false] }),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "eth_getBlockByNumber",
+          params: ["0x" + blockNumber.toString(16), false],
+        }),
         signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
       });
       if (!response.ok) {
@@ -245,14 +258,18 @@ export async function evmBlockNumber(network, fetchImpl = globalThis.fetch) {
   for (const url of chain.rpcs) {
     try {
       const response = await fetchImpl(url, {
-        method: "POST", headers: { "content-type": "application/json" },
+        method: "POST",
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
         signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
       });
       if (!response.ok) continue;
       const body = await response.json();
-      if (body && typeof body.result === "string" && /^0x[0-9a-fA-F]+$/.test(body.result)) return Number(BigInt(body.result));
-    } catch { /* try the next RPC */ }
+      if (body && typeof body.result === "string" && /^0x[0-9a-fA-F]+$/.test(body.result))
+        return Number(BigInt(body.result));
+    } catch {
+      /* try the next RPC */
+    }
   }
   throw new Error(`no ${network} RPC answered eth_blockNumber`);
 }
