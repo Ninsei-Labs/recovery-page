@@ -1484,6 +1484,86 @@ await check("the keys leave the tab once the transfer is sent", async () => {
   assert.ok(!/id="forget"/.test(html), "index.html still has a Forget button");
 });
 
+// A RETRY MUST READ THE CHAIN AGAIN. A saved balance is a snapshot: a locked output can mature and a failed signature
+// leaves a closed wallet behind the page's adapter. Every spending decision refreshes; a closed adapter is rebuilt.
+await check("a withdrawal refreshes its balance and reopens a closed wallet", async () => {
+  const page = await read("recovery.js");
+  const withdraw = bodyOf(page, "withdraw");
+  assert.match(withdraw, /await refreshBalance\(\)/, "withdraw decides on a saved balance");
+  assert.ok(
+    !/if \(!adapter\)[\s\S]{0,200}syncWallet\(\)/.test(withdraw),
+    "withdraw still syncs only when there is no adapter",
+  );
+  const refresh = bodyOf(page, "refreshBalance");
+  assert.match(refresh, /adapter\.sync\(\)/, "refreshBalance does not sync the open wallet");
+  assert.match(refresh, /wallet\.getBalance\(\)/, "refreshBalance does not re-read the total");
+  assert.match(refresh, /closeWallet\(\)[\s\S]*syncWallet\(\)/, "a closed wallet is not rebuilt");
+});
+
+// AN OPEN THAT A NEWER ROW REPLACED MUST NOT WRITE ITS CONTENTS OR PLAN UNDER THE NEW ROW. The delayed stagenet
+// `get_info` is the measured case.
+await check("an open swap has one context and drops a superseded continuation", async () => {
+  const open = bodyOf(await read("recovery.js"), "openSwap");
+  assert.match(open, /const stillCurrent = \(\) => current === row/, "openSwap has no row identity");
+  assert.equal(
+    (open.match(/if \(!stillCurrent\(\)\) return false/g) || []).length >= 3,
+    true,
+    "openSwap writes after an await without checking the row",
+  );
+});
+
+// A LOST RELAY ANSWER IS NOT "NOT SENT". The transaction may be on the network; the session is consumed and the
+// person must check the wallet before another attempt.
+await check("a lost relay answer is reported as unknown, not as not sent", async () => {
+  const send = bodyOf(await read("recovery.js"), "sendTx");
+  assert.match(send, /flow\.err\.sendUnknown/, "sendTx still claims the transfer was not sent");
+  assert.match(send, /signedToken = null/, "sendTx keeps a consumed session");
+  assert.match(send, /confirmEl\.hidden = true/, "sendTx leaves the consumed confirmation visible");
+});
+
+// THE FACADE CACHES THE KEYED ADAPTER. Closing the adapter alone is not enough: the SDK must be disconnected and, when
+// the key is dropped, the facades themselves must go.
+await check("dropping the key disconnects the SDK wallet and clears the facades", async () => {
+  const page = await read("recovery.js");
+  assert.match(bodyOf(page, "closeWallet"), /core\.wallet\.disconnect\(\)/, "closeWallet leaves the facade connected");
+  assert.match(bodyOf(page, "dropKeys"), /facades\.clear\(\)/, "dropKeys keeps a facade with the keyed adapter");
+});
+
+// A SPLIT SWEEP HAS MORE THAN ONE TRANSACTION. The completion panel must list every id, not only the first.
+await check("the completion panel lists every transaction of a split sweep", async () => {
+  const page = await read("recovery.js");
+  assert.match(page, /showDone\(hashes\)/, "sendTx shows only one transaction");
+  assert.match(bodyOf(page, "showDone"), /list\.map\(\(id\)/, "showDone does not draw every transaction");
+});
+
+// CACHING AND THE LOCAL SERVER. The nginx example must not keep unversioned page modules for a year; `bun run serve`
+// must serve the checkout's dist; the Docker build must see the workflows its check reads.
+await check("the nginx example revalidates page modules, serve uses dist, and Docker keeps .github", async () => {
+  const nginx = await read("deploy/nginx.conf");
+  assert.ok(!/\.\(css\|js\)\$ \{ expires 1y; \}/.test(nginx), "nginx still caches unversioned page code for a year");
+  assert.ok(nginx.includes("expires -1;"), "nginx does not revalidate page code");
+  const serve = await read("serve.bun.mjs");
+  assert.match(serve, /process\.env\.ROOT \|\| "dist"/, "serve does not default to dist");
+  const ignore = await read(".dockerignore");
+  assert.ok(!/^\.github$/m.test(ignore), ".dockerignore hides the workflows the Docker check reads");
+});
+
+// THE FOUND ORDER ALREADY CARRIES ITS BLOCK TIME. Reading it again is a second chain call per row, and a null must
+// stay unknown instead of becoming 1970.
+await check("the search reuses the block time returned by findSwaps", async () => {
+  const page = await read("recovery.js");
+  assert.match(
+    page,
+    /const blockTime = swap\.blockTime === null \|\| swap\.blockTime === undefined \? NaN : Number\(swap\.blockTime\)/,
+    "the search does not read the order's blockTime",
+  );
+  assert.match(
+    page,
+    /Number\.isFinite\(blockTime\) && blockTime >= 0[\s\S]{0,120}await evmBlockTime/,
+    "the search still reads the block time first",
+  );
+});
+
 // NOTHING LEAVES BEFORE "CONFIRM AND SEND": the search, the opening of a swap and the withdraw button read, build and
 // sign; only the send button's step relays.
 await check("nothing is sent before the confirmation", async () => {

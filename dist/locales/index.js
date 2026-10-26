@@ -16,7 +16,7 @@
 // holds no human text, so the phrase for each code lives in the language (`sdk`) and the caller says
 // t("sdk." + code, params). AN UNKNOWN CODE IS RETURNED AS IT IS: otherwise tomorrow's refusal would be
 // indistinguishable from today's - the same rule as the page dictionary (lib/codes.js).
-import { AVAILABLE } from "./available.js";
+import { AVAILABLE } from "./available.js?v=0.2.0";
 
 // THE DEFAULT LANGUAGE IS ENGLISH; the choice is kept in the page's own storage.
 export const DEFAULT_LOCALE = "en";
