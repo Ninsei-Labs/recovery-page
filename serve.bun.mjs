@@ -10,9 +10,9 @@
 //
 // Environment:
 //   PORT  (default 8080)  - the port to listen on
-//   ROOT  (default /srv/recovery) - the directory with dist/'s contents
+//   ROOT  (default ./dist) - the directory with dist/'s contents
 //   HOST  (default 0.0.0.0) - the interface to bind
-const ROOT = (process.env.ROOT || "/srv/recovery").replace(/[\\/]+$/, "");
+const ROOT = (process.env.ROOT || "dist").replace(/[\\/]+$/, "");
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
 
@@ -82,7 +82,10 @@ const server = Bun.serve({
 
     const file = Bun.file(ROOT + pathname);
     if (!(await file.exists())) {
-      return new Response("not found: " + pathname, { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      return new Response("not found: " + pathname, {
+        status: 404,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
     }
     const headers = headersFor(pathname);
     if (request.method === "HEAD") return new Response(null, { headers });

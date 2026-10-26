@@ -16,7 +16,7 @@
 // they live in one variable until the transfer is sent.
 
 // CORE CODE -> WORDS: the demo dictionary (a copy of www/js/sdk/codes.js). Unknown codes pass through.
-import { t, n, d, init as initLocale } from "./locales/index.js";
+import { t, n, d, init as initLocale } from "./locales/index.js?v=0.2.0";
 import {
   NODES,
   STAGENET_NODE,
@@ -34,10 +34,10 @@ import {
   fastestGood,
   moneroReaders,
   nodeFor,
-} from "./lib/node.js";
-import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
-import { restoreWindow } from "./lib/window.js";
-import { swapState, moneyState } from "./lib/withdrawal.js";
+} from "./lib/node.js?v=0.2.0";
+import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js?v=0.2.0";
+import { restoreWindow } from "./lib/window.js?v=0.2.0";
+import { swapState, moneyState } from "./lib/withdrawal.js?v=0.2.0";
 
 // THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
 // anything else; this function only names the row before the withdrawal is opened.
@@ -628,8 +628,16 @@ async function findKeySwaps() {
       } catch (e) {
         log(t("log.swap.statusFailed", { escrow: short(swap.escrow), words: errorWords(e) }), "bad");
       }
+      // THE BLOCK TIME CAME BACK WITH THE SEARCH. Read it again only when the SDK did not return it; a genuine
+      // genesis timestamp of 0 is a value, not a missing one.
+      const blockTime = swap.blockTime === null || swap.blockTime === undefined ? NaN : Number(swap.blockTime);
       try {
-        row.time = Number.isSafeInteger(swap.blockNumber) ? await evmBlockTime(net.id, swap.blockNumber) : null;
+        row.time =
+          Number.isFinite(blockTime) && blockTime >= 0
+            ? blockTime
+            : Number.isSafeInteger(swap.blockNumber)
+              ? await evmBlockTime(net.id, swap.blockNumber)
+              : null;
       } catch (e) {
         log(t("log.swap.timeFailed", { escrow: short(swap.escrow), words: errorWords(e) }), "wait");
       }
@@ -743,6 +751,9 @@ async function openSwap(row) {
   // ONE SWAP AT A TIME: a wallet of another swap closes first, so a withdrawal never goes from the wrong address.
   if (current) await closeSwap();
   current = row;
+  // AN OPEN IS A FIXED CONTEXT. A later open of another row supersedes this one; its continuations must not write
+  // contents, plan or balance under the newly selected row.
+  const stillCurrent = () => current === row;
   settlement = row.net.id;
   network = row.net.monero;
   window.__sweepFlow.network = network;
@@ -764,7 +775,9 @@ async function openSwap(row) {
       /* the withdrawal names the node failure */
     }
   }
+  if (!stillCurrent()) return false;
   const core = await facadeFor(settlement, network);
+  if (!stillCurrent()) return false;
   // THE SDK BUILDS THE WITHDRAWAL FROM THE KEY AND THE ORDER. It decides the side, checks the chain's points against
   // the key, builds the joint address and returns the file plan/keys accept. The page keeps no payload rule.
   let material;
@@ -776,6 +789,7 @@ async function openSwap(row) {
       moneroNetwork: network,
       order: row.swap,
     });
+    if (!stillCurrent()) return false;
   } catch (e) {
     const why = e && e.params && e.params.why;
     log(t("log.order." + (why || "bad"), { escrow: row.swap.escrow }), "bad");
@@ -799,6 +813,7 @@ async function openSwap(row) {
   // PLAN IS THE CORE'S (sweep.plan): the address, the height and the maker's half, read from the escrow.
   try {
     plan = await core.sweep.plan({ file: { contents }, passphrase: "" });
+    if (!stillCurrent()) return false;
   } catch (e) {
     log(t("log.plan.failed", { words: sdkWords(e) }), "bad");
     contents = null;
@@ -848,7 +863,31 @@ function drawMoney() {
   moneyEl.hidden = false;
 }
 
-// --- 4. Withdraw: sync if needed, build and sign, then confirm ---
+// --- 4. Withdraw: refresh, build and sign, then confirm ---
+
+// THE SAME WALLET, A FRESH BALANCE. `sync` is enough while the adapter is open; a closed adapter (the SDK closes it
+// after a failed signature and after every relay) is discarded and rebuilt from the same key and plan. The returned
+// value is `true` or the key of the plain line that says why not.
+async function refreshBalance() {
+  if (!adapter || !wallet) return syncWallet();
+  try {
+    await adapter.sync();
+    const total = BigInt(await wallet.getBalance());
+    const unlocked = BigInt(await adapter.unlockedBalance());
+    let txs = null;
+    try {
+      txs = (await wallet.getTxs()).length;
+    } catch {
+      /* how many transactions the wallet sees stays unknown */
+    }
+    balance = { total, unlocked, txs };
+    return true;
+  } catch (e) {
+    log(t("log.wallet.closed", { words: sdkWords(e) }), "wait");
+    await closeWallet();
+    return syncWallet();
+  }
+}
 
 async function withdraw() {
   quiet(withdrawErrorEl);
@@ -859,12 +898,13 @@ async function withdraw() {
   // like an empty wallet.
   if (!nodeNetwork) return say(withdrawErrorEl, "flow.err.noNode");
   if (nodeNetwork !== network) return say(withdrawErrorEl, "flow.err.networks", { swap: network, node: nodeNetwork });
-  if (!adapter) {
-    const synced = await syncWallet();
-    if (synced !== true) {
-      hideProgress();
-      return say(withdrawErrorEl, synced);
-    }
+  // EVERY SPENDING DECISION IS TAKEN ON A FRESH BALANCE. A saved balance is a snapshot: after "locked" the outputs may
+  // have matured, and after a failed signature the SDK has closed the wallet while the page still holds the adapter.
+  // Refresh the wallet in place when it is still open, and rebuild it when it is not.
+  const synced = await refreshBalance();
+  if (synced !== true) {
+    hideProgress();
+    return say(withdrawErrorEl, synced);
   }
   drawMoney();
   const m = currentState();
@@ -1184,15 +1224,23 @@ async function sendTx() {
     out = await (await facadeFor(settlement, network)).sweep.relay({ token: signedToken });
   } catch (e) {
     hideProgress();
-    log(t("log.send.failed", { words: sdkWords(e) }), "bad");
-    return say(withdrawErrorEl, "flow.err.send");
+    // THE NODE MAY HAVE ACCEPTED THE TRANSACTION AND LOST ONLY THE REPLY. A definite "not sent" would be false, and a
+    // second Confirm would use a session that no longer exists. Drop the session, leave the wallet for a fresh balance
+    // check, and ask the person to look at the wallet before trying again.
+    log(t("log.send.unknown", { words: sdkWords(e) }), "bad");
+    signedToken = null;
+    lastTx = null;
+    confirmEl.hidden = true;
+    window.__sweepFlow.signed = false;
+    updateButtons();
+    return say(withdrawErrorEl, "flow.err.sendUnknown");
   }
   hideProgress();
   signedToken = null;
   const hashes = Array.isArray(out.txids) ? out.txids : [];
   log(t("log.sent", { txids: hashes.join(", ") }), "ok");
   confirmEl.hidden = true;
-  showDone(hashes[0] || null);
+  showDone(hashes);
   // THE WALLET IS EMPTY NOW: the button would only sign for zero. The keys have done their job, so they leave the
   // tab's memory at once instead of waiting for the tab to close; the sent view and the txid stay.
   withdrawBtn.disabled = true;
@@ -1201,17 +1249,22 @@ async function sendTx() {
   return true;
 }
 
-// SENT: the transaction and where to see it.
-function showDone(txid) {
-  const rows = [["info.txid", txid || t("value.txid.none")]];
-  if (txid) rows.push(["info.explorer", () => explorerLink(txid)]);
+// SENT: every transaction of a split sweep and where to see each one.
+function showDone(txids) {
+  const list = (Array.isArray(txids) ? txids : []).filter((id) => typeof id === "string" && id);
+  const rows = list.length
+    ? list.map((id) => ["info.txid", () => explorerLink(id)])
+    : [["info.txid", t("value.txid.none")]];
   renderInfo(doneInfoEl, rows);
   doneEl.hidden = false;
   updateButtons();
 }
 
-// THE WALLET CLOSES and the node choice opens again; a failed close must not keep the rest in memory.
+// THE WALLET CLOSES and the node choice opens again; a failed close must not keep the rest in memory. The facade is
+// told as well: its `wallet` object caches the keyed adapter and would otherwise rebuild the same wallet on the next
+// `connect()` without asking for the key again.
 async function closeWallet() {
+  const core = settlement && network ? facades.get(settlement + "/" + network) : null;
   try {
     if (adapter) await adapter.close();
   } catch {
@@ -1219,6 +1272,13 @@ async function closeWallet() {
   }
   adapter = null;
   wallet = null;
+  if (core) {
+    try {
+      await core.wallet.disconnect();
+    } catch {
+      /* the adapter is already gone */
+    }
+  }
   updateNodeLock();
 }
 
@@ -1264,6 +1324,9 @@ async function closeSwap() {
 // transfer go. The sent view and the txid stay; the list goes with the key, since every action in it needs the key.
 async function dropKeys() {
   await closeWallet();
+  // THE FACADES HOLD THE ONLY CACHED ADAPTERS. Disconnecting is not enough if the facade itself survives in this map:
+  // clear it, so a later `createNinsei` starts from the key it is given and not from a wallet built from this one.
+  facades.clear();
   key = null;
   search = null;
   contents = null;

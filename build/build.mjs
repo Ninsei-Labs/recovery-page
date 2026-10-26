@@ -165,6 +165,11 @@ console.log("\npage:");
 const PAGE_TEXT = ["recovery.js", "diagnostics.js"];
 const PAGE_COPY = ["index.html", "recovery.css", "diagnostics.html", "favicon.svg"];
 
+// THE PAGE MODULES ARE NOT BUNDLED. `recovery.js` imports `./lib/*.js` and `./locales/index.js`; a host that caches
+// those for a year keeps an old module beside a new page after an update. Stamp every relative module URL with the
+// package version, so a release changes the URL and an old copy is never used with a new page.
+const versioned = (text) => text.replace(/(\bfrom\s*["'])(\.\/[^"']+\.js)(["'])/g, `$1$2?v=${pkg.version}$3`);
+
 // The locale list is derived from the folders, not edited by hand: a third language is one folder.
 const localesDir = join(ROOT, "locales");
 const tags = [];
@@ -188,16 +193,23 @@ await emit(
 for (const tag of tags) {
   await emit(`locales/${tag}/index.js`, await readFile(join(localesDir, tag, "index.js")));
 }
-await emit("locales/index.js", await readFile(join(localesDir, "index.js")));
+await emit("locales/index.js", Buffer.from(versioned(await readFile(join(localesDir, "index.js"), "utf8"))));
 
 for (const rel of PAGE_COPY) {
-  await emit(rel, await readFile(join(ROOT, rel)));
+  let text = await readFile(join(ROOT, rel), "utf8");
+  // The entry modules are named by the HTML; the version is the same one stamped into their imports.
+  text = text
+    .split('src="./recovery.js"')
+    .join(`src="./recovery.js?v=${pkg.version}"`)
+    .split('src="./diagnostics.js"')
+    .join(`src="./diagnostics.js?v=${pkg.version}"`);
+  await emit(rel, Buffer.from(text));
 }
 // THE PAGE'S MODULES ARE THE FOLDER'S CONTENTS, like the languages and the fonts: a new module in lib/ ships
 // without a second list to remember, and a list that forgot one would leave the page without an import.
 const libDir = join(ROOT, "lib");
 for (const name of (await readdir(libDir)).filter((n) => n.endsWith(".js")).sort()) {
-  await emit(`lib/${name}`, await readFile(join(libDir, name)));
+  await emit(`lib/${name}`, Buffer.from(versioned(await readFile(join(libDir, name), "utf8"))));
 }
 // The fonts and their licences are the folder's contents, like the languages: recovery.css names the
 // files it loads, and every licence travels with its font.
@@ -209,7 +221,7 @@ for (const name of (await readdir(fontsDir)).sort()) {
 // directory. It travels with the build so an operator does not have to remember it.
 await emit("_headers", await readFile(join(ROOT, "deploy", "_headers")));
 for (const rel of PAGE_TEXT) {
-  let text = await readFile(join(ROOT, rel), "utf8");
+  let text = versioned(await readFile(join(ROOT, rel), "utf8"));
   // Each page file names only the artefacts it loads: the withdrawal page names all three, the
   // diagnostics page only the wallet pair. A placeholder that is missing where it is expected is a
   // failure; one that a file does not use is not.

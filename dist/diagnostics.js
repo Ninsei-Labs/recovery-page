@@ -11,8 +11,8 @@
 // What the page does NOT do: it accepts no secrets, prints no mnemonic (the wallet is created with a random
 // seed inside and never shown) and sends no transactions.
 
-import { t, n, bindValues, init as initLocale } from "./locales/index.js";
-import { nodeUrl, nodeLabelKey, nodeLabelParams, setNodeUrl, networkFromNode } from "./lib/node.js";
+import { t, n, bindValues, init as initLocale } from "./locales/index.js?v=0.2.0";
+import { nodeUrl, nodeLabelKey, nodeLabelParams, setNodeUrl, networkFromNode } from "./lib/node.js?v=0.2.0";
 
 // The node address comes from the shared module: the field on the page, the `?node=` link, this tab's value or
 // the default. nodeInfo is what the node answered on the first successful call: height and network. The wallet
