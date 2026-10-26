@@ -1126,6 +1126,7 @@ await check(
               "2".repeat(64),
               me.viewPoint,
               "1",
+              "0",
               "1",
               "1",
               "1",
