@@ -16,7 +16,7 @@
 // they live in one variable until the transfer is sent.
 
 // CORE CODE -> WORDS: the demo dictionary (a copy of www/js/sdk/codes.js). Unknown codes pass through.
-import { t, n, d, init as initLocale } from "./locales/index.js?v=0.2.1";
+import { t, n, d, init as initLocale } from "./locales/index.js?v=0.3.6";
 import {
   NODES,
   STAGENET_NODE,
@@ -34,10 +34,10 @@ import {
   fastestGood,
   moneroReaders,
   nodeFor,
-} from "./lib/node.js?v=0.2.1";
-import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js?v=0.2.1";
-import { restoreWindow } from "./lib/window.js?v=0.2.1";
-import { swapState, moneyState } from "./lib/withdrawal.js?v=0.2.1";
+} from "./lib/node.js?v=0.3.6";
+import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js?v=0.3.6";
+import { restoreWindow } from "./lib/window.js?v=0.3.6";
+import { swapState, moneyState } from "./lib/withdrawal.js?v=0.3.6";
 
 // THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
 // anything else; this function only names the row before the withdrawal is opened.

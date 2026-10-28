@@ -16,7 +16,7 @@
 // holds no human text, so the phrase for each code lives in the language (`sdk`) and the caller says
 // t("sdk." + code, params). AN UNKNOWN CODE IS RETURNED AS IT IS: otherwise tomorrow's refusal would be
 // indistinguishable from today's - the same rule as the page dictionary (lib/codes.js).
-import { AVAILABLE } from "./available.js?v=0.2.1";
+import { AVAILABLE } from "./available.js?v=0.3.6";
 
 // THE DEFAULT LANGUAGE IS ENGLISH; the choice is kept in the page's own storage.
 export const DEFAULT_LOCALE = "en";
@@ -127,7 +127,7 @@ export async function load(tag) {
   const wanted = AVAILABLE.includes(tag) ? tag : DEFAULT_LOCALE;
   if (current && current.tag === wanted) return current;
   if (tag && !AVAILABLE.includes(tag)) console.warn("[i18n] no such locale: " + tag + ", using " + DEFAULT_LOCALE);
-  const mod = await import("./" + wanted + "/index.js?v=0.2.1");
+  const mod = await import("./" + wanted + "/index.js?v=0.3.6");
   current = mod.default;
   pluralRules = new Intl.PluralRules(wanted);
   numberFormat = new Intl.NumberFormat(wanted);
