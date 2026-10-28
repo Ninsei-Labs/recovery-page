@@ -19,8 +19,8 @@ import { nodeUrl, nodeLabelKey, nodeLabelParams, setNodeUrl, networkFromNode } f
 // is built for that network, otherwise the probe asks a stagenet node for another chain's ranges and that
 // looks like a broken withdrawal.
 let nodeInfo = null;
-const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=cf687c3e";
-const WORKER = "./monero.worker.js?v=fd2e8b51";
+const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=4bdc3690";
+const WORKER = "./monero.worker.js?v=0d6effe1";
 const SCAN_LOOKBACK = 3000;
 
 const out = document.getElementById("out");

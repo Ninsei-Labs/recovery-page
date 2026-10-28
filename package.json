@@ -33,7 +33,7 @@
     "https-browserify": "1.0.0",
     "keccak256": "1.0.6",
     "memfs": "4.80.0",
-    "monero-ts": "0.11.20",
+    "monero-ts": "0.11.21",
     "os-browserify": "0.3.0",
     "path-browserify": "1.0.1",
     "process": "0.11.10",

@@ -48,8 +48,8 @@ function sideOf(found) {
 }
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
-const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=cf687c3e";
-const WORKER = "./monero.worker.js?v=fd2e8b51";
+const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=4bdc3690";
+const WORKER = "./monero.worker.js?v=0d6effe1";
 const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=b7a3b436";
 // THIS PAGE TALKS TO NO SERVICE. The SDK's service routes (a height the app remembers, the revealed half's
 // fallback, the "withdrawn" mark) get this fetch, which answers "unavailable" without a request: the height comes
