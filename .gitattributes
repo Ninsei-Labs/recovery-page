@@ -1,0 +1,4 @@
+# dist/ IS A BYTE-FOR-BYTE ARTIFACT. Git must not translate its line endings on checkout: build.json holds a
+# SHA-256 of every file, and a Windows checkout with core.autocrlf=true would otherwise change the bytes and make
+# the manifest fail before the page is served anywhere.
+dist/** -text
