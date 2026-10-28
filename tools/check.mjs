@@ -1910,6 +1910,14 @@ await check("the header file sets the CSP and no COEP", async () => {
   assert.ok(!/Cross-Origin-Embedder-Policy/i.test(headers), "_headers still sets COEP");
 });
 
+// THE RELEASE VERSION IS THE TAG, AND A MISMATCH IS REFUSED BEFORE THE BUILD. The workflow must run the check mode;
+// the old step rewrote package.json and could publish a version nobody committed.
+await check("the release checks the tag against package.json", async () => {
+  const workflow = await read(".github/workflows/release.yml");
+  assert.match(workflow, /run: bun tools\/version-from-tag\.mjs "\$TAG" --check/, "the release does not check the tag");
+  assert.ok(!/run: bun tools\/version-from-tag\.mjs "\$TAG"\s*$/m.test(workflow), "the release rewrites package.json");
+});
+
 await check("the workflows run Bun and never npm", async () => {
   const dir = join(ROOT, ".github", "workflows");
   const files = (await readdir(dir)).filter((f) => f.endsWith(".yml"));

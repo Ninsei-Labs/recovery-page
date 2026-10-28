@@ -43,11 +43,11 @@ jobs:
         with:
           bun-version: "1.4.4"
 
-      # THE VERSION COMES FROM THE TAG, NOT FROM A HAND-EDITED FILE. `build.json` then names the
-      # version of the release it is attached to, and the two cannot disagree. The script replaces the
-      # Node package manager step, which this Bun-only build does not use.
-      - name: Take the version from the tag
-        run: bun tools/version-from-tag.mjs "$TAG"
+      # THE VERSION IS THE TAG, AND THE TWO MUST AGREE. The run fails before building when package.json carries a
+      # different version, as the SDK release does; the archive and build.json therefore name the tag the release is
+      # attached to. `build.json` reads the same package.json, so there is no second number to update by hand.
+      - name: Version must match the tag
+        run: bun tools/version-from-tag.mjs "$TAG" --check
 
       - name: Install the locked dependencies
         run: bun install --frozen-lockfile
@@ -99,7 +99,7 @@ jobs:
           if ! $wrangler pages project list | grep -qE '(^|[^a-z0-9-])ninsei-recovery([^a-z0-9-]|$)'; then
             $wrangler pages project create ninsei-recovery --production-branch=main
           fi
-          # The version step rewrote the manifest, so the tree is dirty on purpose.
+          # The build wrote dist/ from the tagged commit; the deploy names that commit and the tag.
           $wrangler pages deploy dist --project-name=ninsei-recovery --branch=main \
             --commit-hash="$(git rev-parse HEAD)" --commit-message="$TAG" --commit-dirty=true
 
