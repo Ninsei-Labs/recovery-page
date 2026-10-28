@@ -22,8 +22,8 @@
 import { build } from "esbuild";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, extname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -100,18 +100,36 @@ const common = {
 const sha = (buf) => createHash("sha256").update(buf).digest("hex").slice(0, 8);
 const size = (n) => (n / 1024 / 1024 >= 1 ? `${(n / 1048576).toFixed(2)} MB` : `${Math.round(n / 1024)} KB`);
 const written = [];
+// THE ARTEFACT HAS ONE SET OF BYTES ON EVERY MACHINE. A Windows checkout has CRLF in the sources, and copying
+// those bytes would ship a different dist/ (and different hashes) from the same commit built on Linux. Text
+// artefacts are written with LF; fonts and other binary files are copied unchanged.
+const BINARY = new Set([".woff2", ".woff", ".png", ".jpg", ".jpeg", ".gif", ".ico"]);
+const artifactBytes = (rel, bytes) =>
+  BINARY.has(extname(rel).toLowerCase())
+    ? Buffer.from(bytes)
+    : Buffer.from(Buffer.from(bytes).toString("utf8").replace(/\r\n/g, "\n"));
 
 async function emit(rel, bytes) {
   const path = join(DIST, rel);
+  const artifact = artifactBytes(rel, bytes);
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, bytes);
+  await writeFile(path, artifact);
   const info = await stat(path);
-  written.push({ file: rel, bytes: info.size, sha256: sha(bytes) });
-  console.log(`  ${rel.padEnd(46)} ${size(info.size).padStart(8)}  ${sha(bytes)}`);
+  written.push({ file: rel, bytes: info.size, sha256: sha(artifact) });
+  console.log(`  ${rel.padEnd(46)} ${size(info.size).padStart(8)}  ${sha(artifact)}`);
 }
 
 // --- 3. Clean -------------------------------------------------------------------------------
-await rm(DIST, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+// WINDOWS AND A SYNCED FOLDER CAN HOLD A HANDLE ON dist/ FOR A MOMENT. Moving the old directory out of the
+// way gives the build a fresh path; the move is what a person does by hand when `rm` answers EBUSY.
+try {
+  await rm(DIST, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+} catch (e) {
+  if (!["EBUSY", "EPERM", "EACCES"].includes(e.code)) throw e;
+  const stale = `${DIST}.old-${process.pid}`;
+  await rename(DIST, stale);
+  await rm(stale, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(() => {});
+}
 await mkdir(DIST, { recursive: true });
 console.log(`building ${pkg.name} ${pkg.version} into dist/`);
 
@@ -193,7 +211,14 @@ await emit(
 for (const tag of tags) {
   await emit(`locales/${tag}/index.js`, await readFile(join(localesDir, tag, "index.js")));
 }
-await emit("locales/index.js", Buffer.from(versioned(await readFile(join(localesDir, "index.js"), "utf8"))));
+// THE DYNAMIC LOCALE IMPORT IS A URL TOO. The static `from "./x.js"` stamping above does not see
+// `import("./" + wanted + "/index.js")`; without the version a visitor who cached the old dictionary keeps it
+// under the new page. The version is the same package version as the module URLs.
+const localesLayer = versioned(await readFile(join(localesDir, "index.js"), "utf8")).replace(
+  'await import("./" + wanted + "/index.js")',
+  `await import("./" + wanted + "/index.js?v=${pkg.version}")`,
+);
+await emit("locales/index.js", Buffer.from(localesLayer));
 
 for (const rel of PAGE_COPY) {
   let text = await readFile(join(ROOT, rel), "utf8");
@@ -202,7 +227,11 @@ for (const rel of PAGE_COPY) {
     .split('src="./recovery.js"')
     .join(`src="./recovery.js?v=${pkg.version}"`)
     .split('src="./diagnostics.js"')
-    .join(`src="./diagnostics.js?v=${pkg.version}"`);
+    .join(`src="./diagnostics.js?v=${pkg.version}"`)
+    // THE STYLESHEET IS A CACHEABLE URL TOO. A visitor who kept the old CSS for a year would render the new
+    // markup with the old rules; the versioned URL is a new resource.
+    .split('href="./recovery.css"')
+    .join(`href="./recovery.css?v=${pkg.version}"`);
   await emit(rel, Buffer.from(text));
 }
 // THE PAGE'S MODULES ARE THE FOLDER'S CONTENTS, like the languages and the fonts: a new module in lib/ ships

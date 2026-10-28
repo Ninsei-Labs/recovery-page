@@ -811,9 +811,13 @@ async function openSwap(row) {
   else log(t("log.height.failed", { why: row.swap.startHeightReason || "?" }), "wait");
   contents = material.contents;
   // PLAN IS THE CORE'S (sweep.plan): the address, the height and the maker's half, read from the escrow.
+  // THE PLAN IS HELD IN A LOCAL UNTIL THE CONTEXT IS CHECKED. Assigning the global first let a slow plan for
+  // row A land after row B was opened: the screen and contents were B's, the plan was A's, and B's withdrawal
+  // was refused until it was reopened.
   try {
-    plan = await core.sweep.plan({ file: { contents }, passphrase: "" });
+    const planned = await core.sweep.plan({ file: { contents }, passphrase: "" });
     if (!stillCurrent()) return false;
+    plan = planned;
   } catch (e) {
     log(t("log.plan.failed", { words: sdkWords(e) }), "bad");
     contents = null;

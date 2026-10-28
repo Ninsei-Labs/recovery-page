@@ -5,7 +5,7 @@
 // by binary search over block-header timestamps: a Monero block's timestamp may run ahead of wall time, so the
 // search is the only honest conversion from a settlement timestamp to a Monero height.
 
-import { moneroHeaderTime } from "./node.js?v=0.2.0";
+import { moneroHeaderTime } from "./node.js?v=0.2.1";
 
 const TIMEOUT_MS = 8000;
 

@@ -39,7 +39,7 @@ export default {
     "key.none": "No swaps for this Ninsei key. Try another key file.",
     "key.none.link": "How to find your Ninsei key file",
     "key.partial": "Not searched: {list}. A swap there would be missing from this list; search again in a minute.",
-    "key.gone": "The Ninsei key has left this tab with the transfer. Enter it again to withdraw another swap.",
+    "key.gone": "The Ninsei key is no longer held in this tab. Enter it again to withdraw another swap.",
     "swap.amount": "{amount} {symbol}",
     "swap.amount.unknown": "amount unknown",
     "swap.date.unknown": "date unknown",
@@ -139,7 +139,8 @@ export default {
     "page.keys.head": "What happens to the keys",
     "page.keys.li1":
       "**Nothing secret leaves this tab.** The Ninsei key is read here, and the words, the password and the keys are never sent anywhere.",
-    "page.keys.li2": "**The keys are wiped** as soon as the transfer is sent, or when you close the tab.",
+    "page.keys.li2":
+      "**The page drops the wallet and its key references** as soon as the transfer is sent, or when you close the tab.",
     "page.keys.li3":
       "**Only public data is asked for.** The swap's chain gives its orders and the half the maker published, and the Monero node gives the blocks and takes the signed transfer.",
     "page.find.head": "How to find your Ninsei key file",
@@ -258,7 +259,8 @@ export default {
     "log.send.unknown": "the relay answer was lost; the transfer may have been sent: {words}",
     "log.wallet.closed": "the saved wallet was closed ({words}); reopening it",
     "log.sent": "transactions sent to the network: {txids}",
-    "log.done": "after the network confirmations the XMR will be at the named address. The keys have left this tab",
+    "log.done":
+      "after the network confirmations the XMR will be at the named address. The wallet is disconnected and the page's key references are released",
     "log.forgotten": "the wallet is disconnected and the references to the Ninsei key are released",
     "log.ready": "the Ninsei key can be entered: it is read, and the transfer signed, in this tab",
     "diag.state.running": "the check is running...",

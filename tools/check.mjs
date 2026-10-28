@@ -1518,6 +1518,33 @@ await check("an open swap has one context and drops a superseded continuation", 
   );
 });
 
+// A PLAN IS NOT WRITTEN UNDER A LATER ROW. The delayed plan of A must be held locally and assigned only when A is
+// still the selected swap; otherwise the screen is B's and the plan is A's.
+await check("a superseded plan is not assigned to the newly opened swap", async () => {
+  const open = bodyOf(await read("recovery.js"), "openSwap");
+  assert.match(open, /const planned = await core\.sweep\.plan\(/, "the plan is assigned before the context check");
+  assert.match(
+    open,
+    /if \(!stillCurrent\(\)\) return false;\s*\n\s*plan = planned;/,
+    "the plan is assigned before the context check",
+  );
+  assert.ok(
+    !/^\s*plan = await core\.sweep\.plan/m.test(open),
+    "the global plan is overwritten by a stale continuation",
+  );
+});
+
+// THE LOCALE DICTIONARY AND THE STYLESHEET ARE CACHEABLE URLS. A versioned entry module is not enough: the
+// dynamic locale import and the link in the HTML must carry the same package version.
+await check("the locale import and the stylesheet carry the release URL", async () => {
+  const html = await readFile(join(DIST, "index.html"), "utf8");
+  assert.match(html, /href="\.\/recovery\.css\?v=[^"]+"/, "the stylesheet is unversioned");
+  const locales = await readFile(join(DIST, "locales/index.js"), "utf8");
+  assert.match(locales, /index\.js\?v=/, "the dynamic locale import is unversioned");
+  const words = await read("locales/en/index.js");
+  assert.ok(!/keys are wiped|keys have left this tab/i.test(words), "the page still claims the keys are wiped");
+});
+
 // A LOST RELAY ANSWER IS NOT "NOT SENT". The transaction may be on the network; the session is consumed and the
 // person must check the wallet before another attempt.
 await check("a lost relay answer is reported as unknown, not as not sent", async () => {
@@ -1836,6 +1863,13 @@ await check("build.json lists every built file with its real hash", async () => 
   }
   assert.deepEqual(wrong, []);
   return `${manifest.files.length} files, version ${manifest.version}`;
+});
+
+// A WINDOWS CHECKOUT MUST NOT REWRITE THE ARTIFACT. dist/build.json hashes bytes; core.autocrlf=true would
+// turn the shipped LF files into CRLF on checkout and make every hash wrong before the first build.
+await check("dist is marked as a byte-for-byte artifact", async () => {
+  const attrs = await read(".gitattributes");
+  assert.match(attrs, /^dist\/\*\* -text$/m, "dist/ is not excluded from line-ending conversion");
 });
 
 await check("the stamped page names the hashes of the files it loads", async () => {
