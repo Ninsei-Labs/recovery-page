@@ -454,6 +454,9 @@ const TEST_WORDS = [
   "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
   "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong",
 ];
+// The SDK binds one store per process: a second client with a different adapter is refused. Both checks below
+// build a client, so they share the first adapter instead of creating a new one for each check.
+let sdkStore = null;
 // The body of one function of a source file, for the rules that must hold inside it.
 const bodyOf = (text, name) => {
   const at = text.search(new RegExp(`(?:async )?function ${name}\\(`));
@@ -674,7 +677,7 @@ await check("sweep.fromOrder opens the address the maker paid, on a buy and a se
     fetch: async () => {
       throw new TypeError("no service");
     },
-    storage: memoryAdapter(),
+    storage: sdkStore || (sdkStore = memoryAdapter()),
     // revealedHalf() as the escrow answers it: one bytes32 word.
     evmCall: async ({ to, data }) => {
       assert.equal(to, escrow);
@@ -787,7 +790,7 @@ await check("sweep.fromOrder refuses an order that does not fit the key, by what
     fetch: async () => {
       throw new TypeError("no service");
     },
-    storage: memoryAdapter(),
+    storage: sdkStore || (sdkStore = memoryAdapter()),
   });
   const person = takerHalves({ mnemonic: TEST_WORDS[1], chainId: 421614, index: 4 });
   const other = takerHalves({ mnemonic: TEST_WORDS[2], chainId: 421614, index: 4 });
@@ -1149,6 +1152,9 @@ await check(
         mnemonic: words,
         chainId: 421614,
         factory: "0x" + "f".repeat(40),
+        // The five orders in this case use numbers 0..4. The SDK scans to `maxIndex`; the production default is
+        // deliberately large, so the check names a small bound instead of deriving 100k unused numbers.
+        maxIndex: 100,
         evmLogs: async () => logsFor(blocks),
         evmBlockTime: async (block) => times[block - 1_000],
         ...readers,
