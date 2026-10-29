@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.3.6",
-  "commit": "c00e8858684c2c7ccecebdfc9633221726959b98",
-  "builtAt": "2026-10-29T21:40:12.565Z",
+  "commit": "a7a53da23447ed2d894a994c34b1afce65cc6d3d",
+  "builtAt": "2026-10-29T22:44:35.418Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -58,6 +58,16 @@
       "file": "favicon.svg",
       "bytes": 376,
       "sha256": "eea8567b"
+    },
+    {
+      "file": "LICENSE",
+      "bytes": 1068,
+      "sha256": "eae58bd1"
+    },
+    {
+      "file": "THIRD_PARTY_NOTICES.txt",
+      "bytes": 456594,
+      "sha256": "7ed6f614"
     },
     {
       "file": "lib/codes.js",

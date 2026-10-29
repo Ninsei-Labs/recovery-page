@@ -179,4 +179,6 @@ and writes the list; nothing else is edited.
 
 ## Licence
 
-MIT. See `LICENSE`.
+MIT. See `LICENSE`. The licences of the packages bundled into the page are in
+`THIRD_PARTY_NOTICES.txt`; the dependency policy is in `LICENSE-POLICY.md`. Both notices and the project
+licence are copied into `dist/` and into the release archive.

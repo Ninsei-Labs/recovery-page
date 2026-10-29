@@ -181,7 +181,14 @@ const STAMP = {
 
 console.log("\npage:");
 const PAGE_TEXT = ["recovery.js", "diagnostics.js"];
-const PAGE_COPY = ["index.html", "recovery.css", "diagnostics.html", "favicon.svg"];
+const PAGE_COPY = [
+  "index.html",
+  "recovery.css",
+  "diagnostics.html",
+  "favicon.svg",
+  "LICENSE",
+  "THIRD_PARTY_NOTICES.txt",
+];
 
 // THE PAGE MODULES ARE NOT BUNDLED. `recovery.js` imports `./lib/*.js` and `./locales/index.js`; a host that caches
 // those for a year keeps an old module beside a new page after an update. Stamp every relative module URL with the
