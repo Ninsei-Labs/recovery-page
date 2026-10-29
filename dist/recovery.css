@@ -447,6 +447,7 @@ textarea:focus { border-color: var(--accent); }
    what it needs: violet when the XMR can be withdrawn now, amber while the deal is open, neutral when there is
    nothing to do, red when the chain did not answer. */
 .key-result { margin-top: 16px; }
+.key-actions { display: flex; gap: 8px; margin: 8px 0 12px; }
 .key-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; font: 400 var(--m12)/1.5 var(--mono); color: var(--text-2); }
 .key-print { padding: 3px 7px 2px; border: 1px solid var(--line-strong); border-radius: 3px; font: 500 var(--m12)/1.3 var(--mono); letter-spacing: 0.06em; color: var(--text-hi); }
 .key-none { margin-top: 10px; padding: 10px 12px; border: 1px solid #6a4a1c; border-radius: 6px; background: #1f1508; font-size: var(--t13); line-height: 1.5; color: var(--amber); }
