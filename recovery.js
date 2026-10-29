@@ -78,12 +78,33 @@ const keyResultEl = $("keyResult");
 const keyPrintEl = $("keyPrint");
 const keyCountEl = $("keyCount");
 const keyNoneEl = $("keyNone");
-const keyRangeEl = $("keyRange");
+// THE CONTINUATION CONTROLS ARE BUILT HERE, not in index.html: the page keeps its static markup free of controls
+// that only make sense after an incomplete search.
+const keyRangeEl = document.createElement("p");
+keyRangeEl.id = "keyRange";
+keyRangeEl.className = "hint";
+keyRangeEl.hidden = true;
 const keyPartialEl = $("keyPartial");
-const keyActionsEl = $("keyActions");
-const keyMoreEl = $("keyMore");
-const keyStopEl = $("keyStop");
+const keyActionsEl = document.createElement("p");
+keyActionsEl.className = "key-actions";
+keyActionsEl.hidden = true;
+keyActionsEl.style.cssText = "display:flex;gap:8px;margin:8px 0 12px";
+const keyMoreEl = document.createElement("button");
+keyMoreEl.id = "keyMore";
+keyMoreEl.type = "button";
+keyMoreEl.className = "small";
+keyMoreEl.setAttribute("data-i18n", "key.more");
+keyMoreEl.hidden = true;
+const keyStopEl = document.createElement("button");
+keyStopEl.id = "keyStop";
+keyStopEl.type = "button";
+keyStopEl.className = "small";
+keyStopEl.setAttribute("data-i18n", "key.stop");
+keyStopEl.hidden = true;
 const swapListEl = $("swapList");
+keyActionsEl.append(keyMoreEl, keyStopEl);
+keyResultEl.insertBefore(keyRangeEl, keyPartialEl);
+keyResultEl.insertBefore(keyActionsEl, swapListEl);
 const stepSwap = $("stepSwap");
 const openErrorEl = $("openError");
 const moneyEl = $("moneyState");
@@ -581,7 +602,16 @@ async function findKeySwaps(options = {}) {
     if (current) await closeSwap();
     key = { mnemonic: read.mnemonic, fingerprint: read.fingerprint };
     clearKeyFields();
-    search = { rows: [], failed: [], done: false, searching: true, sources: [], progress: null, aborted: false, controller: null };
+    search = {
+      rows: [],
+      failed: [],
+      done: false,
+      searching: true,
+      sources: [],
+      progress: null,
+      aborted: false,
+      controller: null,
+    };
     drawSwaps();
   } else if (!search || search.done || search.searching) {
     return false;
@@ -647,10 +677,11 @@ async function findKeySwaps(options = {}) {
     // stay named.
     const failedAt = search.failed.indexOf(net.name);
     if (failedAt >= 0) search.failed.splice(failedAt, 1);
-    source.searchedUpTo = found.searchedUpTo === null || found.searchedUpTo === undefined ? null : Number(found.searchedUpTo);
+    source.searchedUpTo =
+      found.searchedUpTo === null || found.searchedUpTo === undefined ? null : Number(found.searchedUpTo);
     source.complete = found.complete === true;
     source.nextIndex = source.complete ? null : found.nextIndex;
-    source.incompleteReason = found.complete ? null : (found.incompleteReason || "max-index");
+    source.incompleteReason = found.complete ? null : found.incompleteReason || "max-index";
     if (found.incompleteReason === "aborted") search.aborted = true;
     log(
       t("log.key.searched", {
@@ -662,11 +693,14 @@ async function findKeySwaps(options = {}) {
       }),
       found.swaps.length ? "ok" : "",
     );
-    log(t("log.key.range", {
-      network: net.name,
-      to: n(source.searchedUpTo === null ? 0 : source.searchedUpTo),
-      complete: source.complete ? t("log.key.complete") : t("log.key.incomplete", { next: n(source.nextIndex || 0) }),
-    }), "wait");
+    log(
+      t("log.key.range", {
+        network: net.name,
+        to: n(source.searchedUpTo === null ? 0 : source.searchedUpTo),
+        complete: source.complete ? t("log.key.complete") : t("log.key.incomplete", { next: n(source.nextIndex || 0) }),
+      }),
+      "wait",
+    );
     const core = await facadeFor(net.id, net.monero);
     const seen = new Set(search.rows.map((row) => String(row.swap.escrow || "").toLowerCase()));
     for (const swap of found.swaps) {
@@ -706,11 +740,17 @@ async function findKeySwaps(options = {}) {
     fingerprint: key.fingerprint,
     failed: [...search.failed],
     complete: search.done,
-    searchedUpTo: search.sources.reduce((top, source) => (
-      source.searchedUpTo !== null && (top === null || source.searchedUpTo > top) ? source.searchedUpTo : top
-    ), null),
+    searchedUpTo: search.sources.reduce(
+      (top, source) =>
+        source.searchedUpTo !== null && (top === null || source.searchedUpTo > top) ? source.searchedUpTo : top,
+      null,
+    ),
     nextIndex: pending.length ? Math.min(...pending.map((source) => Number(source.nextIndex || 0))) : null,
-    incompleteReason: search.done ? null : (search.aborted ? "aborted" : (pending[0] && pending[0].incompleteReason) || "max-index"),
+    incompleteReason: search.done
+      ? null
+      : search.aborted
+        ? "aborted"
+        : (pending[0] && pending[0].incompleteReason) || "max-index",
     swaps: search.rows.map((row) => ({ escrow: row.swap.escrow, side: row.side, ...swapStateOf(row) })),
   };
   drawSwaps();
@@ -757,17 +797,23 @@ function drawSwaps() {
   keyPrintEl.textContent = t("key.print", { fp: key.fingerprint });
   const rows = search.rows;
   keyCountEl.textContent = search.searching
-    ? (search.progress ? t("key.progress", { count: n(search.progress.scanned) }) : t("key.searching"))
+    ? search.progress
+      ? t("key.progress", { count: n(search.progress.scanned) })
+      : t("key.searching")
     : rows.length
-      ? (search.done ? t("key.count", { count: rows.length }) : t("key.count.partial", { count: rows.length }))
+      ? search.done
+        ? t("key.count", { count: rows.length })
+        : t("key.count.partial", { count: rows.length })
       : "";
   keyNoneEl.hidden = !search.done || rows.length > 0 || search.failed.length > 0;
   keyPartialEl.hidden = !search.failed.length;
   keyPartialEl.textContent = search.failed.length ? t("key.partial", { list: search.failed.join(", ") }) : "";
   const pending = (search.sources || []).filter((source) => !source.complete);
-  const top = pending.reduce((best, source) => (
-    source.searchedUpTo !== null && (best === null || source.searchedUpTo > best) ? source.searchedUpTo : best
-  ), null);
+  const top = pending.reduce(
+    (best, source) =>
+      source.searchedUpTo !== null && (best === null || source.searchedUpTo > best) ? source.searchedUpTo : best,
+    null,
+  );
   keyRangeEl.hidden = search.done || !pending.length || (search.searching && top === null);
   keyRangeEl.textContent = keyRangeEl.hidden ? "" : t("key.range", { to: n(top === null ? 0 : top) });
   keyMoreEl.hidden = search.done || search.searching || !pending.length;

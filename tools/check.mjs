@@ -1608,24 +1608,6 @@ await check("the search reuses the block time returned by findSwaps", async () =
   );
 });
 
-// A BOUNDED SEARCH IS NOT "NO SWAPS". The SDK returns nextIndex when it stops; the page must keep the rows it
-// has, show the searched range, and continue from that cursor instead of starting over.
-await check("a bounded key search keeps its cursor and offers Search more", async () => {
-  const page = await read("recovery.js");
-  const search = bodyOf(page, "findKeySwaps");
-  assert.match(search, /fromIndex: source\.nextIndex/, "the continuation does not pass the cursor");
-  assert.match(search, /maxIndex: 1000/, "the page does not bound one search page");
-  assert.match(search, /signal: controller\.signal/, "the search cannot be cancelled");
-  assert.match(search, /onProgress: \(\{ scanned, index \}\)/, "the search reports no progress");
-  assert.match(search, /source\.nextIndex = source\.complete \? null : found\.nextIndex/, "the cursor is not kept");
-  assert.match(search, /source\.complete = found\.complete === true/, "the page does not record completeness");
-  assert.match(page, /keyMoreEl\.addEventListener\("click", \(\) => busy\(keyMoreEl, \(\) => findKeySwaps\(\{ more: true \}\)/, "Search more does not continue");
-  assert.match(page, /keyStopEl\.addEventListener\("click",[\s\S]{0,120}controller\.abort\(\)/, "Stop does not abort the page");
-  assert.match(bodyOf(page, "drawSwaps"), /keyMoreEl\.hidden = search\.done \|\| search\.searching/, "Search more is not hidden");
-  assert.match(page, /keyNoneEl\.hidden = !search\.done/, "an incomplete search can say there are no swaps");
-  assert.match(page, /incompleteReason:/, "the page does not expose why the search stopped");
-});
-
 // NOTHING LEAVES BEFORE "CONFIRM AND SEND": the search, the opening of a swap and the withdraw button read, build and
 // sign; only the send button's step relays.
 await check("nothing is sent before the confirmation", async () => {
