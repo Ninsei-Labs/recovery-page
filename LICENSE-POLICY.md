@@ -30,6 +30,10 @@ are never in `dist/`, so they are not shipped packages:
 
 `tls`, `net`, `child_process`, `worker_threads`, `perf_hooks`, `ws`, `socks-proxy-agent`.
 
+The optional `@esbuild/*-x64` native binaries are build tools, not page code, and their platform names differ
+between a local checkout and the Linux runner. They are excluded for the same reason: the notices must be the same
+bytes on every platform.
+
 `querystring-es3` ships a `License.md` but has no `license` field in its manifest. Its licence is recorded as MIT
 from that file in `tools/licenses.mjs`; the text itself is included in the notices, so the decision is visible.
 

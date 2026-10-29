@@ -156,7 +156,10 @@ export function scanPackages(root = ROOT) {
 }
 
 export function shippedPackages(root = ROOT) {
-  return scanPackages(root).filter((pkg) => !NON_SHIPPED.has(pkg.name));
+  // The `@esbuild/*-x64` packages are optional native binaries chosen by the OS. They are build tools, not page
+  // code, and their names differ between a Windows checkout and the Linux CI runner; excluding them keeps the
+  // generated notices byte-identical across both.
+  return scanPackages(root).filter((pkg) => !NON_SHIPPED.has(pkg.name) && !pkg.name.startsWith("@esbuild/"));
 }
 
 export function violations(packages) {

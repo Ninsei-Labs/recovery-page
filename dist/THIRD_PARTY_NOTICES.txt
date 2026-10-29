@@ -35,13 +35,6 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ====================================================================================================
-@esbuild/win32-x64 0.28.2
-License: MIT
-Source: git+https://github.com/evanw/esbuild.git
-
-No licence file was included by the package; the declared licence is MIT.
-
-====================================================================================================
 @hpke/chacha20poly1305 1.8.0
 License: MIT
 Source: git+https://github.com/dajiaji/hpke-js.git
