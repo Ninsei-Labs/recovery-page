@@ -15,14 +15,14 @@
   },
   "scripts": {
     "build": "bun build/build.mjs",
-    "test": "bun build/build.mjs && bun tools/check.mjs",
+    "test": "bun build/build.mjs && bun tools/check.mjs && bun tools/check-bounded-search.mjs",
     "fmt": "bun fmt --no-script .",
     "fmt:check": "bun fmt --no-script --check .",
     "hooks:install": "bun tools/install-hooks.mjs",
     "serve": "bun serve.bun.mjs"
   },
   "devDependencies": {
-    "@ninsei-labs/sdk": "0.53.0",
+    "@ninsei-labs/sdk": "0.54.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "assert": "2.1.0",

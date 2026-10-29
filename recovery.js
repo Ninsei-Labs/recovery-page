@@ -78,8 +78,33 @@ const keyResultEl = $("keyResult");
 const keyPrintEl = $("keyPrint");
 const keyCountEl = $("keyCount");
 const keyNoneEl = $("keyNone");
+// THE CONTINUATION CONTROLS ARE BUILT HERE, not in index.html: the page keeps its static markup free of controls
+// that only make sense after an incomplete search.
+const keyRangeEl = document.createElement("p");
+keyRangeEl.id = "keyRange";
+keyRangeEl.className = "hint";
+keyRangeEl.hidden = true;
 const keyPartialEl = $("keyPartial");
+const keyActionsEl = document.createElement("p");
+keyActionsEl.className = "key-actions";
+keyActionsEl.hidden = true;
+keyActionsEl.style.cssText = "display:flex;gap:8px;margin:8px 0 12px";
+const keyMoreEl = document.createElement("button");
+keyMoreEl.id = "keyMore";
+keyMoreEl.type = "button";
+keyMoreEl.className = "small";
+keyMoreEl.setAttribute("data-i18n", "key.more");
+keyMoreEl.hidden = true;
+const keyStopEl = document.createElement("button");
+keyStopEl.id = "keyStop";
+keyStopEl.type = "button";
+keyStopEl.className = "small";
+keyStopEl.setAttribute("data-i18n", "key.stop");
+keyStopEl.hidden = true;
 const swapListEl = $("swapList");
+keyActionsEl.append(keyMoreEl, keyStopEl);
+keyResultEl.insertBefore(keyRangeEl, keyPartialEl);
+keyResultEl.insertBefore(keyActionsEl, swapListEl);
 const stepSwap = $("stepSwap");
 const openErrorEl = $("openError");
 const moneyEl = $("moneyState");
@@ -558,38 +583,65 @@ function clearKeyFields() {
 // keyNetworks). The search reads the factory's orders and matches their commitments in this tab: only the factory,
 // the topic and the block range reach the RPC. Each found swap's state and date are read from the chain; a read
 // that fails is "unknown", never "nothing to do". With empty fields the button searches again with the same key.
-async function findKeySwaps() {
+async function findKeySwaps(options = {}) {
+  const more = options && options.more === true;
   quiet(keyErrorEl);
-  const typed = Boolean(keyFileText || keyWordsInput.value.trim());
-  const read = typed || !key ? await readKey() : key;
-  if (!read) {
-    // A REFUSED NEW KEY puts the old one's answer away: under the refusal it would read as the answer to the words
-    // just typed. The old key is forgotten with it; the person is trying another one.
+  if (!more) {
+    const typed = Boolean(keyFileText || keyWordsInput.value.trim());
+    const read = typed || !key ? await readKey() : key;
+    if (!read) {
+      // A REFUSED NEW KEY puts the old one's answer away: under the refusal it would read as the answer to the words
+      // just typed. The old key is forgotten with it; the person is trying another one.
+      if (current) await closeSwap();
+      key = null;
+      search = null;
+      drawSwaps();
+      return false;
+    }
+    // A NEW KEY STARTS CLEAN: the swap being withdrawn closes, and the words leave the fields at once.
     if (current) await closeSwap();
-    key = null;
-    search = null;
+    key = { mnemonic: read.mnemonic, fingerprint: read.fingerprint };
+    clearKeyFields();
+    search = {
+      rows: [],
+      failed: [],
+      done: false,
+      searching: true,
+      sources: [],
+      progress: null,
+      aborted: false,
+      controller: null,
+    };
     drawSwaps();
+  } else if (!search || search.done || search.searching) {
     return false;
   }
-  // A NEW KEY STARTS CLEAN: the swap being withdrawn closes, and the words leave the fields at once.
-  if (current) await closeSwap();
-  key = { mnemonic: read.mnemonic, fingerprint: read.fingerprint };
-  clearKeyFields();
-  search = { rows: [], failed: [], done: false };
-  drawSwaps();
+  if (!key) return false;
   const m = await sdkBundle();
-  const { search: networks, unreadable } = keyNetworks(m.CHAINS);
-  for (const id of unreadable) {
-    log(t("log.key.unreadable", { network: id }), "bad");
-    search.failed.push(id);
+  if (!more) {
+    const { search: networks, unreadable } = keyNetworks(m.CHAINS);
+    for (const id of unreadable) {
+      log(t("log.key.unreadable", { network: id }), "bad");
+      search.failed.push(id);
+    }
+    if (!networks.length) {
+      search.done = true;
+      search.searching = false;
+      drawSwaps();
+      return say(keyErrorEl, "flow.err.keyChain");
+    }
+    search.sources = networks.map((net) => ({ net, nextIndex: 0, complete: false, searchedUpTo: null, error: null }));
+    log(t("log.key.searching", { fp: key.fingerprint, networks: networks.map((net) => net.name).join(", ") }));
   }
-  if (!networks.length) {
-    search.done = true;
-    drawSwaps();
-    return say(keyErrorEl, "flow.err.keyChain");
-  }
-  log(t("log.key.searching", { fp: key.fingerprint, networks: networks.map((net) => net.name).join(", ") }));
-  for (const net of networks) {
+  search.searching = true;
+  search.aborted = false;
+  search.progress = null;
+  const controller = new AbortController();
+  search.controller = controller;
+  drawSwaps();
+  for (const source of search.sources) {
+    if (source.complete) continue;
+    const net = source.net;
     let found;
     let latest;
     try {
@@ -601,16 +653,36 @@ async function findKeySwaps() {
         evmLogs: (request) => evmLogs(net.id, request),
         fromBlock: net.since,
         toBlock: latest,
+        // ONE BOUNDED PAGE. The SDK default is the same 1000; a strict page is passed so a future default cannot
+        // turn this continuation into a silent full scan.
+        fromIndex: source.nextIndex,
+        maxIndex: 1000,
+        signal: controller.signal,
+        onProgress: ({ scanned, index }) => {
+          search.progress = { network: net.name, scanned, index };
+          drawSwaps();
+        },
         // THE START HEIGHT IS THE SDK'S RULE: the page hands it the order's block time and a Monero node's tip and
         // headers, read the way a node answers them (lib/node.js), from the node a swap of this network uses.
         evmBlockTime: (block) => evmBlockTime(net.id, block),
         ...(await moneroReaders(nodeFor(net.monero, nodeNetwork), net.monero, m.probeMoneroNode)),
       });
     } catch (e) {
+      source.error = errorWords(e);
+      if (!search.failed.includes(net.name)) search.failed.push(net.name);
       log(t("log.key.searchFailed", { network: net.name, words: errorWords(e) }), "bad");
-      search.failed.push(net.name);
       continue;
     }
+    // A PREVIOUS FAILURE OF THIS NETWORK IS CLEARED BY A SUCCESSFUL PAGE; unreadable networks (not in sources)
+    // stay named.
+    const failedAt = search.failed.indexOf(net.name);
+    if (failedAt >= 0) search.failed.splice(failedAt, 1);
+    source.searchedUpTo =
+      found.searchedUpTo === null || found.searchedUpTo === undefined ? null : Number(found.searchedUpTo);
+    source.complete = found.complete === true;
+    source.nextIndex = source.complete ? null : found.nextIndex;
+    source.incompleteReason = found.complete ? null : found.incompleteReason || "max-index";
+    if (found.incompleteReason === "aborted") search.aborted = true;
     log(
       t("log.key.searched", {
         network: net.name,
@@ -621,8 +693,20 @@ async function findKeySwaps() {
       }),
       found.swaps.length ? "ok" : "",
     );
+    log(
+      t("log.key.range", {
+        network: net.name,
+        to: n(source.searchedUpTo === null ? 0 : source.searchedUpTo),
+        complete: source.complete ? t("log.key.complete") : t("log.key.incomplete", { next: n(source.nextIndex || 0) }),
+      }),
+      "wait",
+    );
     const core = await facadeFor(net.id, net.monero);
+    const seen = new Set(search.rows.map((row) => String(row.swap.escrow || "").toLowerCase()));
     for (const swap of found.swaps) {
+      const escrow = String(swap.escrow || "").toLowerCase();
+      if (seen.has(escrow)) continue;
+      seen.add(escrow);
       const row = { swap, net, side: sideOf(swap), status: null, time: null };
       try {
         row.status = await core.order.status(swap.escrow);
@@ -645,16 +729,32 @@ async function findKeySwaps() {
       search.rows.push(row);
     }
   }
+  search.searching = false;
+  search.controller = null;
   // NEWEST FIRST, by the block that holds the order.
   search.rows.sort((a, b) => (b.swap.blockNumber ?? -1) - (a.swap.blockNumber ?? -1));
-  search.done = true;
+  // A FAILED NETWORK IS NOT A COMPLETE RANGE: the person can try again, and "no swaps" must stay hidden.
+  search.done = search.sources.every((source) => source.complete) && search.failed.length === 0;
+  const pending = search.sources.filter((source) => !source.complete);
   window.__sweepFlow.search = {
     fingerprint: key.fingerprint,
     failed: [...search.failed],
+    complete: search.done,
+    searchedUpTo: search.sources.reduce(
+      (top, source) =>
+        source.searchedUpTo !== null && (top === null || source.searchedUpTo > top) ? source.searchedUpTo : top,
+      null,
+    ),
+    nextIndex: pending.length ? Math.min(...pending.map((source) => Number(source.nextIndex || 0))) : null,
+    incompleteReason: search.done
+      ? null
+      : search.aborted
+        ? "aborted"
+        : (pending[0] && pending[0].incompleteReason) || "max-index",
     swaps: search.rows.map((row) => ({ escrow: row.swap.escrow, side: row.side, ...swapStateOf(row) })),
   };
   drawSwaps();
-  if (search.failed.length && !search.rows.length && search.failed.length >= networks.length + unreadable.length) {
+  if (search.failed.length && !search.rows.length && search.failed.length >= search.sources.length) {
     return say(keyErrorEl, "flow.err.search");
   }
   return true;
@@ -686,7 +786,8 @@ function coinAmount(row) {
   }
 }
 
-// THE LIST, drawn from the last search, so a language change redraws the same rows.
+// THE LIST, drawn from the last search, so a language change redraws the same rows. An incomplete page keeps its
+// rows, names the range it covered and offers the next page; "no swaps" waits for a complete range.
 function drawSwaps() {
   keyResultEl.hidden = !key || !search;
   if (keyResultEl.hidden) {
@@ -695,14 +796,29 @@ function drawSwaps() {
   }
   keyPrintEl.textContent = t("key.print", { fp: key.fingerprint });
   const rows = search.rows;
-  keyCountEl.textContent = !search.done
-    ? t("key.searching")
+  keyCountEl.textContent = search.searching
+    ? search.progress
+      ? t("key.progress", { count: n(search.progress.scanned) })
+      : t("key.searching")
     : rows.length
-      ? t("key.count", { count: rows.length })
+      ? search.done
+        ? t("key.count", { count: rows.length })
+        : t("key.count.partial", { count: rows.length })
       : "";
   keyNoneEl.hidden = !search.done || rows.length > 0 || search.failed.length > 0;
-  keyPartialEl.hidden = !search.done || !search.failed.length;
+  keyPartialEl.hidden = !search.failed.length;
   keyPartialEl.textContent = search.failed.length ? t("key.partial", { list: search.failed.join(", ") }) : "";
+  const pending = (search.sources || []).filter((source) => !source.complete);
+  const top = pending.reduce(
+    (best, source) =>
+      source.searchedUpTo !== null && (best === null || source.searchedUpTo > best) ? source.searchedUpTo : best,
+    null,
+  );
+  keyRangeEl.hidden = search.done || !pending.length || (search.searching && top === null);
+  keyRangeEl.textContent = keyRangeEl.hidden ? "" : t("key.range", { to: n(top === null ? 0 : top) });
+  keyMoreEl.hidden = search.done || search.searching || !pending.length;
+  keyStopEl.hidden = !search.searching;
+  keyActionsEl.hidden = keyMoreEl.hidden && keyStopEl.hidden;
   swapListEl.replaceChildren(...rows.map(swapRow));
 }
 
@@ -1708,6 +1824,10 @@ keyFileInput.addEventListener("change", () => {
   onKeyFileChosen().catch((e) => log(String((e && e.message) || e), "bad"));
 });
 findSwapsBtn.addEventListener("click", () => busy(findSwapsBtn, findKeySwaps, keyErrorEl));
+keyMoreEl.addEventListener("click", () => busy(keyMoreEl, () => findKeySwaps({ more: true }), keyErrorEl));
+keyStopEl.addEventListener("click", () => {
+  if (search && search.controller) search.controller.abort();
+});
 withdrawBtn.addEventListener("click", () => busy(withdrawBtn, withdraw, withdrawErrorEl));
 sendBtn.addEventListener("click", () => busy(sendBtn, sendTx, withdrawErrorEl));
 
