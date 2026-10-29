@@ -28,6 +28,7 @@ import {
   clearNodeUrl,
   parseNodeUrl,
   nodeHost,
+  nodeNetwork as nodeNetworkOf,
   pingNode,
   medianHeight,
   nodeVerdict,
@@ -1352,6 +1353,10 @@ const nodeInput = $("node");
 const nodeNote = $("nodeNote");
 const ownRow = nodeList.querySelector(".node-own");
 const ownRadio = ownRow.querySelector('input[type="radio"]');
+// The badge reuses the label style the node line already has: no new stylesheet rule, and the page's CSP
+// permits the stylesheet it already loads.
+const nodeOwnBadge = h("span", { class: "node-label", hidden: "" });
+ownRow.querySelector(".node-name").after(nodeOwnBadge);
 const nodePanel = $("nodePanel");
 const nodeCurrentEl = $("nodeCurrent");
 const nodeChangeBtn = $("nodeChange");
@@ -1381,8 +1386,8 @@ const RECHECK_AFTER_MS = 60_000;
 // ONE ENTRY PER ROW: the listed nodes in list order, then the person's own. `answer` is the faster of two
 // probeMoneroNode results, null while the page is asking; `ask` numbers the requests, so an answer to an
 // older one (another address in the own field, an earlier round) is dropped.
-const listed = NODES.map((url) => ({ url, answer: null, ask: 0, el: null, radio: null }));
-const own = { url: null, answer: null, ask: 0, refused: null, el: ownRow };
+const listed = NODES.map((url) => ({ url, network: nodeNetworkOf(url), answer: null, ask: 0, el: null, radio: null }));
+const own = { url: null, network: null, answer: null, ask: 0, refused: null, el: ownRow };
 let picking = false; // the page holds the choice, not the person: a re-check may pick again
 let note = null; // [key, params] of the line under the list
 
@@ -1394,9 +1399,22 @@ function rowFor(url) {
   return listed.find((row) => row.url === url) || (url && own.url === url ? own : null);
 }
 
+function networkOfRow(row) {
+  return row === own ? (own.answer && own.answer.ok ? own.answer.network : "mainnet") : row.network;
+}
+
 function verdictOf(row) {
   if (row === own && !own.url) return own.refused ? { state: "bad", why: null } : { state: "idle", why: null };
-  return nodeVerdict(row.answer, medianHeight([...listed, own].map((r) => r.answer)));
+  const network = networkOfRow(row);
+  const peers = [...listed, own].filter((peer) => networkOfRow(peer) === network);
+  return nodeVerdict(
+    row.answer,
+    medianHeight(
+      peers.map((peer) => peer.answer),
+      network,
+    ),
+    network,
+  );
 }
 
 function stateOf(url) {
@@ -1414,7 +1432,10 @@ function buildRows() {
       h("label", { class: "node-pick", title: row.url }, [
         row.radio,
         h("span", { class: "node-text" }, [
-          h("span", { class: "node-name", text: nodeHost(row.url) }),
+          h("span", { class: "node-name" }, [
+            h("span", { class: "node-host", text: nodeHost(row.url) }),
+            h("span", { class: "node-label", text: "· " + t("node.badge." + row.network) }),
+          ]),
           h("span", { class: "node-why" }),
         ]),
         h("span", { class: "node-signal" }, [
@@ -1446,6 +1467,9 @@ function drawRows() {
     row.el.querySelector(".node-ms").textContent =
       row.answer && row.answer.ok ? t("node.ms", { ms: n(row.answer.ms) }) : "";
   }
+  const ownNetwork = own.answer && own.answer.ok ? own.answer.network : null;
+  nodeOwnBadge.hidden = !ownNetwork;
+  nodeOwnBadge.textContent = ownNetwork ? "· " + t("node.badge." + ownNetwork) : "";
   drawCurrent();
 }
 
@@ -1499,7 +1523,7 @@ const pingAll = () => pingRows(own.url ? [...listed, own] : listed);
 function autoPick() {
   if (!picking) return false;
   const before = nodeUrl();
-  const url = fastestGood(listed);
+  const url = fastestGood(listed, "mainnet");
   if (url) {
     setNodeUrl(url, { remember: false, by: "pick" });
     note = ["node.note.picked", { host: nodeHost(url) }];

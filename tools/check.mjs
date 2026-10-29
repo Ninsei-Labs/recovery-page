@@ -67,9 +67,8 @@ const LIB = (await readdir(join(ROOT, "lib")))
   .map((name) => `lib/${name}`);
 
 // --- 1. the node address ----------------------------------------------------------------
-const { parseNodeUrl, NODES, DEFAULT_NODE, nodeVerdict, medianHeight, fastestGood, pingNode } = await import(
-  pathToFileURL(join(ROOT, "lib", "node.js")).href
-);
+const { parseNodeUrl, NODES, DEFAULT_NODE, STAGENET_NODE, nodeVerdict, medianHeight, fastestGood, pingNode } =
+  await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
 const { moneroHeightAtOrAfter, restoreWindow } = await import(pathToFileURL(join(ROOT, "lib", "window.js")).href);
 
 // A FAKE MONEROD, shaped as monerod answers (examples, not a recorded chain): get_info's `height` is the number of
@@ -272,6 +271,20 @@ await check("a node is good only when it answers on mainnet, synchronized, withi
     assert.deepEqual(nodeVerdict(a, top), { state, why, params }, what);
   }
   return `${VERDICTS.length} cases`;
+});
+
+await check("the stagenet node is good on stagenet and is never auto-picked for mainnet", () => {
+  const stagenet = answer({ network: "stagenet", nettype: "stagenet", height: 2_000_000, ms: 10 });
+  assert.deepEqual(nodeVerdict(stagenet, 2_000_000, "stagenet"), {
+    state: "good",
+    why: "good",
+    params: { height: 2_000_000 },
+  });
+  assert.equal(nodeVerdict(stagenet, 2_000_000).state, "bad");
+  const rows = [{ url: STAGENET_NODE, network: "stagenet", answer: stagenet }];
+  assert.equal(fastestGood(rows, "mainnet"), null);
+  assert.equal(fastestGood(rows, "stagenet"), STAGENET_NODE);
+  assert.equal(medianHeight([stagenet], "stagenet"), 2_000_000);
 });
 
 await check("the reference height is the median of the mainnet answers, so one inflated height cannot move it", () => {
@@ -1096,9 +1109,7 @@ await check(
 
 // --- 2c. the start height of a found swap: the SDK's rule, the page's readers -------------------
 const { evmBlockTime } = await import(pathToFileURL(join(ROOT, "lib", "settlement.js")).href);
-const { moneroHeaderTime, moneroReaders, nodeFor, STAGENET_NODE } = await import(
-  pathToFileURL(join(ROOT, "lib", "node.js")).href
-);
+const { moneroHeaderTime, moneroReaders, nodeFor } = await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
 
 // THE SDK OWNS THE START-HEIGHT RULE (findSwaps); the page owns the readers it hands over. The reported case: a
 // reader that takes get_info's height for the top block, or refuses the genesis block's timestamp 0, gets no
