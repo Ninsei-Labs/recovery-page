@@ -16,6 +16,10 @@
   "scripts": {
     "build": "bun build/build.mjs",
     "test": "bun build/build.mjs && bun tools/check.mjs && bun tools/check-bounded-search.mjs",
+    "test:licenses": "bun test tools/licenses.test.mjs",
+    "check:licenses": "bun tools/check-licenses.mjs",
+    "notices": "bun tools/third-party-notices.mjs",
+    "check:notices": "bun tools/third-party-notices.mjs --check",
     "fmt": "bun fmt --no-script .",
     "fmt:check": "bun fmt --no-script --check .",
     "hooks:install": "bun tools/install-hooks.mjs",

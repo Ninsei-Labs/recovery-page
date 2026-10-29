@@ -1831,6 +1831,8 @@ const REQUIRED = [
   "_headers",
   "build.json",
   "favicon.svg",
+  "LICENSE",
+  "THIRD_PARTY_NOTICES.txt",
   ...LIB,
   // The fonts are licensed under the SIL OFL, which travels with them.
   "assets/fonts/hanken-grotesk-OFL.txt",

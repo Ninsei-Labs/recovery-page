@@ -56,6 +56,14 @@ jobs:
         id: check
         run: bun run test
 
+      # A tag can be cut from a commit that never saw the License Compliance workflow. These checks read the
+      # installed tree and the committed notices before the archive or the deploy exists.
+      - name: Check dependency licenses and notices
+        run: |
+          bun run check:licenses
+          bun run check:notices
+          bun run test:licenses
+
       # THE ARCHIVE IS THE CONTENTS OF dist/, not the repository: an operator unzips it into a web
       # root and has a working page.
       - name: Pack the page
