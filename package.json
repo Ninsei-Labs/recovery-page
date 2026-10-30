@@ -1,6 +1,6 @@
 {
   "name": "@ninsei-labs/recovery-page",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "type": "module",
   "description": "Static page that finds the swaps of a Ninsei recovery key and withdraws their XMR. Keys stay in the tab.",
