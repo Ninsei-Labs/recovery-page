@@ -24,11 +24,12 @@ on:
 
 permissions:
   contents: write
+  actions: read # the CI run of the tagged commit, read before anything is built
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45 # 25 for the release, 20 for a build run still going on main
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
       HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
@@ -37,6 +38,39 @@ jobs:
         with:
           # A DISPATCH RUN BUILDS THE TAG IT IS ASKED ABOUT, not the branch the button was pressed on.
           ref: ${{ inputs.tag || github.ref }}
+
+      # A RELEASE IS CUT ONLY FROM A COMMIT ON MAIN WHOSE BUILD PASSED. The run read is the `build` workflow's run of
+      # the push to main for this exact commit. A queued or running run is read again every 30 s for at most 20
+      # minutes (the job's timeout allows for it); then anything but success (cancelled, failed, missing, still running)
+      # refuses the tag before anything is built, archived or deployed. A dispatch run is checked the same way, on the
+      # tag it was given.
+      - name: The tagged commit is on main and its build passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          sha=$(git rev-parse HEAD)
+          git fetch --no-tags --quiet origin main
+          if ! git merge-base --is-ancestor "$sha" FETCH_HEAD; then
+            echo "$TAG is not on main" >&2
+            exit 1
+          fi
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&branch=main"
+          deadline=$((SECONDS + 1200))
+          while :; do
+            state=$(gh api "$runs" --jq '.workflow_runs[0] | .conclusion // .status // "missing"')
+            case $state in
+              queued | waiting | pending | requested | in_progress) ;;
+              *) break ;;
+            esac
+            [ $((SECONDS + 30)) -le "$deadline" ] || break
+            echo "The build for $sha is $state; reading it again in 30 s"
+            sleep 30
+          done
+          if [ "$state" != success ]; then
+            echo "CI has not passed for $sha ($state)" >&2
+            exit 1
+          fi
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
