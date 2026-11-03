@@ -1,2 +1,7 @@
 [fmt]
 printWidth = 120
+
+[install]
+# HOLD NEW RELEASES FOR THREE DAYS (Bun counts seconds), EXCEPT THE SDK.
+minimumReleaseAge = 259200
+minimumReleaseAgeExcludes = ["@ninsei-labs/sdk"]
