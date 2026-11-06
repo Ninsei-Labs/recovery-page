@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.3.7",
-  "commit": "759bf9f1102018d07b4305f5b0fa26a3bdb41579",
-  "builtAt": "2026-11-02T10:53:42.454Z",
+  "commit": "43c59abb916b9d76014a4850057d351a5fa52489",
+  "builtAt": "2026-11-06T15:35:58.742Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -31,8 +31,8 @@
     },
     {
       "file": "locales/en/index.js",
-      "bytes": 29347,
-      "sha256": "28a05759"
+      "bytes": 29453,
+      "sha256": "d6ffbb0b"
     },
     {
       "file": "locales/index.js",
@@ -85,14 +85,9 @@
       "sha256": "7b8665c8"
     },
     {
-      "file": "lib/window.js",
-      "bytes": 3095,
-      "sha256": "856f5d26"
-    },
-    {
       "file": "lib/withdrawal.js",
-      "bytes": 3299,
-      "sha256": "aabb6ac9"
+      "bytes": 3663,
+      "sha256": "abb2608c"
     },
     {
       "file": "assets/fonts/chakra-petch-OFL.txt",
@@ -156,8 +151,8 @@
     },
     {
       "file": "recovery.js",
-      "bytes": 72042,
-      "sha256": "fb6c4cbc"
+      "bytes": 72467,
+      "sha256": "869fa73c"
     },
     {
       "file": "diagnostics.js",
