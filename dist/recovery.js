@@ -1,7 +1,7 @@
 // The recovery page: the recovery key -> the swaps it made, found on chain -> one swap that needs it -> your
 // address -> one button that syncs, builds and signs -> confirm -> send.
 //
-// THE RULES LIVE IN @ninsei-labs/sdk: importRecoveryKey, openRecoveryKeyFile, findSwaps, order.status,
+// THE RULES LIVE IN @ninsei-labs/sdk: importRecoveryKey, openRecoveryKeyFile, findSwaps, readEscrowEvents,
 // order.jointAddress, sweep.plan, sweep.fromOrder, sweep.keys, sweep.wallet, sweep.restore, sweep.destination,
 // sweep.sign, sweep.relay, formatXmr, probeMoneroNode. A found swap reaches the sweep through sweep.fromOrder: the
 // SDK takes the key and the order, checks the points, builds the joint address and returns the same file plan/keys
@@ -37,7 +37,7 @@ import {
   nodeFor,
 } from "./lib/node.js?v=0.3.7";
 import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js?v=0.3.7";
-import { swapState, moneyState } from "./lib/withdrawal.js?v=0.3.7";
+import { swapState, moneyState, statusFromEvents } from "./lib/withdrawal.js?v=0.3.7";
 
 // THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
 // anything else; this function only names the row before the withdrawal is opened.
@@ -50,7 +50,7 @@ function sideOf(found) {
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=4bdc3690";
 const WORKER = "./monero.worker.js?v=0d6effe1";
-const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=e3759229";
+const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=36be3510";
 // THIS PAGE TALKS TO NO SERVICE. The SDK's service routes (a height the app remembers, the revealed half's
 // fallback, the "withdrawn" mark) get this fetch, which answers "unavailable" without a request: the height comes
 // from the chain or the person, the half from the chain, and a withdrawal needs nobody told. So only the Monero
@@ -368,8 +368,8 @@ async function sdkBundle() {
 // its own chain, never a default one.
 //
 // THE CHAIN READ IS REAL: `evmCall` is an eth_call over the settlement network's public RPCs (lib/settlement.js),
-// and a failed read throws instead of answering "0x". order.status reads the escrow through it, and sweep.plan
-// the revealed half; the plan's app route fallback meets `noService`, which it reads as "not revealed".
+// and a failed read throws instead of answering "0x". The escrow events are read in bulk by readEscrowEvents, and
+// sweep.plan reads the revealed half; the plan's app route fallback meets `noService`, which it reads as "not revealed".
 async function facadeFor(chainId, xmrNetwork) {
   const m = await sdkBundle();
   const id = chainId + "/" + xmrNetwork;
@@ -670,18 +670,12 @@ async function findKeySwaps(options = {}) {
       }),
       found.swaps.length ? "ok" : "",
     );
-    const core = await facadeFor(net.id, net.monero);
     const seen = new Set(search.rows.map((row) => String(row.swap.escrow || "").toLowerCase()));
     for (const swap of found.swaps) {
       const escrow = String(swap.escrow || "").toLowerCase();
       if (seen.has(escrow)) continue;
       seen.add(escrow);
       const row = { swap, net, side: sideOf(swap), status: null, time: null };
-      try {
-        row.status = await core.order.status(swap.escrow);
-      } catch (e) {
-        log(t("log.swap.statusFailed", { escrow: short(swap.escrow), words: errorWords(e) }), "bad");
-      }
       // THE BLOCK TIME CAME BACK WITH THE SEARCH. Read it again only when the SDK did not return it; a genuine
       // genesis timestamp of 0 is a value, not a missing one.
       const blockTime = swap.blockTime === null || swap.blockTime === undefined ? NaN : Number(swap.blockTime);
@@ -696,6 +690,34 @@ async function findKeySwaps(options = {}) {
         log(t("log.swap.timeFailed", { escrow: short(swap.escrow), words: errorWords(e) }), "wait");
       }
       search.rows.push(row);
+    }
+    // THE ESCROW EVENTS ARE READ IN ONE REQUEST. Asking status() for every found escrow named each of them to the
+    // public RPC next to the visitor's IP; one eth_getLogs over the address list returns the claim, refund and
+    // decline facts together. A failed bulk read leaves the rows unknown instead of falling back to per-order calls.
+    const networkRows = search.rows.filter((row) => row.net === net);
+    if (networkRows.length) {
+      try {
+        const events = await m.readEscrowEvents({
+          escrows: networkRows.map((row) => row.swap.escrow),
+          evmLogs: (request) => evmLogs(net.id, request),
+          fromBlock: net.since,
+          toBlock: latest,
+        });
+        const byEscrow = new Map();
+        for (const event of events) {
+          const key = String(event.escrow || "").toLowerCase();
+          if (!byEscrow.has(key)) byEscrow.set(key, []);
+          byEscrow.get(key).push(event);
+        }
+        for (const row of networkRows)
+          row.status = statusFromEvents(byEscrow.get(String(row.swap.escrow).toLowerCase()) || []);
+      } catch (e) {
+        // THE EVENT READ FAILED, SO THE ROW STATE IS UNKNOWN. Do not leave the search marked complete: the person
+        // can retry the same network instead of being stuck with rows whose state cannot be shown.
+        source.complete = false;
+        if (!search.failed.includes(net.name)) search.failed.push(net.name);
+        log(t("log.key.eventsFailed", { network: net.name, words: errorWords(e) }), "bad");
+      }
     }
   }
   search.searching = false;

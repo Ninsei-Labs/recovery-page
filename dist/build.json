@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.3.7",
-  "commit": "09ef80bbae2c6cafb5bfbb060e8e922970b135df",
-  "builtAt": "2026-11-06T16:29:10.751Z",
+  "commit": "de14798f51d18283f69c5fa911d231850b3f950a",
+  "builtAt": "2026-11-06T16:39:17.509Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -16,8 +16,8 @@
     },
     {
       "file": "assets/vendors/sdk/sdk-browser.js",
-      "bytes": 2742331,
-      "sha256": "e3759229"
+      "bytes": 2743569,
+      "sha256": "36be3510"
     },
     {
       "file": "assets/vendors/atomic/atomic-browser.js",
@@ -31,8 +31,8 @@
     },
     {
       "file": "locales/en/index.js",
-      "bytes": 29341,
-      "sha256": "daadad72"
+      "bytes": 29468,
+      "sha256": "96e903d6"
     },
     {
       "file": "locales/index.js",
@@ -81,13 +81,13 @@
     },
     {
       "file": "lib/settlement.js",
-      "bytes": 13012,
-      "sha256": "7a1a2d33"
+      "bytes": 13212,
+      "sha256": "2de32377"
     },
     {
       "file": "lib/withdrawal.js",
-      "bytes": 3663,
-      "sha256": "abb2608c"
+      "bytes": 4880,
+      "sha256": "4ba8733c"
     },
     {
       "file": "assets/fonts/chakra-petch-OFL.txt",
@@ -151,8 +151,8 @@
     },
     {
       "file": "recovery.js",
-      "bytes": 70608,
-      "sha256": "93efe46c"
+      "bytes": 71929,
+      "sha256": "450af83b"
     },
     {
       "file": "diagnostics.js",

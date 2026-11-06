@@ -28,7 +28,7 @@ What the page reads for a swap, and where:
 | What                   | From                                                                                                                                                    |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | the swaps of a key     | the factory's `OrderCreated` logs, matched against the key's commitments in the tab (`findSwaps`)                                                       |
-| the swap's state       | the escrow's `status()`: claimed, refunded or open, and its deadline from the order                                                                     |
+| the swap's state       | `HalfRevealed`, `Ready` and `Declined` events, read for all found escrows in one request; the deadline comes from the order                             |
 | the swap's date        | the time of the block that holds the order                                                                                                              |
 | the Monero start block | the last Monero block at or before that time, minus 60: the SDK's rule in `findSwaps`, with the node's tip and headers read by the page (`lib/node.js`) |
 | the maker's half       | the escrow's `revealedHalf()`, read by the SDK's `sweep.plan`                                                                                           |
@@ -161,10 +161,10 @@ archive itself against the published `.sha256`.
   block headers and blocks, the signed transaction. It never sends the Ninsei key, its password, a half or
   a spend key. The words are cleared from the field once read, never logged and never stored.
 - **The settlement chain is read, never written.** The search sends a public RPC the factory, the
-  `OrderCreated` topic and a block range, never the key or a commitment; the swap's state and the maker's
-  half are `eth_call`s on the escrow (`lib/settlement.js`). The page holds no EVM key and sends no EVM
-  transaction. A network the SDK names a live factory for, but which this page cannot read, is said, not
-  skipped.
+  `OrderCreated` topic and a block range, never the key or a commitment; the swap's state comes from one
+  bulk `eth_getLogs` over the found escrows, and the maker's half is an `eth_call` (`sweep.plan`) only for
+  the swap the person opens. The page holds no EVM key and sends no EVM transaction. A network the SDK names
+  a live factory for, but which this page cannot read, is said, not skipped.
 - **A missing answer is unknown.** A swap whose state could not be read is shown as unknown, a network that did
   not answer makes the list say it is incomplete, and a start block the chain does not give is asked for.
 - **Verify what you serve.** `dist/build.json` lists a SHA-256 for every file, and a release archive
