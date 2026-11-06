@@ -978,13 +978,18 @@ async function refreshBalance() {
       /* how many transactions the wallet sees stays unknown */
     }
     // A SYNC THAT STOPPED BEHIND THE NODE IS NOT A COMPLETE VIEW. The restore above names this once; a later
-    // refresh must not lose the verdict and turn a partial balance into "ready".
+    // refresh must not lose the verdict and turn a partial balance into "ready". Once the SDK has said the scan
+    // was incomplete, a plain sync cannot prove otherwise (it does not read spent status or rescan the range), so
+    // the incomplete verdict is kept until a full restore names a complete pass.
+    const previous = balance;
     let scanComplete = false;
-    let scanIncompleteReason = "no-heights";
+    let scanIncompleteReason = previous && previous.scanIncompleteReason ? previous.scanIncompleteReason : "no-heights";
     try {
       const walletHeight = Number(await wallet.getHeight());
       const nodeHeight = Number(await wallet.getDaemonHeight());
-      if (Number.isFinite(walletHeight) && Number.isFinite(nodeHeight)) {
+      if (previous && previous.scanComplete === false) {
+        scanIncompleteReason = previous.scanIncompleteReason || "scan-incomplete";
+      } else if (Number.isFinite(walletHeight) && Number.isFinite(nodeHeight)) {
         scanComplete = walletHeight >= nodeHeight;
         scanIncompleteReason = scanComplete ? null : "behind-node";
       }
@@ -1172,9 +1177,9 @@ async function syncWallet() {
   const ms = Math.round(performance.now() - t0);
   const unlocked = BigInt(restored.unlocked);
   const total = BigInt(restored.total);
-  // THE SCAN'S VERDICT TRAVELS WITH THE BALANCE. A restore that stopped behind the node has a total it saw, not
-  // the address's total; the screen must not turn that into "nothing arrived" or "ready".
-  const scanComplete = restored.scanComplete !== false;
+  // THE SCAN'S VERDICT TRAVELS WITH THE BALANCE. Only an explicit `true` from the SDK is a completed scan: a
+  // missing verdict (an older package) and a false one both mean the address's total is unknown, never zero.
+  const scanComplete = restored.scanComplete === true;
   const scanIncompleteReason = scanComplete ? null : restored.scanIncompleteReason || "scan-incomplete";
   // HOW MANY TRANSACTIONS THE WALLET SEES tells "withdrawn" (XMR came and left) from "unseen" (nothing ever came to
   // the address this key gives); a wallet that cannot say leaves it unknown.

@@ -594,21 +594,35 @@ const MONEY_STATES = [
   ["the maker's half was read", { plan: { revealedHalf: true } }, "ready"],
   ["the half could not be read", { plan: { revealedHalf: false } }, "unread"],
   ["no plan", { plan: null }, "unread"],
-  ["synced and spendable", { plan: { revealedHalf: true }, balance: { total: 5n, unlocked: 5n, txs: 1 } }, "ready"],
+  [
+    "synced and spendable",
+    { plan: { revealedHalf: true }, balance: { total: 5n, unlocked: 5n, txs: 1, scanComplete: true } },
+    "ready",
+  ],
   [
     "synced, the XMR still locked",
-    { plan: { revealedHalf: true }, balance: { total: 5n, unlocked: 0n, txs: 1 } },
+    { plan: { revealedHalf: true }, balance: { total: 5n, unlocked: 0n, txs: 1, scanComplete: true } },
     "locked",
   ],
   [
     "synced, XMR came and left",
-    { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: 2 } },
+    { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: 2, scanComplete: true } },
     "withdrawn",
   ],
   [
     "synced, nothing ever arrived",
     { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: 0, scanComplete: true } },
     "unseen",
+  ],
+  [
+    "a balance without a scan verdict is not a complete scan",
+    { plan: { revealedHalf: true }, balance: { total: 5n, unlocked: 5n, txs: 1 } },
+    "incomplete",
+  ],
+  [
+    "an empty balance without a scan verdict is not an empty address",
+    { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: 0 } },
+    "incomplete",
   ],
   [
     "an incomplete scan, nothing seen yet",
@@ -622,7 +636,7 @@ const MONEY_STATES = [
   ],
   [
     "synced, the wallet could not count",
-    { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: null } },
+    { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: null, scanComplete: true } },
     "nothing",
   ],
 ];
@@ -1561,7 +1575,7 @@ await check("the page keeps the SDK's scan verdict and scans from the start bloc
     /core\.sweep\.restore\(\{[^}]*fromHeight: height[^}]*\}\)/,
     "the full scan is not from the start block",
   );
-  assert.match(sync, /restored\.scanComplete/, "syncWallet does not read the scan verdict");
+  assert.match(sync, /restored\.scanComplete === true/, "syncWallet treats a missing scan verdict as complete");
   assert.ok(!/restoreWindow/.test(sync), "syncWallet still starts the lock window");
   assert.ok(!/window:\s*lockWindow/.test(sync), "syncWallet still passes a lock window");
   assert.ok(
@@ -1579,6 +1593,11 @@ await check("a refreshed balance keeps the scan verdict", async () => {
   );
   assert.match(refresh, /scanComplete/, "refreshBalance drops the scan verdict");
   assert.match(refresh, /scanIncompleteReason/, "refreshBalance drops the scan reason");
+  assert.match(
+    refresh,
+    /previous\.scanComplete === false/,
+    "refreshBalance can upgrade an incomplete scan to complete",
+  );
 });
 
 await check("no eval and no new Function in the page's own code", async () => {
