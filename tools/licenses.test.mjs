@@ -24,13 +24,22 @@ test("a licence object and the one file-backed declaration are read, not guessed
 test("a shipped package outside the allowlist is a violation", () => {
   assert.deepEqual(
     violations([
-      { key: "a@1.0.0", license: "MIT" },
-      { key: "b@2.0.0", license: "GPL-3.0-only" },
-      { key: "c@3.0.0", license: null },
+      { key: "a@1.0.0", name: "a", license: "MIT" },
+      { key: "b@2.0.0", name: "b", license: "GPL-3.0-only" },
+      { key: "c@3.0.0", name: "c", license: null },
     ]),
     [
       { package: "b@2.0.0", license: "GPL-3.0-only" },
       { package: "c@3.0.0", license: "(none)" },
     ],
   );
+});
+
+test("the SDK's LGPL expression is allowed for the SDK only", () => {
+  const expression = "(MIT AND LGPL-3.0-only)";
+  assert.deepEqual(violations([{ key: "@ninsei-labs/sdk@0.57.2", name: "@ninsei-labs/sdk", license: expression }]), []);
+  assert.deepEqual(violations([{ key: "other@1.0.0", name: "other", license: expression }]), [
+    { package: "other@1.0.0", license: expression },
+  ]);
+  assert.equal(licenseAllowed(expression), false, "the exception did not widen the general allowlist");
 });

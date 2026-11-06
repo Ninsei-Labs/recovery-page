@@ -614,7 +614,7 @@ await check("every word a swap row, the state of the money and the flow's stops 
 await check("sweep.fromOrder opens the address the maker paid, on a buy and a sell", async () => {
   const sdk = await import("@ninsei-labs/sdk");
   const { memoryAdapter } = await import("@ninsei-labs/sdk/adapters");
-  const { takerHalves, validatePayload } = await import("@ninsei-labs/sdk/recovery");
+  const { takerHalvesV2, validatePayload } = await import("@ninsei-labs/sdk/recovery");
   const { createHalves, spendKeysFromRevealedHalf, scalarFromMoneroHex, decodeAddressKeys } =
     await import("@ninsei-labs/sdk/xmr");
   const { ed25519 } = await import("@noble/curves/ed25519.js");
@@ -629,6 +629,8 @@ await check("sweep.fromOrder opens the address the maker paid, on a buy and a se
   });
   const word = (hex) => "0x" + String(hex).replace(/^0x/, "").padStart(64, "0");
   const escrow = "0x" + "e5".repeat(20);
+  const factory = "0x" + "ab".repeat(20);
+  const saltOf = (value) => word((Number(value) + 1).toString(16));
   let revealed = null;
   const core = sdk.createNinsei({
     settlement: { chain: "arbitrum-sepolia" },
@@ -649,19 +651,22 @@ await check("sweep.fromOrder opens the address the maker paid, on a buy and a se
   for (let k = 0; k < TEST_WORDS.length; k += 1) {
     for (const index of [0, 1, 7, 99]) {
       for (const side of ["buy", "sell"]) {
-        const person = takerHalves({ mnemonic: TEST_WORDS[k], chainId: 421614, index });
-        // The maker's own spend half: any half the person's key does not give (here another key's number).
-        const makerSpend = takerHalves({
+        const salt = saltOf(index);
+        const person = takerHalvesV2({ mnemonic: TEST_WORDS[k], chainId: 421614, factory, salt });
+        // The maker's own spend half: any half the person's key does not give (here another key's salt).
+        const makerSpend = takerHalvesV2({
           mnemonic: TEST_WORDS[(k + 1) % TEST_WORDS.length],
           chainId: 421614,
-          index: index + 1000,
+          factory,
+          salt: saltOf(index + 1000),
         }).spendHalf;
         const makerSpendPoint = halvesLib.publicHalves(BigInt(makerSpend)).ed;
         const buy = side === "buy";
         const found = {
           escrow,
+          factory,
+          salt,
           side: buy ? "locker" : "claimer",
-          index,
           readyBy: 1_790_000_000,
           t1: 1_790_003_600,
           startHeight: 2_100_000,
@@ -678,7 +683,7 @@ await check("sweep.fromOrder opens the address the maker paid, on a buy and a se
           otherViewPoint: word(person.viewPoint),
           network: "stagenet",
         }).address;
-        const what = `${side}, key ${k}, number ${index}`;
+        const what = `${side}, key ${k}, salt ${index}`;
         const built = await core.sweep.fromOrder({
           mnemonic: TEST_WORDS[k],
           chainId: 421614,
@@ -742,7 +747,7 @@ await check("sweep.fromOrder opens the address the maker paid, on a buy and a se
 await check("sweep.fromOrder refuses an order that does not fit the key, by what does not fit", async () => {
   const sdk = await import("@ninsei-labs/sdk");
   const { memoryAdapter } = await import("@ninsei-labs/sdk/adapters");
-  const { takerHalves } = await import("@ninsei-labs/sdk/recovery");
+  const { takerHalvesV2 } = await import("@ninsei-labs/sdk/recovery");
   const core = sdk.createNinsei({
     settlement: { chain: "arbitrum-sepolia" },
     xmrNetwork: "stagenet",
@@ -752,10 +757,13 @@ await check("sweep.fromOrder refuses an order that does not fit the key, by what
     },
     storage: sdkStore || (sdkStore = memoryAdapter()),
   });
-  const person = takerHalves({ mnemonic: TEST_WORDS[1], chainId: 421614, index: 4 });
-  const other = takerHalves({ mnemonic: TEST_WORDS[2], chainId: 421614, index: 4 });
+  const factory = "0x" + "ab".repeat(20);
+  const salt = "0x" + "04".repeat(32);
+  const otherSalt = "0x" + "05".repeat(32);
+  const person = takerHalvesV2({ mnemonic: TEST_WORDS[1], chainId: 421614, factory, salt });
+  const other = takerHalvesV2({ mnemonic: TEST_WORDS[2], chainId: 421614, factory, salt });
   const word = (hex) => "0x" + String(hex).replace(/^0x/, "").padStart(64, "0");
-  const base = { escrow: "0x" + "e5".repeat(20), index: 4, readyBy: 1_790_000_000, t1: 1_790_003_600 };
+  const base = { escrow: "0x" + "e5".repeat(20), factory, salt, readyBy: 1_790_000_000, t1: 1_790_003_600 };
   const buy = {
     ...base,
     side: "locker",
@@ -791,12 +799,12 @@ await check("sweep.fromOrder refuses an order that does not fit the key, by what
       { ...sell, edViewPointLocker: word(other.makerViewPoint) },
       "maker-view-point",
     ],
-    ["the person's halves read for another swap number", buy, "spend-point", TEST_WORDS[1], 421614, 5],
-    ["the person's halves read on another chain", buy, "spend-point", TEST_WORDS[1], 42161, 4],
+    ["the person's halves read with another salt", buy, "spend-point", TEST_WORDS[1], 421614, otherSalt],
+    ["the person's halves read on another chain", buy, "spend-point", TEST_WORDS[1], 42161, undefined],
     ["an order with no side", { ...buy, side: "maker" }, "order.side"],
   ];
-  for (const [what, order, why, mnemonic, chainId, index] of refusals) {
-    const adjusted = index === undefined ? order : { ...order, index };
+  for (const [what, order, why, mnemonic, chainId, saltOverride] of refusals) {
+    const adjusted = saltOverride === undefined ? order : { ...order, salt: saltOverride };
     assert.equal(await verdict(adjusted, mnemonic, chainId), why, what);
   }
   return `${refusals.length} refusals`;
@@ -1085,13 +1093,16 @@ const { moneroHeaderTime, moneroReaders, nodeFor } = await import(pathToFileURL(
 await check(
   "the SDK's start height comes back through the page's readers from a node that answers like monerod",
   async () => {
-    const { findSwaps, takerHalves } = await import("@ninsei-labs/sdk/recovery");
+    const { findSwaps, takerHalvesV2 } = await import("@ninsei-labs/sdk/recovery");
     const { ORDER_CREATED_TOPIC } = await import("@ninsei-labs/sdk/evm");
     const words = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+    const factory = "0x" + "f".repeat(40);
     const w = (v) => String(v).replace(/^0x/, "").padStart(64, "0");
+    const saltOf = (value) => "0x" + w((Number(value) + 1).toString(16));
     const logsFor = (blocks) =>
       blocks.map((block, index) => {
-        const me = takerHalves({ mnemonic: words, chainId: 421614, index });
+        const salt = saltOf(index);
+        const me = takerHalvesV2({ mnemonic: words, chainId: 421614, factory, salt });
         return {
           topics: [
             ORDER_CREATED_TOPIC,
@@ -1111,7 +1122,7 @@ await check(
               "0",
               "1",
               "1",
-              "1",
+              salt,
               "0",
               "0",
               "0",
@@ -1130,22 +1141,19 @@ await check(
       const found = await findSwaps({
         mnemonic: words,
         chainId: 421614,
-        factory: "0x" + "f".repeat(40),
-        // The five orders in this case use numbers 0..4. The SDK scans to `maxIndex`; the production default is
-        // deliberately large, so the check names a small bound instead of deriving 100k unused numbers.
-        maxIndex: 100,
+        factory,
         evmLogs: (request) =>
           evmLogs("arbitrum-sepolia", request, async (_url, init) => {
             const filter = JSON.parse(init.body).params[0];
             assert.ok(Array.isArray(filter.topics[0]), "the SDK's topic alternatives did not reach transport");
-            assert.equal(filter.address, "0x" + "f".repeat(40));
+            assert.equal(filter.address, factory);
             return { ok: true, status: 200, json: async () => ({ result: logsFor(blocks) }) };
           }),
         evmBlockTime: async (block) => times[block - 1_000],
         ...readers,
       });
       assert.equal(found.swaps.length, times.length, "not every order was found");
-      return found.swaps.sort((a, b) => a.index - b.index);
+      return found.swaps.sort((a, b) => a.blockNumber - b.blockNumber);
     };
     const random = seeded(76);
     let cases = 0;

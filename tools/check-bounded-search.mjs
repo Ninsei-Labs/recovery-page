@@ -1,5 +1,8 @@
-// The recovery page must keep an incomplete search open: one page at a time, a cursor, and no "no swaps" before
-// the range is complete. This is a source guard; the page itself is exercised only in a browser.
+// The SDK's salt-based search returns every matching order in one complete result. The page must not keep the
+// old index cursor, the abort signal or the progress callback: 0.57 ignores them, so leaving them in would make
+// "Search more" and "Stop" lie. A failed network keeps its rows and offers a retry instead.
+//
+// This is a source guard; the page itself is exercised only in a browser.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
@@ -7,30 +10,39 @@ const page = await readFile(new URL("../recovery.js", import.meta.url), "utf8");
 const search = page.slice(page.indexOf("async function findKeySwaps"), page.indexOf("// THE DEADLINE"));
 const draw = page.slice(page.indexOf("function drawSwaps"), page.indexOf("function swapRow"));
 
-assert.match(search, /fromIndex: source\.nextIndex/, "the next page does not start at the saved cursor");
-assert.match(search, /maxIndex: 1000/, "one page is not bounded");
-assert.match(search, /signal: controller\.signal/, "a page cannot be stopped");
-assert.match(search, /onProgress: \(\{ scanned, index \}\)/, "the page reports no progress");
+assert.ok(
+  !/fromIndex|maxIndex|onProgress|signal:\s*controller/.test(search),
+  "the page still passes the removed search API",
+);
+assert.ok(
+  !/nextIndex|searchedUpTo|incompleteReason|search\.aborted|search\.controller/.test(search),
+  "the page still keeps a search cursor",
+);
+assert.match(search, /factory: net\.factory/, "the search does not name the factory");
 assert.match(search, /source\.complete = found\.complete === true/, "completeness is not recorded");
-assert.match(search, /source\.nextIndex = source\.complete \? null : found\.nextIndex/, "the next cursor is not kept");
-assert.match(search, /failedAt/, "a failed network is not retried cleanly");
 assert.match(
-  page,
-  /keyMoreEl\.addEventListener\("click", \(\) => busy\(keyMoreEl, \(\) => findKeySwaps\(\{ more: true \}\)/,
-  "Search more does not continue",
+  search,
+  /search\.done = search\.sources\.every\(\(source\) => source\.complete\) && search\.failed\.length === 0/,
+  "a failed network can make the search look complete",
 );
 assert.match(
   page,
-  /keyStopEl\.addEventListener\("click",[\s\S]{0,120}controller\.abort\(\)/,
-  "Stop does not abort the page",
+  /keyMoreEl\.addEventListener\("click", \(\) => busy\(keyMoreEl, \(\) => findKeySwaps\(\{ more: true \}\), keyErrorEl\)/,
+  "a failed network cannot be retried",
 );
 assert.match(
   draw,
-  /keyMoreEl\.hidden = search\.done \|\| search\.searching/,
-  "Search more is not tied to an incomplete page",
+  /keyMoreEl\.hidden = search\.done \|\| search\.searching \|\| !pending/,
+  "retry is not tied to a failed network",
 );
-assert.match(draw, /keyRangeEl\.hidden = search\.done/, "an incomplete page does not name its range");
-assert.match(page, /keyNoneEl\.hidden = !search\.done/, "an incomplete page can say there are no swaps");
-assert.match(page, /incompleteReason:/, "the page does not expose why a page stopped");
+assert.match(
+  draw,
+  /keyNoneEl\.hidden = !search\.done \|\| rows\.length > 0 \|\| search\.failed\.length > 0/,
+  "a failed search can say there are no swaps",
+);
+assert.ok(
+  !/keyStopEl|keyRangeEl|key\.progress|key\.range/.test(page),
+  "the page still shows a control the SDK cannot honour",
+);
 
-console.log("ok    a bounded key search keeps its cursor and offers Search more");
+console.log("ok    a key search is one complete SDK call, with a retry after a failed network");

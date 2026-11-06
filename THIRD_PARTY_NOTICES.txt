@@ -4106,8 +4106,8 @@ Source: jsonjoy-com/util
    limitations under the License.
 
 ====================================================================================================
-@ninsei-labs/sdk 0.55.1
-License: MIT
+@ninsei-labs/sdk 0.57.2
+License: (MIT AND LGPL-3.0-only)
 Source: git+https://github.com/Ninsei-Labs/sdk.git
 
 --- LICENSE ---
