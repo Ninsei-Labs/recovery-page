@@ -635,9 +635,8 @@ async function findKeySwaps(options = {}) {
       found = await m.findSwaps({
         mnemonic: key.mnemonic,
         chainId: net.chainId,
-        factory: net.factory,
+        factories: net.factories,
         evmLogs: (request) => evmLogs(net.id, request),
-        fromBlock: net.since,
         toBlock: latest,
         // THE START HEIGHT IS THE SDK'S RULE: the page hands it the order's block time and a Monero node's tip and
         // headers, read the way a node answers them (lib/node.js), from the node a swap of this network uses.
