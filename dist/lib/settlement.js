@@ -146,7 +146,10 @@ export async function evmLogs(network, request, fetchImpl = globalThis.fetch) {
   const chain = settlementOf(network);
   if (!chain) throw new Error(`unknown settlement network: ${network}`);
   const address = request && request.address;
-  if (typeof address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error("eth_getLogs: bad address");
+  const addresses = Array.isArray(address) ? address : [address];
+  if (!addresses.length || !addresses.every((entry) => typeof entry === "string" && /^0x[0-9a-fA-F]{40}$/.test(entry)))
+    throw new Error("eth_getLogs: bad address");
+  const filterAddress = Array.isArray(address) ? addresses : address;
   const topics = request && request.topics;
   if (!Array.isArray(topics)) throw new Error("eth_getLogs: bad topics");
   for (const topic of topics) {
@@ -177,7 +180,7 @@ export async function evmLogs(network, request, fetchImpl = globalThis.fetch) {
   }
   const logs = [];
   for (const [fromBlock, toBlock] of windows) {
-    logs.push(...(await logWindow(network, chain, { address, topics, fromBlock, toBlock }, fetchImpl)));
+    logs.push(...(await logWindow(network, chain, { address: filterAddress, topics, fromBlock, toBlock }, fetchImpl)));
   }
   return logs;
 }

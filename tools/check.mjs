@@ -390,7 +390,9 @@ await check("the node list has no check button, and its rows are radios of one g
 });
 
 // --- 2b. the recovery key, the swaps it finds, the state of their money --------------------------
-const { swapState, moneyState } = await import(pathToFileURL(join(ROOT, "lib", "withdrawal.js")).href);
+const { swapState, moneyState, statusFromEvents } = await import(
+  pathToFileURL(join(ROOT, "lib", "withdrawal.js")).href
+);
 const { SETTLEMENT, settlementOf, evmCall, keyNetworks, evmLogs, LOG_WINDOW } = await import(
   pathToFileURL(join(ROOT, "lib", "settlement.js")).href
 );
@@ -453,9 +455,10 @@ await check("a key file's password is asked only when the SDK's reader stops at 
   assert.ok(!/startsWith\("\{"\)/.test(page), "the page keeps its own rule for a protected key file");
 });
 
-// WHAT A FOUND SWAP NEEDS, from the escrow's status() and its deadline. The expected answers come from the
+// WHAT A FOUND SWAP NEEDS, from the escrow's events and its deadline. The expected answers come from the
 // contract: a claim reveals the claimer's half and a refund the locker's; the person is the locker on a buy and the
-// claimer on a sell, so the maker's half is on chain after a claim on a buy and after a refund on a sell.
+// claimer on a sell, so the maker's half is on chain after a claim on a buy and after a refund on a sell. A decline
+// sets the refunded flag without revealing a half, so a sell has nothing to withdraw.
 const funded = (fields = {}) => ({
   isFunded: true,
   isClaimed: false,
@@ -509,6 +512,20 @@ const SWAP_STATES = [
     {},
   ],
   [
+    "a sell the maker declined",
+    { side: "sell", status: funded({ isDeclined: true, isRefunded: true, balance: 0n }) },
+    "sell.declined",
+    "none",
+    {},
+  ],
+  [
+    "a buy the maker declined",
+    { side: "buy", status: funded({ isDeclined: true, isRefunded: true, balance: 0n }) },
+    "buy.refunded",
+    "none",
+    {},
+  ],
+  [
     "a sell still open",
     { side: "sell", status: funded(), deadline: DEADLINE, now: DEADLINE - 60_000 },
     "sell.open",
@@ -543,6 +560,34 @@ await check(
     return `${SWAP_STATES.length} cases`;
   },
 );
+
+await check("escrow events name the claim, refund and decline without status()", () => {
+  assert.deepEqual(statusFromEvents([]), {
+    isFunded: true,
+    isClaimed: false,
+    isRefunded: false,
+    isDeclined: false,
+  });
+  assert.deepEqual(
+    statusFromEvents([
+      { event: "Ready", by: "0x" + "1".repeat(40) },
+      { event: "HalfRevealed", byClaimer: true, half: "0x" + "2".repeat(64) },
+    ]),
+    { isFunded: true, isClaimed: true, isRefunded: false, isDeclined: false },
+  );
+  assert.deepEqual(statusFromEvents([{ event: "HalfRevealed", byClaimer: false, half: "0x" + "3".repeat(64) }]), {
+    isFunded: true,
+    isClaimed: false,
+    isRefunded: true,
+    isDeclined: false,
+  });
+  assert.deepEqual(statusFromEvents([{ event: "Declined", by: "0x" + "4".repeat(40) }]), {
+    isFunded: true,
+    isClaimed: false,
+    isRefunded: true,
+    isDeclined: true,
+  });
+});
 
 // [what it is, request, expected state]
 const MONEY_STATES = [
@@ -1081,6 +1126,62 @@ await check("log topics preserve OR alternatives and reject malformed positions 
     await assert.rejects(evmLogs("arbitrum-sepolia", { address, topics: [invalid] }, fetchImpl), /bad topic/);
   }
   assert.equal(calls, 1, "invalid topic positions reached transport");
+});
+
+await check("a log search takes an address list and forwards it unchanged", async () => {
+  const first = "0x" + "a".repeat(40);
+  const second = "0x" + "b".repeat(40);
+  const topics = ["0x" + "1".repeat(64)];
+  let filter = null;
+  const fetchImpl = async (_url, init) => {
+    filter = JSON.parse(init.body).params[0];
+    return { ok: true, status: 200, json: async () => ({ result: [] }) };
+  };
+  assert.deepEqual(
+    await evmLogs("arbitrum-sepolia", { address: [first, second], topics, fromBlock: 1, toBlock: 2 }, fetchImpl),
+    [],
+  );
+  assert.deepEqual(filter.address, [first, second]);
+  await assert.rejects(
+    evmLogs("arbitrum-sepolia", { address: [first, "0x12"], topics, fromBlock: 1, toBlock: 2 }, fetchImpl),
+    /bad address/,
+  );
+  await assert.rejects(
+    evmLogs("arbitrum-sepolia", { address: [], topics, fromBlock: 1, toBlock: 2 }, fetchImpl),
+    /bad address/,
+  );
+});
+
+await check("the SDK's bulk escrow events decode through the page's log reader", async () => {
+  const { readEscrowEvents, ESCROW_EVENT_TOPICS } = await import("@ninsei-labs/sdk/recovery");
+  const escrow = "0x" + "c".repeat(40);
+  const other = "0x" + "d".repeat(40);
+  const half = "0x" + "e".repeat(64);
+  const word = (value) => String(value).replace(/^0x/, "").padStart(64, "0");
+  const log = {
+    address: escrow,
+    topics: [ESCROW_EVENT_TOPICS.halfRevealed],
+    data: "0x" + word(half) + word(1),
+    blockNumber: "0x7b",
+    transactionHash: "0x" + "f".repeat(64),
+    logIndex: "0x0",
+  };
+  let filter = null;
+  const fetchImpl = async (_url, init) => {
+    filter = JSON.parse(init.body).params[0];
+    return { ok: true, status: 200, json: async () => ({ result: [log] }) };
+  };
+  const events = await readEscrowEvents({
+    escrows: [escrow, other],
+    evmLogs: (request) => evmLogs("arbitrum-sepolia", request, fetchImpl),
+    fromBlock: 1,
+    toBlock: 2,
+  });
+  assert.deepEqual(filter.address, [escrow, other]);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].event, "HalfRevealed");
+  assert.equal(events[0].half, half);
+  assert.equal(events[0].byClaimer, true);
 });
 
 // --- 2c. the start height of a found swap: the SDK's rule, the page's readers -------------------

@@ -51,6 +51,7 @@ export default {
     "swap.state.buy.late": "Not completed. The ETH can be refunded to the wallet that paid; this page moves only XMR",
     "swap.state.sell.claimed": "Done: the ETH was paid out to you",
     "swap.state.sell.refunded": "The maker took its ETH back, so your XMR is yours to withdraw",
+    "swap.state.sell.declined": "The maker declined this order; there is no XMR to withdraw",
     "swap.state.sell.open": "Open. If it does not complete, your XMR can be taken back after {deadline}",
     "swap.state.sell.late": "Not completed. Your XMR can be withdrawn once the maker takes its ETH back",
     "swap.state.unknown": "The state of this swap could not be read from the chain. Search again in a minute",
@@ -209,8 +210,8 @@ export default {
     "log.key.unreadable":
       "{network} has a live factory in the SDK, but this page cannot read it (no RPCs or no deployment block in lib/settlement.js): not searched",
     "log.key.searching": "key {fp}: searching the orders on {networks}; the words stay in this tab",
+    "log.key.eventsFailed": "the settlement events for {network} could not be read: {words}; these rows stay unknown",
     "log.key.searched": "{network}: {count} swap(s) for this key, orders read in blocks {from} to {to}",
-    "log.swap.statusFailed": "the state of swap {escrow} could not be read: {words}",
     "log.swap.timeFailed": "the date of swap {escrow} could not be read: {words}",
     "log.order.side": "order {escrow} names no side this key has",
     "log.order.bad": "order {escrow}: the SDK refused it before any scan",
