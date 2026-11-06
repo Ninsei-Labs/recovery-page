@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.3.7",
-  "commit": "523d4d60442aca5bd9a5bb27a5175d858044c86e",
-  "builtAt": "2026-10-30T13:21:10.266Z",
+  "commit": "759bf9f1102018d07b4305f5b0fa26a3bdb41579",
+  "builtAt": "2026-11-02T10:53:42.454Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -81,8 +81,8 @@
     },
     {
       "file": "lib/settlement.js",
-      "bytes": 12641,
-      "sha256": "9845362f"
+      "bytes": 12849,
+      "sha256": "7b8665c8"
     },
     {
       "file": "lib/window.js",

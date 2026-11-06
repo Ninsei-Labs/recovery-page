@@ -1107,6 +1107,27 @@ await check(
   },
 );
 
+await check("log topics preserve OR alternatives and reject malformed positions before transport", async () => {
+  const address = "0x" + "f".repeat(40);
+  const first = "0x" + "1".repeat(64);
+  const second = "0x" + "2".repeat(64);
+  let calls = 0;
+  const topics = [[first, second], null, first];
+  const fetchImpl = async (_url, init) => {
+    calls += 1;
+    const request = JSON.parse(init.body);
+    assert.equal(request.method, "eth_getLogs");
+    assert.deepEqual(request.params[0].topics, topics);
+    return { ok: true, status: 200, json: async () => ({ result: [] }) };
+  };
+  assert.deepEqual(await evmLogs("arbitrum-sepolia", { address, topics, fromBlock: 1, toBlock: 2 }, fetchImpl), []);
+  assert.equal(calls, 1);
+  for (const invalid of [1, {}, [first, 1], [first, null], [[first]]]) {
+    await assert.rejects(evmLogs("arbitrum-sepolia", { address, topics: [invalid] }, fetchImpl), /bad topic/);
+  }
+  assert.equal(calls, 1, "invalid topic positions reached transport");
+});
+
 // --- 2c. the start height of a found swap: the SDK's rule, the page's readers -------------------
 const { evmBlockTime } = await import(pathToFileURL(join(ROOT, "lib", "settlement.js")).href);
 const { moneroHeaderTime, moneroReaders, nodeFor } = await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
@@ -1166,7 +1187,13 @@ await check(
         // The five orders in this case use numbers 0..4. The SDK scans to `maxIndex`; the production default is
         // deliberately large, so the check names a small bound instead of deriving 100k unused numbers.
         maxIndex: 100,
-        evmLogs: async () => logsFor(blocks),
+        evmLogs: (request) =>
+          evmLogs("arbitrum-sepolia", request, async (_url, init) => {
+            const filter = JSON.parse(init.body).params[0];
+            assert.ok(Array.isArray(filter.topics[0]), "the SDK's topic alternatives did not reach transport");
+            assert.equal(filter.address, "0x" + "f".repeat(40));
+            return { ok: true, status: 200, json: async () => ({ result: logsFor(blocks) }) };
+          }),
         evmBlockTime: async (block) => times[block - 1_000],
         ...readers,
       });
