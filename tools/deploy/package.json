@@ -1,0 +1,13 @@
+{
+  "name": "@ninsei-labs/recovery-deploy",
+  "private": true,
+  "description": "The pinned Cloudflare Pages deploy tool for the recovery page. It is not part of dist/.",
+  "license": "MIT",
+  "packageManager": "bun@1.4.4",
+  "engines": {
+    "bun": ">=1.4.4"
+  },
+  "dependencies": {
+    "wrangler": "4.147.0"
+  }
+}

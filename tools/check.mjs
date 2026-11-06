@@ -2075,6 +2075,13 @@ await check("the workflows run Bun and never npm", async () => {
   if (!/workflow_dispatch:/.test(release))
     problems.push("release.yml cannot publish an existing tag whose first run failed");
   if (!/\$TAG/.test(release)) problems.push("release.yml does not use the tag it was asked about");
+  // THE DEPLOY TOOL IS PINNED, NOT FETCHED AT RELEASE TIME. Its own manifest and lock keep the tree out of the
+  // page's licence scan while still making the Cloudflare CLI reproducible.
+  const deployManifest = JSON.parse(await readFile(join(ROOT, "tools", "deploy", "package.json"), "utf8"));
+  if (deployManifest.dependencies?.wrangler !== "4.147.0") problems.push("tools/deploy does not pin wrangler 4.147.0");
+  if (/bunx\s+(?:--bun\s+)?wrangler/.test(release)) problems.push("release.yml fetches wrangler at deploy time");
+  if (!/tools\/deploy\/node_modules\/wrangler\/bin\/wrangler\.js/.test(release))
+    problems.push("release.yml does not run the pinned wrangler binary");
   const codeql = await readFile(join(dir, "codeql.yml"), "utf8");
   if (!/github\/codeql-action\/init@v\d/.test(codeql) || !/github\/codeql-action\/analyze@v\d/.test(codeql)) {
     problems.push("codeql.yml does not run the CodeQL init and analyze actions");
