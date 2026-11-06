@@ -86,6 +86,15 @@ jobs:
       - name: Install the locked dependencies
         run: bun install --frozen-lockfile
 
+      # WRANGLER IS A DEPLOY TOOL, NOT PAGE CODE. It has its own exact lock so the release does not resolve a
+      # dependency tree from the registry with the Cloudflare token in the environment. The root licence scan does
+      # not see this tree because it is not part of dist/.
+      - name: Install the pinned deploy tool
+        run: |
+          cd tools/deploy
+          bun install --frozen-lockfile
+          node -e "const p = require('./node_modules/wrangler/package.json'); if (p.version !== '4.147.0') { console.error('wrangler ' + p.version); process.exit(1); }"
+
       - name: Build and check
         id: check
         run: bun run test
@@ -137,7 +146,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -eu
-          wrangler="bunx --bun wrangler@4.147.0"
+          wrangler="bun tools/deploy/node_modules/wrangler/bin/wrangler.js"
           if ! $wrangler pages project list | grep -qE '(^|[^a-z0-9-])ninsei-recovery([^a-z0-9-]|$)'; then
             $wrangler pages project create ninsei-recovery --production-branch=main
           fi
