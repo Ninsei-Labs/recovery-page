@@ -25,6 +25,11 @@ export const NON_SHIPPED = new Set([
 // naming the evidence here keeps the decision visible instead of making the scanner guess.
 export const LICENSE_OVERRIDES = new Map([["querystring-es3@0.2.1", "MIT"]]);
 
+// ONE PACKAGE IS OURS, AND IT CARRIES THE GO-DLEQ PORT: `@ninsei-labs/sdk` declares
+// `(MIT AND LGPL-3.0-only)`. The exception is keyed by package name and exact expression, so it does not let
+// another LGPL dependency enter the page. The notices reproduce the SDK's licence text.
+export const PACKAGE_LICENSE_EXCEPTIONS = new Map([["@ninsei-labs/sdk", new Set(["(MIT AND LGPL-3.0-only)"])]]);
+
 // The same permissive set as the SDK's policy. A copyleft, source-available, unknown or missing licence is a
 // decision for a person, not a silent dependency.
 export const ALLOWED = new Set([
@@ -164,7 +169,7 @@ export function shippedPackages(root = ROOT) {
 
 export function violations(packages) {
   return packages
-    .filter((pkg) => !licenseAllowed(pkg.license))
+    .filter((pkg) => !licenseAllowed(pkg.license) && !PACKAGE_LICENSE_EXCEPTIONS.get(pkg.name)?.has(pkg.license))
     .map((pkg) => ({
       package: pkg.key,
       license: pkg.license || "(none)",

@@ -21,12 +21,15 @@ export {
   decodeAddressKeys,
   unlockStateOf,
 } from "@ninsei-labs/sdk/xmr";
-// THE ONE RECOVERY KEY (sdk#79): the 12 words or the key file, the halves of a swap number, the on-chain search.
+// THE ONE RECOVERY KEY (sdk#79): the 12 words or the key file, the salt-based on-chain search.
 // buildPayload and createRecoveryFile write a found swap into the SDK's own payload in memory, so sweep.plan/keys/
 // sign run on it unchanged (lib/found-swap.js); no per-swap file is read or written.
 export {
-  importRecoveryKey, openRecoveryKeyFile, takerHalves, findSwaps,
-  buildPayload, createRecoveryFile,
+  importRecoveryKey,
+  openRecoveryKeyFile,
+  findSwaps,
+  buildPayload,
+  createRecoveryFile,
 } from "@ninsei-labs/sdk/recovery";
 // THE NETWORK REGISTRY: a key does not name a chain, so the page reads the factories and ids from the package.
 export { CHAINS } from "@ninsei-labs/sdk/networks";

@@ -37,6 +37,10 @@ bytes on every platform.
 `querystring-es3` ships a `License.md` but has no `license` field in its manifest. Its licence is recorded as MIT
 from that file in `tools/licenses.mjs`; the text itself is included in the notices, so the decision is visible.
 
+`@ninsei-labs/sdk` is the project's own package. It declares `(MIT AND LGPL-3.0-only)` because it contains the
+go-dleq port, and the page bundles it whole with the SDK's licence text in the notices. The exception is keyed by
+package name and exact SPDX expression in `tools/licenses.mjs`; it does not add LGPL to the general allowlist.
+
 ## How the checks run
 
 `bun run check:licenses` scans every installed package and prints the licences it found. Any shipped package
