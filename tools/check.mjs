@@ -1948,8 +1948,18 @@ await check("the workflows run Bun and never npm", async () => {
   if (!/security-events:\s*write/.test(codeql))
     problems.push("codeql.yml cannot upload its findings: no security-events: write");
   if (!/build-mode:\s*none/.test(codeql)) problems.push("codeql.yml tries to build a language that has no compiler");
+  // A DRAFT PULL REQUEST MUST START NO JOB. `ready_for_review` is the event that starts it, so the trigger and
+  // the job condition are checked together; either half alone leaves a draft runnable.
+  const PR_WORKFLOWS = ["ci.yml", "codeql.yml", "licenses.yml", "npmscan.yml"];
+  for (const file of PR_WORKFLOWS) {
+    const text = await readFile(join(dir, file), "utf8");
+    if (!/types:\s*\[[^\]]*ready_for_review/.test(text))
+      problems.push(`${file}: no ready_for_review trigger for a draft PR`);
+    if (!/github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.draft == false/.test(text))
+      problems.push(`${file}: a draft PR starts its job`);
+  }
   assert.deepEqual(problems, []);
-  return `${files.length} workflows`;
+  return `${files.length} workflows, ${PR_WORKFLOWS.length} draft-gated`;
 });
 
 console.log(`\n${pass} passed, ${failed} failed`);

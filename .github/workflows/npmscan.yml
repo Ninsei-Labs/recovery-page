@@ -9,6 +9,7 @@ name: Dependency scan
 # filter still includes bun.lock so a lock change re-runs the direct scan instead of staying invisible.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - package.json
       - bun.lock
@@ -20,6 +21,8 @@ permissions:
 jobs:
   scan:
     name: npmscan dependency check
+    # A DRAFT PULL REQUEST STARTS NO JOB; `ready_for_review` is its first run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

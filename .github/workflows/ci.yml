@@ -12,12 +12,16 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
 
 jobs:
   build:
+    # A DRAFT PULL REQUEST STARTS NO JOB. The PR is not ready to merge, so its build cannot block anything;
+    # `ready_for_review` is the event that starts the first run, and a later push runs again.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
