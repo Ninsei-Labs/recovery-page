@@ -143,12 +143,14 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The `release` workflow takes the version from the tag, installs the locked dependencies, runs the
-checks, and attaches one archive to a GitHub release: the contents of `dist/`, plus a `.sha256`.
-Nothing is published to npm - the page is not a library. The same run then deploys that `dist/` to
-Cloudflare Pages (project `ninsei-recovery`), which serves it at `https://recovery.ninsei.finance`;
-it needs the repository secrets `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit) and
-`CLOUDFLARE_ACCOUNT_ID`.
+The tag must point at a commit on `main` whose `build` run, on the push to `main`, passed: the
+`release` workflow refuses any other before it builds anything, after waiting at most 20 minutes for
+a `build` run still going. It then takes the version from the tag, installs the locked dependencies,
+runs the checks, and attaches one archive to a GitHub release: the contents of `dist/`, plus a
+`.sha256`. Nothing is published to npm - the page is not a library. The same run then deploys that
+`dist/` to Cloudflare Pages (project `ninsei-recovery`), which serves it at
+`https://recovery.ninsei.finance`; it needs the repository secrets `CLOUDFLARE_API_TOKEN`
+(Cloudflare Pages: Edit) and `CLOUDFLARE_ACCOUNT_ID`.
 
 To verify an archive before serving it, compare every file with `build.json` inside it, or check the
 archive itself against the published `.sha256`.
