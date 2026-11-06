@@ -977,9 +977,17 @@ await check(
     );
     for (const net of search) {
       const chain = CHAINS.find((c) => c.id === net.id);
-      assert.equal(net.factory, chain.escrow.address);
+      const factories = Object.entries(SETTLEMENT[net.id].factories).map(([address, deploymentBlock]) => ({
+        address,
+        deploymentBlock,
+      }));
+      assert.deepEqual(net.factories, factories);
+      assert.ok(
+        net.factories.some((factory) => factory.address === chain.escrow.address),
+        "the current factory is missing",
+      );
       assert.equal(net.chainId, chain.chainId);
-      assert.equal(net.since, SETTLEMENT[net.id].factories[chain.escrow.address.toLowerCase()]);
+      assert.equal(net.since, Math.min(...factories.map((factory) => factory.deploymentBlock)));
       assert.equal(net.monero, SETTLEMENT[net.id].monero);
     }
     // Examples, not the registry: a live chain the page has no RPCs for, a factory without a block, a hidden test
@@ -1001,7 +1009,7 @@ await check(
       { id: "mainnet", chainId: 1, escrow: { address: null, mode: "simulated" } },
     ];
     assert.deepEqual(keyNetworks(example), { search: [], unreadable: ["base", "arbitrum", "arbitrum-sepolia"] });
-    return search.map((net) => `${net.id} from block ${net.since}`).join(", ");
+    return search.map((net) => `${net.id} from block ${net.since} (${net.factories.length} factories)`).join(", ");
   },
 );
 

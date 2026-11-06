@@ -27,7 +27,7 @@ What the page reads for a swap, and where:
 
 | What                   | From                                                                                                                                                    |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| the swaps of a key     | the factory's `OrderCreated` logs, matched against the key's commitments in the tab (`findSwaps`)                                                       |
+| the swaps of a key     | every known factory's `OrderCreated` logs, each from its deployment block, matched against the key's commitments in the tab (`findSwaps`)               |
 | the swap's state       | `HalfRevealed`, `Ready` and `Declined` events, read for all found escrows in one request; the deadline comes from the order                             |
 | the swap's date        | the time of the block that holds the order                                                                                                              |
 | the Monero start block | the last Monero block at or before that time, minus 60: the SDK's rule in `findSwaps`, with the node's tip and headers read by the page (`lib/node.js`) |

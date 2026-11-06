@@ -12,10 +12,10 @@
 // PER NETWORK, BESIDE ITS RPCS:
 //   monero    - the Monero network its swaps settle against. A key names no network, and the SDK's registry does
 //               not pair a settlement chain with a Monero one, so the pairing lives here: testnet with stagenet.
-//   factories - for each factory the key search reads, a block at or before its deployment. Public RPCs refuse a
-//               log query from block 0, and a search that starts after the factory's first order would miss it and
-//               say "no swaps". The SDK's registry names no deployment block; a factory it names without a block
-//               here fails the repository's checks instead of being searched from a guess.
+//   factories - every factory the key search reads, each with a block at or before its deployment. Public RPCs
+//               refuse a log query from block 0, and a search that starts after a factory's first order would miss
+//               it and say "no swaps". A factory without a block here fails the repository's checks instead of
+//               being searched from a guess.
 
 export const SETTLEMENT = Object.freeze({
   arbitrum: Object.freeze({
@@ -66,8 +66,17 @@ export function keyNetworks(chains) {
     const escrow = chain && chain.escrow;
     if (!escrow || escrow.mode !== "live" || typeof escrow.address !== "string" || chain.hidden) continue;
     const own = settlementOf(chain.id);
-    const since = own ? own.factories[escrow.address.toLowerCase()] : undefined;
-    if (!own || own.chainId !== chain.chainId || !Number.isSafeInteger(since)) {
+    // EVERY FACTORY THIS CHAIN HAD, EACH WITH ITS OWN DEPLOYMENT BLOCK. The current factory is not enough after a
+    // contract change: an older order would disappear from "no swaps". The SDK searches the list target by target.
+    const factories = own
+      ? Object.entries(own.factories).map(([address, deploymentBlock]) => ({ address, deploymentBlock }))
+      : [];
+    if (
+      !own ||
+      own.chainId !== chain.chainId ||
+      !factories.length ||
+      factories.some((factory) => !Number.isSafeInteger(factory.deploymentBlock) || factory.deploymentBlock <= 0)
+    ) {
       unreadable.push(chain.id);
       continue;
     }
@@ -75,8 +84,9 @@ export function keyNetworks(chains) {
       id: chain.id,
       name: chain.name || chain.id,
       chainId: chain.chainId,
-      factory: escrow.address,
-      since,
+      factories,
+      // The earliest factory's block also bounds the bulk escrow-event read for this network.
+      since: Math.min(...factories.map((factory) => factory.deploymentBlock)),
       monero: own.monero,
       native: chain.native || null,
     });
