@@ -65,6 +65,11 @@ const EXPLORER = {
   testnet: "https://testnet.xmrchain.net/tx/",
 };
 
+// A NODE MUST NOT SET THE WITHDRAWAL FEE. The SDK has the same 0.01 XMR ceiling by default; the page passes it
+// explicitly so a later SDK default cannot quietly raise the amount this page signs. The SDK also refuses an
+// unreported fee, because a cost the page cannot see is not a free withdrawal.
+const SWEEP_FEE_LIMIT_ATOMIC = 10_000_000_000n; // 0.01 XMR
+
 const $ = (id) => document.getElementById(id);
 const logEl = $("log");
 const keyWordsInput = $("keyWords");
@@ -640,7 +645,6 @@ async function findKeySwaps(options = {}) {
         ...(await moneroReaders(nodeFor(net.monero, nodeNetwork), net.monero, m.probeMoneroNode)),
       });
     } catch (e) {
-      source.error = errorWords(e);
       if (!search.failed.includes(net.name)) search.failed.push(net.name);
       log(t("log.key.searchFailed", { network: net.name, words: errorWords(e) }), "bad");
       continue;
@@ -653,7 +657,6 @@ async function findKeySwaps(options = {}) {
     // A false `complete` is named as a failed read rather than shown as a partial list.
     source.complete = found.complete === true;
     if (!source.complete) {
-      source.error = "incomplete";
       if (!search.failed.includes(net.name)) search.failed.push(net.name);
       log(t("log.key.searchFailed", { network: net.name, words: "incomplete" }), "bad");
       continue;
@@ -1224,6 +1227,7 @@ async function buildTx() {
       file: { contents },
       passphrase: "",
       to: dest,
+      maxFeeAtomic: SWEEP_FEE_LIMIT_ATOMIC,
       connectWallet: async () =>
         mod.moneroWallet({
           createWallet: async () => wallet,
@@ -1237,6 +1241,8 @@ async function buildTx() {
     log(t("log.sign.stopped", { words }), "bad");
     // The code goes to state and log: words for the person, the code for debugging.
     window.__sweepFlow.sdkError = { code: (e && e.code) || null, params: (e && e.params) || null, words };
+    // A FEE REFUSAL IS THE PERSON'S NEXT DECISION, not a generic "could not build": name it on the step.
+    if (e && (e.code === "sweep-fee-too-high" || e.code === "sweep-fee-unknown")) return "sdk." + e.code;
     return "flow.err.sign";
   }
   signedToken = signed.token;

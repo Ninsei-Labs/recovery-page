@@ -370,7 +370,8 @@ export default {
     "node.note.checking": "Asking each node for its height",
     "node.note.picked": "Picked the fastest node that answers well: {host}",
     "node.note.none": "No listed node answers well right now. Pick one to try it anyway, or enter your own node",
-    "node.note.link": "The link chose {host}",
+    "node.note.link":
+      "The link chose {host}. A link from someone else chose this node; check it before entering your key",
     "node.note.own": "Enter your node's address in the field",
     "preflight.fail.noNode": "no node is chosen",
     "node.label.listed": "the listed node {url}",
@@ -414,6 +415,9 @@ export default {
     "server-refused": "The service refused the request",
     "server-unavailable": "The service did not answer",
     "storage-unavailable": "Local storage is unavailable",
+    "sweep-fee-too-high": "The node's fee is above the page's limit. Choose another node and try again",
+    "sweep-fee-unknown":
+      "The wallet did not report a fee, so the page will not prepare a transfer with an unknown cost",
     unknown: "The refusal did not name its reason",
     "wallet-not-connected": "Wallet is not connected",
     "wallet-rejected": "The wallet declined the request",

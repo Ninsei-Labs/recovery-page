@@ -1635,6 +1635,23 @@ await check("nothing is sent before the confirmation", async () => {
   );
 });
 
+// A NODE MUST NOT SET THE WITHDRAWAL FEE. The SDK applies a ceiling too, but the page names the amount it will
+// sign, and both refusals have words a person can act on.
+await check("the withdrawal names its fee ceiling and has words for both fee refusals", async () => {
+  const page = await read("recovery.js");
+  assert.match(page, /const SWEEP_FEE_LIMIT_ATOMIC = 10_000_000_000n/, "the page names no fee ceiling");
+  assert.match(page, /maxFeeAtomic: SWEEP_FEE_LIMIT_ATOMIC/, "sweep.sign is not given the ceiling");
+  assert.match(
+    bodyOf(page, "buildTx"),
+    /return "sdk\." \+ e\.code/,
+    "a fee refusal is hidden behind the generic sign error",
+  );
+  for (const code of ["sweep-fee-too-high", "sweep-fee-unknown"]) {
+    assert.ok(code in en.sdk, `no words for ${code}`);
+    assert.ok(en.sdk[code], `empty words for ${code}`);
+  }
+});
+
 // THE START HEIGHT IS NEVER SHOWN AS 0: zero means "scan from Monero's first block", hours of work. The field is empty
 // until the chain fills it, and a swap without a height is said in the step, with the field beside the warning.
 await check(
