@@ -69,7 +69,6 @@ const LIB = (await readdir(join(ROOT, "lib")))
 // --- 1. the node address ----------------------------------------------------------------
 const { parseNodeUrl, NODES, DEFAULT_NODE, STAGENET_NODE, nodeVerdict, medianHeight, fastestGood, pingNode } =
   await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
-const { moneroHeightAtOrAfter, restoreWindow } = await import(pathToFileURL(join(ROOT, "lib", "window.js")).href);
 
 // A FAKE MONEROD, shaped as monerod answers (examples, not a recorded chain): get_info's `height` is the number of
 // blocks, so the top block is one lower; a header past the top is refused with monerod's own error; the genesis
@@ -108,71 +107,6 @@ const seeded = (seed) => () => {
   x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
   return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
 };
-
-await check("the lock window ends at the block at t1 plus ten, on a node that answers like monerod", async () => {
-  const node = fakeMonerod(2_000, (h) => 1_000 + h * 1_000);
-  const at = await moneroHeightAtOrAfter({
-    nodeUrl: "https://node.example",
-    timestamp: 1_000_500,
-    tipHeight: 2_000,
-    fetchImpl: node.fetchImpl,
-  });
-  assert.equal(at, 1_000, `height at t1 is ${at}`);
-  const window = await restoreWindow({
-    nodeUrl: "https://node.example",
-    t1Sec: 1_000_500,
-    startHeight: 500,
-    tipHeight: 2_000,
-    fetchImpl: node.fetchImpl,
-  });
-  assert.deepEqual(window, { nodeUrl: "https://node.example", toHeight: 1_010, tipHeight: 2_000, fallback: true });
-  assert.ok(Math.max(...node.asked) <= node.top, `a header past the top block was asked: ${Math.max(...node.asked)}`);
-});
-
-// THE TOP BLOCK IS THE NODE'S HEIGHT MINUS ONE: the SDK asks the node for every block of the window, and one past the
-// top fails the whole restore.
-await check("a t1 past the newest block stops the window at the top block, never past it", async () => {
-  const node = fakeMonerod(2_000, (h) => 1_000 + h * 1_000);
-  const window = await restoreWindow({
-    nodeUrl: "https://node.example",
-    t1Sec: 9_000_000,
-    startHeight: 500,
-    tipHeight: 2_000,
-    fetchImpl: node.fetchImpl,
-  });
-  assert.deepEqual(window, { nodeUrl: "https://node.example", toHeight: 1_999, tipHeight: 2_000, fallback: true });
-  const random = seeded(24);
-  let cases = 0;
-  for (let k = 0; k < 200; k += 1) {
-    const count = 100 + Math.floor(random() * 5_000);
-    const steps = [0];
-    for (let h = 1; h < count; h += 1) steps.push((steps[h - 1] || 1_700_000_000) + Math.floor(random() * 241));
-    const chain = fakeMonerod(count, (h) => steps[h]);
-    const t1 = 1_700_000_000 - 600 + Math.floor(random() * (steps[count - 1] - 1_700_000_000 + 1_200));
-    const start = 1 + Math.floor(random() * (count - 1));
-    let first = count - 1;
-    for (let h = count - 1; h >= 0; h -= 1) if ((h === 0 ? 0 : steps[h]) >= t1) first = h;
-    const toHeight = Math.min(count - 1, Math.max(start, first + 10));
-    const got = await restoreWindow({
-      nodeUrl: "https://node.example",
-      t1Sec: t1,
-      startHeight: start,
-      tipHeight: count,
-      fetchImpl: chain.fetchImpl,
-    });
-    assert.deepEqual(
-      got,
-      toHeight > start ? { nodeUrl: "https://node.example", toHeight, tipHeight: count, fallback: true } : null,
-      `count ${count}, t1 ${t1}, start ${start}`,
-    );
-    assert.ok(
-      chain.asked.every((h) => h <= count - 1),
-      `count ${count}: a header past the top block was asked`,
-    );
-    cases += 1;
-  }
-  return `${cases + 1} cases`;
-});
 
 await check("an empty address is refused with its own reason", () => {
   assert.deepEqual(parseNodeUrl(""), { ok: false, why: "empty", url: null });
@@ -628,8 +562,18 @@ const MONEY_STATES = [
   ],
   [
     "synced, nothing ever arrived",
-    { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: 0 } },
+    { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: 0, scanComplete: true } },
     "unseen",
+  ],
+  [
+    "an incomplete scan, nothing seen yet",
+    { plan: { revealedHalf: true }, balance: { total: 0n, unlocked: 0n, txs: 0, scanComplete: false } },
+    "incomplete",
+  ],
+  [
+    "an incomplete scan, some XMR seen",
+    { plan: { revealedHalf: true }, balance: { total: 5n, unlocked: 5n, txs: 1, scanComplete: false } },
+    "incomplete",
   ],
   [
     "synced, the wallet could not count",
@@ -637,12 +581,15 @@ const MONEY_STATES = [
     "nothing",
   ],
 ];
-await check("the money of a found swap: ready, unread, locked, withdrawn, never arrived, or unknown", () => {
-  for (const [what, request, state] of MONEY_STATES) {
-    assert.deepEqual(moneyState(request), { state, params: {} }, what);
-  }
-  return `${MONEY_STATES.length} cases`;
-});
+await check(
+  "the money of a found swap: ready, unread, locked, withdrawn, never arrived, incomplete, or unknown",
+  () => {
+    for (const [what, request, state] of MONEY_STATES) {
+      assert.deepEqual(moneyState(request), { state, params: {} }, what);
+    }
+    return `${MONEY_STATES.length} cases`;
+  },
+);
 
 await check("every word a swap row, the state of the money and the flow's stops can show exists", async () => {
   const keys = new Set();
@@ -1488,13 +1435,33 @@ await check("every script the page loads parses as a module", async () => {
   return `${files.length} files`;
 });
 
-// THE WINDOW NEEDS THE ORDER'S DEADLINE, and a name the function does not have fails inside its try without a word:
-// the window then never forms, and every withdrawal scans the whole chain.
-await check("the lock window is given the found order's deadline", async () => {
+// A SCAN THAT DID NOT FINISH IS NOT AN EMPTY ADDRESS. The restore names `scanComplete`; the page must carry it
+// into `moneyState`, and it must not fall back to the old lock window, which cannot see a spend after t1.
+await check("the page keeps the SDK's scan verdict and scans from the start block", async () => {
   const sync = bodyOf(await read("recovery.js"), "syncWallet");
-  assert.match(sync, /const deadline = deadlineOf\(current\.swap\);/, "the window's deadline is not the found order's");
-  assert.match(sync, /restoreWindow\(\{[^}]*t1Sec[^}]*\}\)/, "the window is not given the deadline");
-  assert.ok(!/\bpayload\b/.test(sync.replace(/\/\/.*$/gm, "")), "syncWallet reads a payload it does not have");
+  assert.match(
+    sync,
+    /core\.sweep\.restore\(\{[^}]*fromHeight: height[^}]*\}\)/,
+    "the full scan is not from the start block",
+  );
+  assert.match(sync, /restored\.scanComplete/, "syncWallet does not read the scan verdict");
+  assert.ok(!/restoreWindow/.test(sync), "syncWallet still starts the lock window");
+  assert.ok(!/window:\s*lockWindow/.test(sync), "syncWallet still passes a lock window");
+  assert.ok(
+    !/from "\.\/lib\/window\.js"/.test(await read("recovery.js")),
+    "recovery.js still imports the window module",
+  );
+});
+
+await check("a refreshed balance keeps the scan verdict", async () => {
+  const refresh = bodyOf(await read("recovery.js"), "refreshBalance");
+  assert.match(
+    refresh,
+    /walletHeight < nodeHeight|walletHeight >= nodeHeight/,
+    "refreshBalance does not compare the wallet and node heights",
+  );
+  assert.match(refresh, /scanComplete/, "refreshBalance drops the scan verdict");
+  assert.match(refresh, /scanIncompleteReason/, "refreshBalance drops the scan reason");
 });
 
 await check("no eval and no new Function in the page's own code", async () => {

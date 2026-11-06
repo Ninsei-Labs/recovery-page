@@ -25,14 +25,14 @@ reads the maker's half from the escrow, combines the halves, verifies the sum ag
 
 What the page reads for a swap, and where:
 
-| What                   | From                                                                                                                                                                                |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| the swaps of a key     | the factory's `OrderCreated` logs, matched against the key's commitments in the tab (`findSwaps`)                                                                                   |
-| the swap's state       | the escrow's `status()`: claimed, refunded or open, and its deadline from the order                                                                                                 |
-| the swap's date        | the time of the block that holds the order                                                                                                                                          |
-| the Monero start block | the last Monero block at or before that time, minus 60: the SDK's rule in `findSwaps`, with the node's tip and headers read by the page (`lib/node.js`)                             |
-| the maker's half       | the escrow's `revealedHalf()`, read by the SDK's `sweep.plan`                                                                                                                       |
-| the blocks to scan     | from the start block to the block at the order's deadline plus ten (`lib/window.js`), scanned by the SDK's `sweep.restore({ window })`; an empty window falls back to the full scan |
+| What                   | From                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the swaps of a key     | the factory's `OrderCreated` logs, matched against the key's commitments in the tab (`findSwaps`)                                                       |
+| the swap's state       | the escrow's `status()`: claimed, refunded or open, and its deadline from the order                                                                     |
+| the swap's date        | the time of the block that holds the order                                                                                                              |
+| the Monero start block | the last Monero block at or before that time, minus 60: the SDK's rule in `findSwaps`, with the node's tip and headers read by the page (`lib/node.js`) |
+| the maker's half       | the escrow's `revealedHalf()`, read by the SDK's `sweep.plan`                                                                                           |
+| the blocks to scan     | from the start block (`sweep.restore`), scanned in full; a scan that does not finish is reported as incomplete, not as "nothing arrived"                |
 
 The SDK's withdrawal (`sweep.plan`, `keys`, `sign`, `relay`) takes a per-swap payload. The page asks
 `sweep.fromOrder` for that payload: the SDK takes the key and the found order, checks the points, builds the joint

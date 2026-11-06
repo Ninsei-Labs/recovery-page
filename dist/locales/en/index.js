@@ -90,6 +90,8 @@ export default {
     "money.withdrawn": "Already withdrawn: XMR arrived at this swap's address and has left it",
     "money.unseen":
       "Nothing ever arrived at the address this Ninsei key gives for the swap. If the start block is right, the swap's XMR went to an address this key cannot see. The technical log below has the details",
+    "money.incomplete":
+      'The wallet did not finish reading the chain, so it cannot say whether this XMR is here. Try again, or choose another Monero node. Do not treat this as "nothing arrived"',
     "money.nothing": "Nothing to withdraw at this address: it was already withdrawn, or the XMR never arrived",
     "info.side": "Side",
     "info.swap": "Swap",
@@ -239,11 +241,10 @@ export default {
     "log.wallet.restored": "the wallet is restored, its address matched the swap's (a core check)",
     "log.scan.start":
       "scanning the chain from height {from} (the swap's start block {height} minus a margin of 10 blocks)",
-    "log.scan.window":
-      "the lock window was scanned: blocks {from}..{to}, {txs} transaction(s); the whole chain from the start block is scanned too only when the window holds no XMR",
-    "log.scan.window.skipped": "the lock window was not used: {why}",
     "log.rescan.failed": "the wallet could not read the chain: {why}",
     "log.diag.failed": "the diagnostics could not be collected: {why}",
+    "log.synced.incomplete":
+      "the scan is incomplete ({why}): the balance is what the wallet saw, not the address's total; try again or choose another node",
     "log.synced.ok":
       "the wallet is synced: {xmr} XMR ready to withdraw (wallet height {walletHeight}, node {nodeHeight})",
     "log.synced.zero.locked":

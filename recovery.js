@@ -37,7 +37,6 @@ import {
   nodeFor,
 } from "./lib/node.js";
 import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
-import { restoreWindow } from "./lib/window.js";
 import { swapState, moneyState } from "./lib/withdrawal.js";
 
 // THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
@@ -966,7 +965,15 @@ async function openSwap(row) {
 
 // --- 3. The state of the money, in words ---
 
-const STATE_TONES = { ready: "ok", unread: "wait", locked: "wait", withdrawn: "none", unseen: "wait", nothing: "none" };
+const STATE_TONES = {
+  ready: "ok",
+  unread: "wait",
+  locked: "wait",
+  withdrawn: "none",
+  unseen: "wait",
+  incomplete: "wait",
+  nothing: "none",
+};
 
 function drawMoney() {
   const m = currentState();
@@ -1001,7 +1008,27 @@ async function refreshBalance() {
     } catch {
       /* how many transactions the wallet sees stays unknown */
     }
-    balance = { total, unlocked, txs };
+    // A SYNC THAT STOPPED BEHIND THE NODE IS NOT A COMPLETE VIEW. The restore above names this once; a later
+    // refresh must not lose the verdict and turn a partial balance into "ready".
+    let scanComplete = false;
+    let scanIncompleteReason = "no-heights";
+    try {
+      const walletHeight = Number(await wallet.getHeight());
+      const nodeHeight = Number(await wallet.getDaemonHeight());
+      if (Number.isFinite(walletHeight) && Number.isFinite(nodeHeight)) {
+        scanComplete = walletHeight >= nodeHeight;
+        scanIncompleteReason = scanComplete ? null : "behind-node";
+      }
+    } catch {
+      /* no heights: the scan stays incomplete, never assumed complete */
+    }
+    balance = {
+      total,
+      unlocked,
+      txs,
+      scanComplete,
+      ...(scanIncompleteReason ? { scanIncompleteReason } : {}),
+    };
     return true;
   } catch (e) {
     log(t("log.wallet.closed", { words: sdkWords(e) }), "wait");
@@ -1151,26 +1178,15 @@ async function syncWallet() {
     if (progress && progress.sub === soFar) drawProgress();
   }, 1000);
 
-  // RESTORE IS A PACKAGE RULE (sweep.restore): the blocks around the lock first, then the full scan only if
-  // that window holds nothing. The window ends at the Monero block at or after the order's t1, plus ten.
-  // THE WINDOW HAS ITS OWN NAME: a local `window` would hide the browser's, and this function still writes
-  // window.__sweepFlow after the scan.
-  let lockWindow = null;
-  try {
-    const tipHeight = Number(await wallet.getDaemonHeight());
-    // The found order's deadline, by the SDK's one conversion (deadlineOf); a deadline of the wrong scale is no
-    // window. The swap is `current`: this page holds no per-swap payload outside the SDK's envelope text.
-    const deadline = deadlineOf(current.swap);
-    const t1Sec = deadline ? Math.floor(deadline / 1000) : 0;
-    lockWindow = await restoreWindow({ nodeUrl: nodeUrl(), t1Sec, startHeight: height, tipHeight });
-  } catch {
-    lockWindow = null;
-  }
+  // THE SCAN IS THE PACKAGE'S (sweep.restore), FROM THE START BLOCK. It used to read the blocks around the
+  // order's deadline first, but that window cannot see a spend made after `t1`; the SDK then reported an
+  // incomplete pass while the page still showed the balance as ready. A full scan from the start block is the
+  // answer the page can trust, and `restored.scanComplete` below names a pass that still did not finish.
   const t0 = performance.now();
   let restored;
   try {
     log(t("log.scan.start", { from: n(scanFrom), height: n(height) }));
-    restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10, window: lockWindow });
+    restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10 });
   } catch (e) {
     log(t("log.rescan.failed", { why: (e && e.message) || e }), "bad");
     return "flow.err.sync";
@@ -1187,6 +1203,10 @@ async function syncWallet() {
   const ms = Math.round(performance.now() - t0);
   const unlocked = BigInt(restored.unlocked);
   const total = BigInt(restored.total);
+  // THE SCAN'S VERDICT TRAVELS WITH THE BALANCE. A restore that stopped behind the node has a total it saw, not
+  // the address's total; the screen must not turn that into "nothing arrived" or "ready".
+  const scanComplete = restored.scanComplete !== false;
+  const scanIncompleteReason = scanComplete ? null : restored.scanIncompleteReason || "scan-incomplete";
   // HOW MANY TRANSACTIONS THE WALLET SEES tells "withdrawn" (XMR came and left) from "unseen" (nothing ever came to
   // the address this key gives); a wallet that cannot say leaves it unknown.
   let txs = null;
@@ -1195,7 +1215,13 @@ async function syncWallet() {
   } catch (e) {
     log(t("log.diag.failed", { why: String((e && e.message) || e) }), "wait");
   }
-  balance = { total, unlocked, txs };
+  balance = {
+    total,
+    unlocked,
+    txs,
+    scanComplete,
+    ...(scanIncompleteReason ? { scanIncompleteReason } : {}),
+  };
   log(
     t("log.restored.passes", {
       passes: n(restored.passes),
@@ -1203,23 +1229,6 @@ async function syncWallet() {
     }),
     "ok",
   );
-  if (restored.window && restored.window.used) {
-    log(
-      t("log.scan.window", {
-        from: n(restored.window.fromHeight),
-        to: n(restored.window.toHeight),
-        txs: n(restored.window.txs),
-      }),
-      "ok",
-    );
-  } else if (lockWindow) {
-    log(
-      t("log.scan.window.skipped", {
-        why: restored.window && restored.window.skipped ? restored.window.skipped : t("value.no"),
-      }),
-      "wait",
-    );
-  }
 
   const walletHeight = await wallet.getHeight();
   const nodeHeight = await wallet.getDaemonHeight();
@@ -1231,9 +1240,12 @@ async function syncWallet() {
     balance: String(total),
     unlocked: String(unlocked),
     scanHeight: height,
+    scanComplete,
+    scanIncompleteReason,
   };
   log(t("log.sync.took", { ms: n(ms), height: n(height || 0) }));
-  if (unlocked > 0n)
+  if (!scanComplete) log(t("log.synced.incomplete", { why: scanIncompleteReason }), "warn");
+  else if (unlocked > 0n)
     log(t("log.synced.ok", { xmr: xmr(unlocked), walletHeight: n(walletHeight), nodeHeight: n(nodeHeight) }), "ok");
   else if (total > 0n) log(t("log.synced.zero.locked", { total: xmr(total) }), "wait");
   else if (txs === 0) log(t("log.synced.unseen", { address: plan.address, height: n(height) }), "warn");
