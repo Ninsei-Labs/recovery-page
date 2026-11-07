@@ -36,7 +36,7 @@ import {
   moneroReaders,
   nodeFor,
 } from "./lib/node.js";
-import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
+import { keyNetworks, evmCall, evmLogs, evmLogsByTopic, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
 import { swapState, moneyState, statusFromEvents, scanStartHeight } from "./lib/withdrawal.js";
 
 // THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
@@ -701,15 +701,20 @@ async function findKeySwaps(options = {}) {
       }
       search.rows.push(row);
     }
-    // THE ESCROW EVENTS ARE READ IN ONE REQUEST. Asking status() for every found escrow named each of them to the
-    // public RPC next to the visitor's IP; one eth_getLogs over the address list returns the claim, refund and
-    // decline facts together. A failed bulk read leaves the rows unknown instead of falling back to per-order calls.
+    // THE ESCROW EVENTS ARE READ IN ONE TOPIC-ONLY REQUEST. Asking status() for every found escrow named each of
+    // them to the public RPC next to the visitor's IP; one eth_getLogs by the three event topics returns the claim,
+    // refund and decline facts for every escrow in the range, and the page keeps those of its own rows. A failed
+    // bulk read leaves the rows unknown instead of falling back to per-order calls.
     const networkRows = search.rows.filter((row) => row.net === net);
     if (networkRows.length) {
       try {
         const events = await m.readEscrowEvents({
           escrows: networkRows.map((row) => row.swap.escrow),
-          evmLogs: (request) => evmLogs(net.id, request),
+          // NO ESCROW ADDRESSES REACH THE RPC. The SDK still uses the list to keep the result shape, while
+          // `evmLogsByTopic` strips the address filter and leaves only the three event topics and the range; the
+          // page keeps the events of its own rows below. A per-escrow address list would tell the RPC which swaps
+          // belong to this visitor.
+          evmLogs: (request) => evmLogsByTopic(net.id, request),
           fromBlock: net.since,
           toBlock: latest,
         });
