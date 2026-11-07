@@ -411,7 +411,7 @@ await check("the node list has no check button, and its rows are radios of one g
 const { swapState, moneyState, statusFromEvents, scanStartHeight } = await import(
   pathToFileURL(join(ROOT, "lib", "withdrawal.js")).href
 );
-const { SETTLEMENT, settlementOf, evmCall, keyNetworks, evmLogs, LOG_WINDOW } = await import(
+const { SETTLEMENT, settlementOf, evmCall, keyNetworks, evmLogs, evmLogsByTopic, LOG_WINDOW } = await import(
   pathToFileURL(join(ROOT, "lib", "settlement.js")).href
 );
 // THE 128-BIT TEST VECTORS OF THE BIP39 SPECIFICATION: valid twelve-word keys that are nobody's.
@@ -1206,6 +1206,15 @@ await check("a log search takes an address list and forwards it unchanged", asyn
   );
 });
 
+await check("the page's escrow-state read sends no escrow addresses", async () => {
+  const page = await read("recovery.js");
+  assert.match(
+    page,
+    /evmLogs: \(request\) => evmLogsByTopic\(net\.id, request\)/,
+    "the escrow-state read still sends the visitor's escrow list",
+  );
+});
+
 await check("the SDK's bulk escrow events decode through the page's log reader", async () => {
   const { readEscrowEvents, ESCROW_EVENT_TOPICS } = await import("@ninsei-labs/sdk/recovery");
   const escrow = "0x" + "c".repeat(40);
@@ -1227,11 +1236,11 @@ await check("the SDK's bulk escrow events decode through the page's log reader",
   };
   const events = await readEscrowEvents({
     escrows: [escrow, other],
-    evmLogs: (request) => evmLogs("arbitrum-sepolia", request, fetchImpl),
+    evmLogs: (request) => evmLogsByTopic("arbitrum-sepolia", request, fetchImpl),
     fromBlock: 1,
     toBlock: 2,
   });
-  assert.deepEqual(filter.address, [escrow, other]);
+  assert.equal("address" in filter, false, "the escrow-state read named the visitor's escrows");
   assert.equal(events.length, 1);
   assert.equal(events[0].event, "HalfRevealed");
   assert.equal(events[0].half, half);
