@@ -7,8 +7,12 @@ name: release
 # the page is not a library, and a registry has no business holding a copy that can drift from the
 # release notes.
 #
-# The same `dist/` is then served from Cloudflare Pages (project `ninsei-recovery`, at
-# recovery.ninsei.finance), the last step below; the archive is what people serve from any other host.
+# THE RUN IS THREE JOBS WITH THREE DIFFERENT TRUST BOUNDARIES:
+#   build   - no write token, no Cloudflare secret: checkout, test, pack the archive;
+#   publish - a write token, no dependency install: attach the verified archive to the release;
+#   deploy  - no repository write token: upload the same built `dist/` to Cloudflare Pages.
+# The deploy job uses the protected `cloudflare-pages` environment. The build job never sees the
+# Cloudflare token, and the publish job never runs a dependency install.
 
 on:
   push:
@@ -23,21 +27,26 @@ on:
         type: string
 
 permissions:
-  contents: write
-  actions: read # the CI run of the tagged commit, read before anything is built
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
-  release:
+  build:
+    name: build and check the tagged commit
     runs-on: ubuntu-latest
     timeout-minutes: 45 # 25 for the release, 20 for a build run still going on main
-    env:
-      TAG: ${{ inputs.tag || github.ref_name }}
-      HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    permissions:
+      contents: read
+      actions: read # the CI run of the tagged commit, read before anything is built
     steps:
       - uses: actions/checkout@v7
         with:
           # A DISPATCH RUN BUILDS THE TAG IT IS ASKED ABOUT, not the branch the button was pressed on.
           ref: ${{ inputs.tag || github.ref }}
+          # The build job has no reason to keep a repository token in .git/config.
+          persist-credentials: false
 
       # A RELEASE IS CUT ONLY FROM A COMMIT ON MAIN WHOSE BUILD PASSED. The run read is the `build` workflow's run of
       # the push to main for this exact commit. A queued or running run is read again every 30 s for at most 20
@@ -86,17 +95,7 @@ jobs:
       - name: Install the locked dependencies
         run: bun install --frozen-lockfile
 
-      # WRANGLER IS A DEPLOY TOOL, NOT PAGE CODE. It has its own exact lock so the release does not resolve a
-      # dependency tree from the registry with the Cloudflare token in the environment. The root licence scan does
-      # not see this tree because it is not part of dist/.
-      - name: Install the pinned deploy tool
-        run: |
-          cd tools/deploy
-          bun install --frozen-lockfile
-          node -e "const p = require('./node_modules/wrangler/package.json'); if (p.version !== '4.147.0') { console.error('wrangler ' + p.version); process.exit(1); }"
-
       - name: Build and check
-        id: check
         run: bun run test
 
       # A tag can be cut from a commit that never saw the License Compliance workflow. These checks read the
@@ -118,14 +117,47 @@ jobs:
           sha256sum "ninsei-recovery-${TAG}.zip" > "ninsei-recovery-${TAG}.zip.sha256"
           unzip -l "ninsei-recovery-${TAG}.zip" | tail -3
 
+      # THE ONLY ARTEFACT THE LATER JOBS SEE. They do not rebuild: the archive and the page are the bytes this job
+      # tested.
+      - name: Keep the built page and the archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dist
+          path: |
+            dist
+            ninsei-recovery-${{ env.TAG }}.zip
+            ninsei-recovery-${{ env.TAG }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create or upload to the GitHub release
+      actions: read # download the release-dist artifact
+    steps:
+      - name: Take the tested artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: release
+
+      - name: Verify the archive against its checksum
+        run: |
+          set -eu
+          cd release
+          sha256sum -c "ninsei-recovery-${TAG}.zip.sha256"
+
+      # A RERUN OF A TAG WHOSE RELEASE EXISTS MUST ATTACH, NOT FAIL. The first v0.1.0 run created the
+      # release and failed before the files were attached; a retry has to be able to finish it.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          files="ninsei-recovery-${TAG}.zip ninsei-recovery-${TAG}.zip.sha256"
-          # A RERUN OF A TAG WHOSE RELEASE EXISTS MUST ATTACH, NOT FAIL. The first v0.1.0 run created the
-          # release and failed before the files were attached; a retry has to be able to finish it.
+          files="release/ninsei-recovery-${TAG}.zip release/ninsei-recovery-${TAG}.zip.sha256"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" $files --clobber
           else
@@ -134,26 +166,61 @@ jobs:
               --notes "Static page: unzip and serve the contents over HTTPS with the headers in deploy/. The archive holds dist/ only; every file's SHA-256 is in build.json."
           fi
 
-      # CLOUDFLARE PAGES GETS THE dist/ THIS RUN BUILT AND CHECKED, whether or not the archive above was attached:
-      # the two are separate copies of one build, and a failure of one must not hold back the other. Two
-      # repository secrets: CLOUDFLARE_API_TOKEN (Account, Cloudflare Pages: Edit) and CLOUDFLARE_ACCOUNT_ID. The
-      # project is created on the first deploy; `dist/_headers` carries the security headers, which Pages applies.
-      # No GitHub app is linked to Cloudflare: the run uploads the files itself, with wrangler run by Bun.
+  deploy:
+    name: deploy the page
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout the pinned deploy tool
+      actions: read # download the release-dist artifact
+    # The environment, not this file, carries the protection rule and the required reviewers (#58).
+    environment:
+      name: cloudflare-pages
+      url: https://recovery.ninsei.finance
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Take the tested artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: release
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      # WRANGLER IS A DEPLOY TOOL, NOT PAGE CODE. It has its own exact lock so the deploy does not resolve a
+      # dependency tree from the registry with the Cloudflare token in the environment. This step runs without the
+      # token; the token appears only on the deploy step below.
+      - name: Install the pinned deploy tool
+        run: |
+          cd tools/deploy
+          bun install --frozen-lockfile
+          node -e "const p = require('./node_modules/wrangler/package.json'); if (p.version !== '4.147.0') { console.error('wrangler ' + p.version); process.exit(1); }"
+
+      # CLOUDFLARE PAGES GETS THE dist/ THIS RUN BUILT AND CHECKED. Two repository secrets:
+      # CLOUDFLARE_API_TOKEN (Account, Cloudflare Pages: Edit) and CLOUDFLARE_ACCOUNT_ID. The project is created on
+      # the first deploy; `dist/_headers` carries the security headers, which Pages applies. No GitHub app is linked
+      # to Cloudflare: the run uploads the files itself, with wrangler run by Bun.
       - name: Deploy the page to Cloudflare Pages
-        if: ${{ !cancelled() && steps.check.outcome == 'success' && env.HAS_CLOUDFLARE == 'true' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -eu
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "CLOUDFLARE_API_TOKEN is not set; the page is not deployed to Cloudflare Pages."
+            exit 0
+          fi
           wrangler="bun tools/deploy/node_modules/wrangler/bin/wrangler.js"
           if ! $wrangler pages project list | grep -qE '(^|[^a-z0-9-])ninsei-recovery([^a-z0-9-]|$)'; then
             $wrangler pages project create ninsei-recovery --production-branch=main
           fi
           # The build wrote dist/ from the tagged commit; the deploy names that commit and the tag.
-          $wrangler pages deploy dist --project-name=ninsei-recovery --branch=main \
+          $wrangler pages deploy release/dist --project-name=ninsei-recovery --branch=main \
             --commit-hash="$(git rev-parse HEAD)" --commit-message="$TAG" --commit-dirty=true
-
-      - name: Say the page was not deployed
-        if: ${{ !cancelled() && env.HAS_CLOUDFLARE != 'true' }}
-        run: echo "CLOUDFLARE_API_TOKEN is not set; the page is not deployed to Cloudflare Pages."
