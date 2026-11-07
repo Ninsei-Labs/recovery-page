@@ -12,8 +12,8 @@
 # manager and nothing to audit.
 #
 # TLS IS NOT HERE. The container speaks HTTP. Put it behind a reverse proxy that terminates TLS and
-# passes the two Cross-Origin-* headers through untouched; without them the page cannot use
-# SharedArrayBuffer and the wallet will not start.
+# passes the security headers through untouched. The page needs no cross-origin isolation: no COEP
+# and no SharedArrayBuffer.
 
 FROM oven/bun:1.4.4-slim AS build
 WORKDIR /src
@@ -42,6 +42,7 @@ RUN apt-get update \
 WORKDIR /srv
 COPY --from=build /src/dist ./recovery
 COPY serve.bun.mjs ./serve.bun.mjs
+COPY deploy/http-policy.mjs ./deploy/http-policy.mjs
 
 # A FIXED, UNPRIVILEGED UID: a runtime that changes identity between hosts is one whose file
 # permissions surprise the next operator. 10001 is the convention used by the other services here.

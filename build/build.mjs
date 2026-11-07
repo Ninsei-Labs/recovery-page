@@ -10,7 +10,7 @@
 //     with Node built-ins and do not run in a browser as published;
 //   * the SDK core - bundled from the pinned @ninsei-labs/sdk, so the page's rules (plan, keys,
 //     sign, relay) come from the package and not from a second copy inside this repository;
-//   * the page itself (HTML, CSS, JS, locales, fonts, the service worker) - copied as written.
+//   * the page itself (HTML, CSS, JS, locales, fonts) - copied as written.
 //
 // THE STAMPED HASH in `?v=` is the content hash of the file it names. It is not a cache trick for its
 // own sake: an operator who replaces `dist/` must not have a returning visitor run the old bundle
@@ -25,6 +25,7 @@ import { createRequire } from "node:module";
 import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { cloudflareHeaders } from "../deploy/http-policy.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -89,11 +90,11 @@ const common = {
   define: { "process.env.NODE_ENV": '"production"', global: "globalThis" },
   inject: [join(HERE, "monero-shims.js")],
   plugins: [polyfillPlugin],
-  // Two dynamic imports inside the SDK point at page artifacts, not at package files: the atomic
-  // primitives and the WalletConnect bundle. They stay as written and resolve at run time against the
-  // SDK bundle's own directory (`dist/assets/vendors/...`). The page builds the first; the second is
-  // only reachable from EVM wallet code, which this page never calls.
-  external: ["../../assets/vendors/atomic/*", "../../assets/vendors/walletconnect/*"],
+  // One dynamic import inside the SDK points at a page artifact, not at a package file: the WalletConnect
+  // bundle. It stays as written and resolves at run time against the SDK bundle's own directory
+  // (`dist/assets/vendors/walletconnect/...`). The page builds it from the pinned lock; this page never
+  // calls EVM wallet code, so the import is not reached here.
+  external: ["../../assets/vendors/walletconnect/*"],
 };
 
 // --- 2. Hash, stamp, report -----------------------------------------------------------------
@@ -159,23 +160,13 @@ await build({
 });
 
 // The worker is not built: monero-ts ships it prebuilt, and it is the exact copy the library expects.
-await build({
-  ...common,
-  entryPoints: [join(HERE, "atomic-entry.mjs")],
-  outfile: join(DIST, "assets/vendors/atomic/atomic-browser.js"),
-  minify: true,
-});
-
 const worker = await readFile(join(ROOT, "node_modules", "monero-ts", "dist", "monero.worker.js"));
 await emit("monero.worker.js", worker);
 
-const ATOMIC_BUNDLE = "assets/vendors/atomic/atomic-browser.js";
 const moneroBytes = await readFile(join(DIST, MONERO_BUNDLE));
 const sdkBytes = await readFile(join(DIST, SDK_BUNDLE));
-const atomicBytes = await readFile(join(DIST, ATOMIC_BUNDLE));
 await emit(MONERO_BUNDLE, moneroBytes);
 await emit(SDK_BUNDLE, sdkBytes);
-await emit(ATOMIC_BUNDLE, atomicBytes);
 
 // --- 5. The page, copied and stamped --------------------------------------------------------
 const STAMP = {
@@ -259,8 +250,8 @@ for (const name of (await readdir(fontsDir)).sort()) {
   await emit(`assets/fonts/${name}`, await readFile(join(fontsDir, name)));
 }
 // Hosts that cannot be configured (Cloudflare Pages) read their headers from a file in the published
-// directory. It travels with the build so an operator does not have to remember it.
-await emit("_headers", await readFile(join(ROOT, "deploy", "_headers")));
+// directory. It is generated from the same policy the Bun servers import, so it cannot drift from them.
+await emit("_headers", Buffer.from(cloudflareHeaders()));
 for (const rel of PAGE_TEXT) {
   let text = versioned(await readFile(join(ROOT, rel), "utf8"));
   // Each page file names only the artefacts it loads: the withdrawal page names all three, the

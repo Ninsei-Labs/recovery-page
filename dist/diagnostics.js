@@ -1,7 +1,7 @@
 // A CHECK OF THE RECOVERY PAGE'S LIVE ENVIRONMENT (a technical report, not the withdrawal interface).
 //
 // Why a separate page: the recovery page's origin has its own policy (a CSP with a strict script-src - 'unsafe-eval' is
-// gone now that monero-ts is 0.11.16 - plus COOP/COEP and a worker) and its own way to the node (our proxy),
+// gone now that monero-ts is 0.11.16 - plus COOP and a worker) and its own way to the node (our proxy),
 // and when a transfer does not go it has to be clear what broke. The checks are the ones the withdrawal page
 // runs before work, but verbose and with measurements.
 //

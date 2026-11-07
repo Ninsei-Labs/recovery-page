@@ -1753,11 +1753,33 @@ await check("the completion panel lists every transaction of a split sweep", asy
 });
 
 // CACHING AND THE LOCAL SERVER. The nginx example must not keep unversioned page modules for a year; `bun run serve`
-// must serve the checkout's dist; the Docker build must see the workflows its check reads.
-await check("the nginx example revalidates page modules, serve uses dist, and Docker keeps .github", async () => {
+// must serve the checkout's dist; the Docker build must see the workflows its check reads; and the CSP/cache values
+// must come from the same policy module the servers import.
+await check("the nginx example revalidates page modules, and every server uses one HTTP policy", async () => {
   const nginx = await read("deploy/nginx.conf");
   assert.ok(!/\.\(css\|js\)\$ \{ expires 1y; \}/.test(nginx), "nginx still caches unversioned page code for a year");
   assert.ok(nginx.includes("expires -1;"), "nginx does not revalidate page code");
+  const { CSP, SECURITY_HEADERS, cacheControl, cloudflareHeaders } = await import(
+    pathToFileURL(join(ROOT, "deploy", "http-policy.mjs")).href
+  );
+  for (const [name, value] of Object.entries(SECURITY_HEADERS))
+    assert.ok(nginx.includes(name) && nginx.includes(value), `nginx misses ${name}`);
+  assert.ok(nginx.includes(CSP), "nginx CSP differs from the shared policy");
+  assert.equal(cacheControl("/assets/vendors/sdk/sdk-browser.js"), "public, max-age=31536000, immutable");
+  assert.equal(cacheControl("/monero.worker.js"), "public, max-age=3600");
+  assert.equal(cacheControl("/recovery.js"), "no-cache");
+  assert.ok(cloudflareHeaders().includes(CSP), "the Cloudflare headers drop the shared CSP");
+  assert.match(await read("serve.bun.mjs"), /from "\.\/deploy\/http-policy\.mjs"/, "serve.bun.mjs has its own policy");
+  assert.match(
+    await read("tools/serve.mjs"),
+    /from "\.\.\/deploy\/http-policy\.mjs"/,
+    "tools/serve.mjs has its own policy",
+  );
+  assert.match(
+    await read("Dockerfile"),
+    /COPY deploy\/http-policy\.mjs/,
+    "the container does not receive the policy module",
+  );
   const serve = await read("serve.bun.mjs");
   assert.match(serve, /process\.env\.ROOT \|\| "dist"/, "serve does not default to dist");
   const ignore = await read(".dockerignore");

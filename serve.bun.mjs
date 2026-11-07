@@ -12,30 +12,11 @@
 //   PORT  (default 8080)  - the port to listen on
 //   ROOT  (default ./dist) - the directory with dist/'s contents
 //   HOST  (default 0.0.0.0) - the interface to bind
+import { CSP, SECURITY_HEADERS, cacheControl } from "./deploy/http-policy.mjs";
+
 const ROOT = (process.env.ROOT || "dist").replace(/[\\/]+$/, "");
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
-
-const SECURITY = {
-  "Cross-Origin-Opener-Policy": "same-origin",
-  "Cross-Origin-Resource-Policy": "same-origin",
-  "X-Content-Type-Options": "nosniff",
-  "Referrer-Policy": "no-referrer",
-};
-
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval'",
-  "worker-src 'self' blob:",
-  "style-src 'self'",
-  "img-src 'self' data:",
-  // The node is the visitor's choice: any http(s) host must be reachable, or the field on the page
-  // would be a lie.
-  "connect-src 'self' http: https:",
-  "base-uri 'none'",
-  "form-action 'none'",
-  "frame-ancestors 'none'",
-].join("; ");
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -54,16 +35,10 @@ const TYPES = {
 
 function headersFor(pathname) {
   const ext = pathname.slice(pathname.lastIndexOf("."));
-  const headers = new Headers(SECURITY);
+  const headers = new Headers(SECURITY_HEADERS);
   headers.set("Content-Security-Policy", CSP);
   headers.set("Content-Type", TYPES[ext] || "application/octet-stream");
-  // Bundles are stamped with their content hash in `?v=`, so a year is safe. The page, the service
-  // worker and build.json must not be cached: a stale page against a new build is a support call.
-  if (pathname.startsWith("/assets/") || pathname === "/monero.worker.js") {
-    headers.set("Cache-Control", "public, max-age=31536000, immutable");
-  } else {
-    headers.set("Cache-Control", "no-cache");
-  }
+  headers.set("Cache-Control", cacheControl(pathname));
   return headers;
 }
 
