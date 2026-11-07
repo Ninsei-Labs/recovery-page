@@ -19,6 +19,14 @@ import { nodeUrl, nodeLabelKey, nodeLabelParams, setNodeUrl, networkFromNode } f
 // is built for that network, otherwise the probe asks a stagenet node for another chain's ranges and that
 // looks like a broken withdrawal.
 let nodeInfo = null;
+// A NETWORK THE PAGE DOES NOT KNOW IS UNKNOWN, NEVER STAGENET. Building a stagenet wallet against a node that named
+// something else silently measures the wrong chain; the caller stops with the node's own nettype in the report.
+function requireNetwork(info) {
+  const net = networkFromNode(info);
+  if (!net) throw new Error(t("diag.error.nettype", { nettype: String((info && info.nettype) || "?") }));
+  return net;
+}
+
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=4bdc3690";
 const WORKER = "./monero.worker.js?v=0d6effe1";
 const SCAN_LOOKBACK = 3000;
@@ -56,8 +64,8 @@ window.__diag = { results, violations, done: false, failed: 0 };
 const now = () => performance.now();
 
 // A STEP DETAIL IS A DRAW FUNCTION: the measurements are collected here, the words are taken at draw time.
-const words = (value) => (typeof value === "function" ? String(value())
-  : (typeof value === "string" ? value : JSON.stringify(value ?? "")));
+const words = (value) =>
+  typeof value === "function" ? String(value()) : typeof value === "string" ? value : JSON.stringify(value ?? "");
 
 function render() {
   out.textContent = results
@@ -65,12 +73,12 @@ function render() {
       const mark = r.error
         ? t("diag.mark.error")
         : r.unproven
-        ? t("diag.mark.unproven")
-        : r.ms != null
-          ? r.ms < 3000
-            ? t("diag.mark.ms", { value: n(Math.round(r.ms)) })
-            : t("diag.mark.s", { value: n(r.ms / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) })
-          : t("diag.mark.ok");
+          ? t("diag.mark.unproven")
+          : r.ms != null
+            ? r.ms < 3000
+              ? t("diag.mark.ms", { value: n(Math.round(r.ms)) })
+              : t("diag.mark.s", { value: n(r.ms / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) })
+            : t("diag.mark.ok");
       const flag = r.unproven ? "—" : r.ok === false ? "✗" : "✓";
       const name = typeof r.step === "string" ? t(r.step) : t(r.step.key, r.step.params);
       return `${flag} ${name.padEnd(46)} ${mark.padStart(9)}  ${words(r.detail)}${r.error ? "  " + r.error : ""}`;
@@ -126,7 +134,8 @@ async function measure(step, fn) {
   } catch (e) {
     // "Not measured" is its own outcome: it does not paint the run red and does not hide inside "ok". It marks a
     // step the path never reached because of a node refusal (see nodeRefusedItsCalls), not because of code.
-    if (e instanceof NodeUnproven) push(step, { ms: now() - t0, unproven: true, detail: () => String((e && e.message) || e) });
+    if (e instanceof NodeUnproven)
+      push(step, { ms: now() - t0, unproven: true, detail: () => String((e && e.message) || e) });
     else push(step, { ms: now() - t0, error: String((e && e.message) || e) });
     return null;
   }
@@ -136,8 +145,13 @@ const resources = () =>
   performance
     .getEntriesByType("resource")
     .filter((r) => /monero|worker/.test(r.name))
-    .map((r) => t("diag.detail.resource", { name: r.name.split("/").pop(),
-      kb: n(Math.round((r.transferSize || r.decodedBodySize || 0) / 1024)), ms: n(Math.round(r.duration)) }))
+    .map((r) =>
+      t("diag.detail.resource", {
+        name: r.name.split("/").pop(),
+        kb: n(Math.round((r.transferSize || r.decodedBodySize || 0) / 1024)),
+        ms: n(Math.round(r.duration)),
+      }),
+    )
     .join(" | ");
 
 async function quickCheck() {
@@ -154,21 +168,27 @@ async function quickCheck() {
   let wallet = null;
 
   push("diag.step.env", {
-    detail: () => t("diag.detail.env", {
-      origin: location.origin,
-      isolation: self.crossOriginIsolated,
-      sab: typeof SharedArrayBuffer !== "undefined",
-      secure: self.isSecureContext,
-      cores: navigator.hardwareConcurrency ?? null,
-      memory: navigator.deviceMemory ? navigator.deviceMemory * 1024 : null,
-    }),
+    detail: () =>
+      t("diag.detail.env", {
+        origin: location.origin,
+        isolation: self.crossOriginIsolated,
+        sab: typeof SharedArrayBuffer !== "undefined",
+        secure: self.isSecureContext,
+        cores: navigator.hardwareConcurrency ?? null,
+        memory: navigator.deviceMemory ? navigator.deviceMemory * 1024 : null,
+      }),
   });
 
   await measure("diag.step.bundle", async () => {
     const mod = await import(BUNDLE);
     window.__moneroTs = mod;
     moneroTs = mod;
-    return () => t("diag.detail.bundle", { version: mod.getVersion(), exports: n(Object.keys(mod).length), defaults: n(Object.keys(mod.default).length) });
+    return () =>
+      t("diag.detail.bundle", {
+        version: mod.getVersion(),
+        exports: n(Object.keys(mod).length),
+        defaults: n(Object.keys(mod.default).length),
+      });
   });
   if (!moneroTs) return finish(null);
   const api = moneroTs.default;
@@ -179,7 +199,8 @@ async function quickCheck() {
     if (r.status !== 200) throw new Error(t("diag.error.http", { status: r.status }));
     // If the file is missing, the SPA fallback serves index.html (~5 KB) - that is the "not built" sign.
     if (buf.byteLength < 1_000_000) throw new Error(t("diag.error.worker", { bytes: n(buf.byteLength) }));
-    return () => t("diag.detail.mb", { mb: n(buf.byteLength / 1048576, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) });
+    return () =>
+      t("diag.detail.mb", { mb: n(buf.byteLength / 1048576, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) });
   });
 
   await measure("diag.step.worker.path", async () => {
@@ -199,8 +220,14 @@ async function quickCheck() {
     nodeInfo = j.result;
     if (window.__diag) window.__diag.nodeInfo = j.result;
     const info = j.result;
-    return () => t("diag.detail.node", { status: r.status, node: t(nodeLabelKey(), nodeLabelParams()), height: n(info.height),
-      sync: info.synchronized, nettype: info.nettype });
+    return () =>
+      t("diag.detail.node", {
+        status: r.status,
+        node: t(nodeLabelKey(), nodeLabelParams()),
+        height: n(info.height),
+        sync: info.synchronized,
+        nettype: info.nettype,
+      });
   });
 
   for (const [path, stepKey] of [
@@ -227,7 +254,7 @@ async function quickCheck() {
     // The network comes FROM THE NODE, and the wallet starts from a recent height: a full-chain scan takes tens of
     // hours, and a wallet on the wrong network simply finds no block hashes. A mainnet probe against a stagenet
     // node already looked like a breakage once.
-    const net = networkFromNode(nodeInfo);
+    const net = requireNetwork(nodeInfo);
     const tip = nodeInfo && nodeInfo.height ? nodeInfo.height : 0;
     // The wallet is made LIKE A REAL withdrawal: its own seed plus a recent restore height. The library forbids
     // restoreHeight on a random wallet without a seed ("Cannot provide restoreHeight when creating random
@@ -270,7 +297,11 @@ async function quickCheck() {
       } catch (e) {
         verified = () => t("diag.detail.sign.failed", { why: String((e && e.message) || e).slice(0, 60) });
       }
-      return () => t("diag.detail.sign", { len: n(sig.length), verified: verified === null ? t("diag.detail.sign.unchecked") : words(verified) });
+      return () =>
+        t("diag.detail.sign", {
+          len: n(sig.length),
+          verified: verified === null ? t("diag.detail.sign.unchecked") : words(verified),
+        });
     });
 
     // ON AN EMPTY WALLET THE BUILD MUST FAIL FOR LACK OF FUNDS - that is the success: the path reached the balance
@@ -290,14 +321,15 @@ async function quickCheck() {
       const msg = String((failure && failure.message) || failure);
       if (/not enough money/i.test(msg)) return () => t("diag.detail.tx.expected", { message: msg });
       const refused = await nodeRefusedItsCalls();
-      if (refused.length) throw new NodeUnproven(t("diag.error.node.refused", { list: refused.join("; "), message: msg }));
+      if (refused.length)
+        throw new NodeUnproven(t("diag.error.node.refused", { list: refused.join("; "), message: msg }));
       throw failure;
     });
 
     await measure("diag.step.validate", async () => {
       // The network comes from the node. A stagenet address checked as mainnet is refused with "Invalid address",
       // which looks like a broken validator while the probe was wrong: the chains have different address prefixes.
-      const net = api.MoneroNetworkType[String(networkFromNode(nodeInfo)).toUpperCase()];
+      const net = api.MoneroNetworkType[requireNetwork(nodeInfo).toUpperCase()];
       const own = await wallet.getAddress(0, 0);
       await api.MoneroUtils.validateAddress(own, net);
       let corrupted = null;
@@ -312,7 +344,8 @@ async function quickCheck() {
 
     await measure("diag.step.wasm", async () => {
       const used = api.LibraryUtils.getWasmMemoryUsed();
-      return () => (Number.isFinite(used) ? t("diag.detail.mb", { mb: n(Math.round(used / 1048576)) }) : t("diag.detail.wasm.none"));
+      return () =>
+        Number.isFinite(used) ? t("diag.detail.mb", { mb: n(Math.round(used / 1048576)) }) : t("diag.detail.wasm.none");
     });
   }
 
@@ -321,15 +354,23 @@ async function quickCheck() {
 
 function finish(wallet) {
   push("diag.step.csp", {
-    detail: () => (violations.length ? t("diag.detail.csp.some", { count: n(violations.length), list: violations.slice(0, 3).join("; ") }) : t("diag.detail.csp.none")),
+    detail: () =>
+      violations.length
+        ? t("diag.detail.csp.some", { count: n(violations.length), list: violations.slice(0, 3).join("; ") })
+        : t("diag.detail.csp.none"),
     ok: violations.length === 0,
   });
   push("diag.step.resources", { detail: () => resources() });
-  push("diag.step.total", { detail: () => t("diag.detail.total", {
-    checks: n(results.length) + " " + t("diag.plural.checks", { count: results.length, }),
-    errors: n(window.__diag.failed) + " " + t("diag.plural.errors", { count: window.__diag.failed }),
-  }) });
-  stateEl.textContent = window.__diag.failed ? t("diag.state.done.failed", { count: n(window.__diag.failed) }) : t("diag.state.done.ok");
+  push("diag.step.total", {
+    detail: () =>
+      t("diag.detail.total", {
+        checks: n(results.length) + " " + t("diag.plural.checks", { count: results.length }),
+        errors: n(window.__diag.failed) + " " + t("diag.plural.errors", { count: window.__diag.failed }),
+      }),
+  });
+  stateEl.textContent = window.__diag.failed
+    ? t("diag.state.done.failed", { count: n(window.__diag.failed) })
+    : t("diag.state.done.ok");
   stateEl.className = window.__diag.failed ? "bad" : "ok";
   rerunBtn.disabled = false;
   scanBtn.disabled = false;
@@ -354,23 +395,39 @@ async function scanCheck() {
   await measure({ key: "diag.step.scanBlocks", params: { blocks: n(SCAN_LOOKBACK) } }, async () => {
     // The network comes from the node: measuring on another network would measure the wrong scan (and fail on the
     // hash lookup).
-    const net = networkFromNode(nodeInfo || (window.__diag && window.__diag.nodeInfo));
+    const net = requireNetwork(nodeInfo || (window.__diag && window.__diag.nodeInfo));
     const keys = await moneroTs.createWalletKeys({ networkType: net });
     const seed = await keys.getSeed();
     // The first pass only needs to learn the node height.
-    const probe = await moneroTs.createWalletFull({ networkType: net, seed, server: { uri: nodeUrl() }, password: "diag", restoreHeight: 0 });
+    const probe = await moneroTs.createWalletFull({
+      networkType: net,
+      seed,
+      server: { uri: nodeUrl() },
+      password: "diag",
+      restoreHeight: 0,
+    });
     const daemonHeight = await probe.getDaemonHeight();
     await probe.close();
     const from = Math.max(1, daemonHeight - SCAN_LOOKBACK);
-    const w = await moneroTs.createWalletFull({ networkType: net, seed, server: { uri: nodeUrl() }, password: "diag", restoreHeight: from });
+    const w = await moneroTs.createWalletFull({
+      networkType: net,
+      seed,
+      server: { uri: nodeUrl() },
+      password: "diag",
+      restoreHeight: from,
+    });
     const t0 = now();
     await w.sync();
     const ms = now() - t0;
     const height = await w.getHeight();
     await w.close();
-    return () => t("diag.detail.scan", { from: n(from),
-      sec: n(ms / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
-      height: n(height), rate: n(Math.round((SCAN_LOOKBACK / ms) * 1000)) });
+    return () =>
+      t("diag.detail.scan", {
+        from: n(from),
+        sec: n(ms / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+        height: n(height),
+        rate: n(Math.round((SCAN_LOOKBACK / ms) * 1000)),
+      });
   });
   push("diag.step.reminder", { detail: () => t("diag.reminder") });
   stateEl.textContent = t("diag.state.scan.done");
@@ -379,8 +436,12 @@ async function scanCheck() {
   rerunBtn.disabled = false;
 }
 
-rerunBtn.addEventListener("click", () => quickCheck().catch((e) => push("diag.step.fatal", { error: String((e && e.message) || e) })));
-scanBtn.addEventListener("click", () => scanCheck().catch((e) => push("diag.step.fatal.scan", { error: String((e && e.message) || e) })));
+rerunBtn.addEventListener("click", () =>
+  quickCheck().catch((e) => push("diag.step.fatal", { error: String((e && e.message) || e) })),
+);
+scanBtn.addEventListener("click", () =>
+  scanCheck().catch((e) => push("diag.step.fatal.scan", { error: String((e && e.message) || e) })),
+);
 
 scanBtn.disabled = true;
 // THE WORKER PATH IN THE LEGEND TEXT COMES FROM THE SAME PLACE AS THE REQUEST (WORKER): the words hold
@@ -389,7 +450,9 @@ scanBtn.disabled = true;
 bindValues({ workerPath: WORKER.split("?")[0] });
 // THE LANGUAGE LOADS BEFORE THE FIRST STEP: step names and markup labels come from the loaded language.
 initLocale()
-  .catch(() => { /* the language did not load: the report shows step keys, which is visible */ })
+  .catch(() => {
+    /* the language did not load: the report shows step keys, which is visible */
+  })
   .then(() => quickCheck())
   .catch((e) => push("diag.step.fatal", { error: String((e && e.message) || e) }))
   .finally(() => {

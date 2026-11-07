@@ -15,7 +15,7 @@
 // RPCs). The 12 words are never logged, never put into window state and never kept in a field after the search;
 // they live in one variable until the transfer is sent.
 
-// CORE CODE -> WORDS: the demo dictionary (a copy of www/js/sdk/codes.js). Unknown codes pass through.
+// WORDS, NUMBERS AND DATES come from the page's locale module; the page keeps no refusal dictionary of its own.
 import { t, n, d, init as initLocale } from "./locales/index.js";
 import {
   NODES,
@@ -37,7 +37,7 @@ import {
   nodeFor,
 } from "./lib/node.js";
 import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
-import { swapState, moneyState, statusFromEvents } from "./lib/withdrawal.js";
+import { swapState, moneyState, statusFromEvents, scanStartHeight } from "./lib/withdrawal.js";
 
 // THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
 // anything else; this function only names the row before the withdrawal is opened.
@@ -69,6 +69,9 @@ const EXPLORER = {
 // explicitly so a later SDK default cannot quietly raise the amount this page signs. The SDK also refuses an
 // unreported fee, because a cost the page cannot see is not a free withdrawal.
 const SWEEP_FEE_LIMIT_ATOMIC = 10_000_000_000n; // 0.01 XMR
+// A KEY FILE IS TEXT WITH A FEW HUNDRED BYTES OF WORDS. Read it only after the size check: a huge file must not be
+// pulled into the tab's memory before the page can say it is not a key.
+const MAX_KEY_FILE_BYTES = 1_000_000;
 
 const $ = (id) => document.getElementById(id);
 const logEl = $("log");
@@ -511,9 +514,17 @@ keyPassInput.addEventListener("input", updateButtons);
 async function onKeyFileChosen() {
   quiet(keyErrorEl);
   const file = keyFileInput.files && keyFileInput.files[0];
-  keyFileText = file ? await file.text() : null;
   keyPassInput.value = "";
   keyPassField.hidden = true;
+  if (file && file.size > MAX_KEY_FILE_BYTES) {
+    keyFileText = null;
+    keyFileInput.value = "";
+    say(keyErrorEl, "flow.err.keyFileTooLarge");
+    updateButtons();
+    return;
+  }
+  keyFileText = file ? await file.text() : null;
+
   if (keyFileText) {
     keyWordsInput.value = "";
     try {
@@ -805,7 +816,10 @@ function swapRow(row) {
   } else {
     action = h("span", {
       class: "swap-action",
-      text: t("swap.action." + state.action, { deadline: state.params.deadline ? d(state.params.deadline) : "" }),
+      text:
+        state.action === "later" && row.side === "sell"
+          ? t("swap.action.sell.later", { deadline: state.params.deadline ? d(state.params.deadline) : "" })
+          : t("swap.action." + state.action, { deadline: state.params.deadline ? d(state.params.deadline) : "" }),
     });
   }
   return h(
@@ -876,6 +890,7 @@ async function openSwap(row) {
     });
     if (!stillCurrent()) return false;
   } catch (e) {
+    if (!stillCurrent()) return false;
     const why = e && e.params && e.params.why;
     log(t("log.order." + (why || "bad"), { escrow: row.swap.escrow }), "bad");
     moneyEl.hidden = true;
@@ -904,6 +919,7 @@ async function openSwap(row) {
     if (!stillCurrent()) return false;
     plan = planned;
   } catch (e) {
+    if (!stillCurrent()) return false;
     log(t("log.plan.failed", { words: sdkWords(e) }), "bad");
     contents = null;
     moneyEl.hidden = true;
@@ -1057,7 +1073,7 @@ const WALLET_STOPS = {
 // THE WALLET OF THE SWAP + SYNC. Returns true, or the key of the plain line that says why not; the detail is logged.
 async function syncWallet() {
   const dest = destInput.value.trim();
-  const height = Number(heightInput.value.trim() || 0) || Number(plan.restoreHeight) || 0;
+  let height = Number(heightInput.value.trim() || 0) || Number(plan.restoreHeight) || 0;
   const core = await facadeFor(settlement, network);
 
   // ADDRESS IS A PACKAGE RULE (sweep.destination): shape and network; monero-ts is not a second judge.
@@ -1115,6 +1131,22 @@ async function syncWallet() {
   }
   wallet = adapter.driver();
   log(t("log.wallet.restored"), "ok");
+
+  // A HEIGHT ABOVE THE NODE'S TIP is refused before the scan: it would read no blocks and look like a complete empty
+  // balance, while the XMR is below the tip. The helper also rejects a negative or fractional field value.
+  let nodeTip = null;
+  try {
+    nodeTip = Number(await wallet.getDaemonHeight());
+  } catch (e) {
+    log(t("log.diag.failed", { why: String((e && e.message) || e) }), "wait");
+  }
+  const start = scanStartHeight(height, nodeTip);
+  if (!start.ok) {
+    log(t("log.height.aboveTip", { height: n(height), tip: nodeTip === null ? "?" : n(nodeTip) }), "bad");
+    await closeWallet();
+    return "flow.err.height";
+  }
+  height = start.height;
 
   // PROGRESS IS SHOWN, NOT NEEDED. The scan is sweep.restore's rescanBlockchain, which tells no listener how far it
   // is, so the bar runs without an end over the start block and the time so far. The count of new blocks is not
