@@ -1,8 +1,8 @@
 // A LOCAL SERVER FOR THE BUILT PAGE, WITH THE HEADERS THE PAGE NEEDS.
 //
 // This is not a production server: it exists so a change can be looked at in a browser without
-// installing nginx. It serves `dist/` and sets the two headers that make the document cross-origin
-// isolated, which is what the wallet needs for SharedArrayBuffer.
+// installing nginx. It serves `dist/` and sets the same security headers and CSP as the production
+// servers; the wallet needs no cross-origin isolation, so no COEP is sent.
 //
 //   node tools/serve.mjs                # headers on, as nginx would send them
 //   node tools/serve.mjs --no-headers   # headers off, to exercise the service-worker fallback
@@ -15,6 +15,7 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { CSP, SECURITY_HEADERS } from "../deploy/http-policy.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("../dist", import.meta.url)));
 const args = process.argv.slice(2);
@@ -36,22 +37,7 @@ const TYPES = {
   ".txt": "text/plain; charset=utf-8",
 };
 
-const SECURITY = {
-  "Cross-Origin-Opener-Policy": "same-origin",
-  "Cross-Origin-Resource-Policy": "same-origin",
-};
-
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval'",
-  "worker-src 'self' blob:",
-  "style-src 'self'",
-  "img-src 'self' data:",
-  "connect-src 'self' http: https:",
-  "base-uri 'none'",
-  "form-action 'none'",
-  "frame-ancestors 'none'",
-].join("; ");
+const SECURITY = SECURITY_HEADERS;
 
 function headersFor(file) {
   const headers = { "Content-Type": TYPES[extname(file)] || "application/octet-stream", "Cache-Control": "no-store" };
@@ -71,7 +57,12 @@ const server = createServer(async (req, res) => {
     } catch {
       method = null;
     }
-    const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cross-Origin-Resource-Policy": "cross-origin", "Cache-Control": "no-store" };
+    const headers = {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      "Cache-Control": "no-store",
+    };
     if (req.method === "OPTIONS") {
       res.writeHead(204, { ...headers, "Access-Control-Allow-Headers": "content-type" });
       res.end();
@@ -79,11 +70,23 @@ const server = createServer(async (req, res) => {
     }
     if (method !== "get_info") {
       res.writeHead(200, headers);
-      res.end(JSON.stringify({ jsonrpc: "2.0", id: "mock", error: { code: -32601, message: "the mock node knows get_info only" } }));
+      res.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: "mock",
+          error: { code: -32601, message: "the mock node knows get_info only" },
+        }),
+      );
       return;
     }
     res.writeHead(200, headers);
-    res.end(JSON.stringify({ jsonrpc: "2.0", id: "mock", result: { height: 1, nettype: "stagenet", synchronized: true, version: "mock" } }));
+    res.end(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: "mock",
+        result: { height: 1, nettype: "stagenet", synchronized: true, version: "mock" },
+      }),
+    );
     return;
   }
 
@@ -113,5 +116,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`serving ${ROOT}`);
-  console.log(`http://127.0.0.1:${port}/  headers=${headerArgs ? "off (service-worker fallback)" : "on"} mockNode=${mockNode ? "on" : "off"}`);
+  console.log(
+    `http://127.0.0.1:${port}/  headers=${headerArgs ? "off (service-worker fallback)" : "on"} mockNode=${mockNode ? "on" : "off"}`,
+  );
 });

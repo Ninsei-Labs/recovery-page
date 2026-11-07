@@ -137,7 +137,7 @@ jobs:
       # CLOUDFLARE PAGES GETS THE dist/ THIS RUN BUILT AND CHECKED, whether or not the archive above was attached:
       # the two are separate copies of one build, and a failure of one must not hold back the other. Two
       # repository secrets: CLOUDFLARE_API_TOKEN (Account, Cloudflare Pages: Edit) and CLOUDFLARE_ACCOUNT_ID. The
-      # project is created on the first deploy; `dist/_headers` carries the isolation headers, which Pages applies.
+      # project is created on the first deploy; `dist/_headers` carries the security headers, which Pages applies.
       # No GitHub app is linked to Cloudflare: the run uploads the files itself, with wrangler run by Bun.
       - name: Deploy the page to Cloudflare Pages
         if: ${{ !cancelled() && steps.check.outcome == 'success' && env.HAS_CLOUDFLARE == 'true' }}
