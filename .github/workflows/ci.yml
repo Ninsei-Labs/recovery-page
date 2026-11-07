@@ -45,6 +45,13 @@ jobs:
       - name: Build and check
         run: bun run test
 
+      # THE COMMITTED ARTEFACT MUST BE THE ONE THE SOURCES BUILD. The build rewrites build.json's commit and time on
+      # every run, so that file is excluded; every other byte in dist/ must match the checked-in copy.
+      - name: The committed dist matches the build
+        run: |
+          git diff --exit-code -- dist ':!dist/build.json'
+          test -z "$(git status --porcelain --untracked-files=all -- dist ':!dist/build.json')"
+
       - name: Keep the built page
         uses: actions/upload-artifact@v4
         with:

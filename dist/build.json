@@ -1,163 +1,158 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.3.7",
-  "commit": "9b74d190e178167533c236f86dad7da571ac766c",
-  "builtAt": "2026-11-06T20:38:32.070Z",
+  "commit": "9a54639e6bf2038cfdb90811ebb214ed689b9bcc",
+  "builtAt": "2026-11-07T08:17:09.077Z",
   "files": [
     {
       "file": "monero.worker.js",
       "bytes": 3668386,
-      "sha256": "0d6effe1"
+      "sha256": "0d6effe1f50c40118560a2e43837615e5f8b3f4f77fd746d2a5b4a74a911c036"
     },
     {
       "file": "assets/vendors/monero/monero-ts-browser.js",
       "bytes": 3995587,
-      "sha256": "4bdc3690"
+      "sha256": "4bdc3690f2ce3067757f4fd81f721ca74d0b0605dc83b51a7aeebb5d95dd99cf"
     },
     {
       "file": "assets/vendors/sdk/sdk-browser.js",
       "bytes": 2743569,
-      "sha256": "36be3510"
+      "sha256": "36be35107a8cf7b91f0f8994dfc0de3c8ea1254206f28b7341bf8db4e541f070"
     },
     {
       "file": "assets/vendors/atomic/atomic-browser.js",
       "bytes": 220703,
-      "sha256": "207b9cdf"
+      "sha256": "207b9cdf6125177a66690009c41dd3b236b3597e1547a045bc576c9493026973"
     },
     {
       "file": "locales/available.js",
       "bytes": 126,
-      "sha256": "9a9553fc"
+      "sha256": "9a9553fc6655e3fb8c0ffda75da36dac9a18884ed6b73ed29605f177c348675b"
     },
     {
       "file": "locales/en/index.js",
-      "bytes": 29468,
-      "sha256": "96e903d6"
+      "bytes": 29887,
+      "sha256": "d1c8e1fd971faef743ca8912b41f277fb7f0b4599de312a559876e976e9a46fc"
     },
     {
       "file": "locales/index.js",
       "bytes": 11009,
-      "sha256": "ccdffd40"
+      "sha256": "ccdffd40e9bae19aed4cbcfd391d9151cc610ed1f5a02fccb872531acb5d2c60"
     },
     {
       "file": "index.html",
       "bytes": 11185,
-      "sha256": "e3f3495a"
+      "sha256": "e3f3495a23fba8cb9857bfacf88b044b07836e28919e9897f837964b27bc299b"
     },
     {
       "file": "recovery.css",
       "bytes": 32092,
-      "sha256": "dafffc04"
+      "sha256": "dafffc04e19ca9eef37591ef493d17572565bcc57aeab45edfeb92ff64123ce7"
     },
     {
       "file": "diagnostics.html",
       "bytes": 2779,
-      "sha256": "7d815b28"
+      "sha256": "7d815b288652736c67766f63cdb01caf78eaea8a0780700a947b8a1b6c01f006"
     },
     {
       "file": "favicon.svg",
       "bytes": 376,
-      "sha256": "eea8567b"
+      "sha256": "eea8567b3e8a7eb059e61533756f453d01d56e8e9359ecda8612c506e3ce8eca"
     },
     {
       "file": "LICENSE",
       "bytes": 1068,
-      "sha256": "eae58bd1"
+      "sha256": "eae58bd1cd5fe83e859d1bab6a1bd83b575512a90a7bee5c1b000e22e77226d9"
     },
     {
       "file": "THIRD_PARTY_NOTICES.txt",
       "bytes": 456614,
-      "sha256": "a0b0c774"
-    },
-    {
-      "file": "lib/codes.js",
-      "bytes": 23189,
-      "sha256": "ca701a3e"
+      "sha256": "a0b0c774b20899a15226c70df596f0b23c0b8544ca04347cabccaeb8a7bea75c"
     },
     {
       "file": "lib/node.js",
-      "bytes": 14676,
-      "sha256": "b2bac1fb"
+      "bytes": 14748,
+      "sha256": "e78bc8b7db2eb89cd11b4cfcfee5ff44ab03b6bf58b4206f3531715d493b6b67"
     },
     {
       "file": "lib/settlement.js",
       "bytes": 13733,
-      "sha256": "031c785d"
+      "sha256": "031c785d0ffbad963d6365c98074f0c9053a30bb3d535f4110f414dba3154ab5"
     },
     {
       "file": "lib/withdrawal.js",
-      "bytes": 4881,
-      "sha256": "29fb5a73"
+      "bytes": 5669,
+      "sha256": "65371c64cd7d27c752c3cb9532d3659ee28ed86c0d634c67fd91f765c461354e"
     },
     {
       "file": "assets/fonts/chakra-petch-OFL.txt",
       "bytes": 5472,
-      "sha256": "8f32c96e"
+      "sha256": "8f32c96ea465c5916489845361238b31b365414228bc2e4e45e3ae98ba1d311a"
     },
     {
       "file": "assets/fonts/chakra-petch-latin-600-normal.woff2",
       "bytes": 9968,
-      "sha256": "a5888696"
+      "sha256": "a5888696e9eb1b4bbbecc8eb3922b8369f49d4bddb72263e033cbd17f399be76"
     },
     {
       "file": "assets/fonts/geist-mono-OFL.txt",
       "bytes": 4498,
-      "sha256": "cc815ed4"
+      "sha256": "cc815ed4fc045f0e991abb10395b7932bd028c6a067deb13316d6002105074e6"
     },
     {
       "file": "assets/fonts/geist-mono-latin-400-normal.woff2",
       "bytes": 9864,
-      "sha256": "3f98383b"
+      "sha256": "3f98383b122fe015a48536cd4a1cda855a201718923ffe74931a01597107b9b5"
     },
     {
       "file": "assets/fonts/geist-mono-latin-500-normal.woff2",
       "bytes": 10116,
-      "sha256": "72971bd4"
+      "sha256": "72971bd4908d3984fa1b1426bb363730e4957e16a0f58bfbca76993095715488"
     },
     {
       "file": "assets/fonts/hanken-grotesk-OFL.txt",
       "bytes": 4530,
-      "sha256": "f45f60ca"
+      "sha256": "f45f60ca871850c58d8dc9c973bd6fcad40c137e9d037172b961e8ca68c87ef7"
     },
     {
       "file": "assets/fonts/hanken-grotesk-latin-400-normal.woff2",
       "bytes": 13460,
-      "sha256": "787b3fdd"
+      "sha256": "787b3fdd0b7e6d59ae7ce14ce7a41d1a44616584b4c919b527da951972d5d87d"
     },
     {
       "file": "assets/fonts/hanken-grotesk-latin-500-normal.woff2",
       "bytes": 13796,
-      "sha256": "31f666af"
+      "sha256": "31f666af7bff625900c46aa34a05d8620482ba2db37db7b63749b693ab0c72ec"
     },
     {
       "file": "assets/fonts/hanken-grotesk-latin-600-normal.woff2",
       "bytes": 13780,
-      "sha256": "58f23b7a"
+      "sha256": "58f23b7ae3e13b21a4dca4c05360be87b3531d60fc1cbff89732cac8fb3019ae"
     },
     {
       "file": "assets/fonts/silkscreen-OFL.txt",
       "bytes": 4503,
-      "sha256": "5e647e94"
+      "sha256": "5e647e94c4b72dc6c92dabfabb3c32225fbeff0f5f9e38db93c118b5bcb85d0c"
     },
     {
       "file": "assets/fonts/silkscreen-latin-700-normal.woff2",
       "bytes": 7524,
-      "sha256": "5741b7f0"
+      "sha256": "5741b7f01a127f40ed70281fa2f686e8fc2cfe241930a120e4d1a1cebe78f995"
     },
     {
       "file": "_headers",
       "bytes": 592,
-      "sha256": "15ba7eab"
+      "sha256": "15ba7eab5219a0c6ef47330cc6d3dc0276056ea8f8104ff1fcb673b53da56b6d"
     },
     {
       "file": "recovery.js",
-      "bytes": 72399,
-      "sha256": "d236206a"
+      "bytes": 73763,
+      "sha256": "0a4819ed051c9d9ab429c869b561e6f00d8ac4fb450c8f9e423fad6adeca5fb1"
     },
     {
       "file": "diagnostics.js",
-      "bytes": 19066,
-      "sha256": "a0fab376"
+      "bytes": 19858,
+      "sha256": "bbc91b22fed5516c1bd22da731df59c7cd7e8c9e7cb56d2de86946144b28873b"
     }
   ]
 }

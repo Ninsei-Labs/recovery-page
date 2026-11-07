@@ -67,8 +67,17 @@ const LIB = (await readdir(join(ROOT, "lib")))
   .map((name) => `lib/${name}`);
 
 // --- 1. the node address ----------------------------------------------------------------
-const { parseNodeUrl, NODES, DEFAULT_NODE, STAGENET_NODE, nodeVerdict, medianHeight, fastestGood, pingNode } =
-  await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
+const {
+  parseNodeUrl,
+  NODES,
+  DEFAULT_NODE,
+  STAGENET_NODE,
+  nodeVerdict,
+  medianHeight,
+  fastestGood,
+  pingNode,
+  networkFromNode,
+} = await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
 
 // A FAKE MONEROD, shaped as monerod answers (examples, not a recorded chain): get_info's `height` is the number of
 // blocks, so the top block is one lower; a header past the top is refused with monerod's own error; the genesis
@@ -305,6 +314,15 @@ await check("a ping asks twice and keeps the faster answer; a failed first answe
   assert.deepEqual(await pingNode(url, throws.probe), { ok: false, why: "unreachable" });
 });
 
+await check("an unknown node nettype is not guessed as stagenet", () => {
+  assert.equal(networkFromNode({ nettype: "mainnet" }), "mainnet");
+  assert.equal(networkFromNode({ nettype: "STAGENET" }), "stagenet");
+  assert.equal(networkFromNode({ nettype: "testnet" }), "testnet");
+  assert.equal(networkFromNode({ nettype: "some-other-chain" }), null);
+  assert.equal(networkFromNode({}), null);
+  assert.equal(networkFromNode(null), null);
+});
+
 // --- 2. one key set for the one language ------------------------------------------------
 const localesDir = join(ROOT, "locales");
 const tags = (await readdir(localesDir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
@@ -390,7 +408,7 @@ await check("the node list has no check button, and its rows are radios of one g
 });
 
 // --- 2b. the recovery key, the swaps it finds, the state of their money --------------------------
-const { swapState, moneyState, statusFromEvents } = await import(
+const { swapState, moneyState, statusFromEvents, scanStartHeight } = await import(
   pathToFileURL(join(ROOT, "lib", "withdrawal.js")).href
 );
 const { SETTLEMENT, settlementOf, evmCall, keyNetworks, evmLogs, LOG_WINDOW } = await import(
@@ -649,6 +667,20 @@ await check(
     return `${MONEY_STATES.length} cases`;
   },
 );
+
+await check("a start height is a block the node already has", () => {
+  const cases = [
+    ["zero, a full scan", 0, 3_500_000, { ok: true, height: 0 }],
+    ["the tip itself", 3_500_000, 3_500_000, { ok: true, height: 3_500_000 }],
+    ["below the tip", 3_499_999, 3_500_000, { ok: true, height: 3_499_999 }],
+    ["above the tip", 3_500_001, 3_500_000, { ok: false, reason: "above-tip", tip: 3_500_000 }],
+    ["a negative height", -1, 3_500_000, { ok: false, reason: "bad" }],
+    ["a fractional height", 1.5, 3_500_000, { ok: false, reason: "bad" }],
+    ["an unknown tip", 3_500_001, null, { ok: true, height: 3_500_001 }],
+  ];
+  for (const [what, value, tip, expected] of cases) assert.deepEqual(scanStartHeight(value, tip), expected, what);
+  return `${cases.length} cases`;
+});
 
 await check("every word a swap row, the state of the money and the flow's stops can show exists", async () => {
   const keys = new Set();
@@ -1576,6 +1608,12 @@ await check("the page keeps the SDK's scan verdict and scans from the start bloc
     "the full scan is not from the start block",
   );
   assert.match(sync, /restored\.scanComplete === true/, "syncWallet treats a missing scan verdict as complete");
+  assert.match(
+    sync,
+    /scanStartHeight\(height, nodeTip\)/,
+    "syncWallet does not bound the start height by the node tip",
+  );
+  assert.match(sync, /flow\.err\.height/, "an above-tip start height has no refusal");
   assert.ok(!/restoreWindow/.test(sync), "syncWallet still starts the lock window");
   assert.ok(!/window:\s*lockWindow/.test(sync), "syncWallet still passes a lock window");
   assert.ok(
@@ -1656,6 +1694,10 @@ await check("an open swap has one context and drops a superseded continuation", 
     (open.match(/if \(!stillCurrent\(\)\) return false/g) || []).length >= 3,
     true,
     "openSwap writes after an await without checking the row",
+  );
+  assert.ok(
+    (open.match(/catch \(e\) \{\s*if \(!stillCurrent\(\)\) return false;/g) || []).length >= 2,
+    "an open's error branch can write under a later row",
   );
 });
 
@@ -1942,6 +1984,15 @@ await check(
 );
 
 // THE PER-SWAP FILE IS GONE WITH NO TRANSITION: no field opens one, and nothing the page loads reads one.
+await check("a key file is refused by size before it is read", async () => {
+  const page = await read("recovery.js");
+  const chosen = bodyOf(page, "onKeyFileChosen");
+  assert.match(page, /const MAX_KEY_FILE_BYTES = 1_000_000/, "the page has no key-file size limit");
+  const guard = chosen.indexOf("file.size > MAX_KEY_FILE_BYTES");
+  const readAt = chosen.indexOf("await file.text()");
+  assert.ok(guard >= 0 && readAt > guard, "the key file is read before its size is checked");
+});
+
 await check("no per-swap recovery file can be opened any more", async () => {
   const html = await read("index.html");
   const page = await read("recovery.js");
@@ -2018,8 +2069,9 @@ await check("build.json lists every built file with its real hash", async () => 
       continue;
     }
     const bytes = await readFile(path);
-    const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 8);
-    if (hash !== entry.sha256 || bytes.length !== entry.bytes) wrong.push(`${entry.file}: hash or size differs`);
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    if (!/^[0-9a-f]{64}$/.test(entry.sha256) || hash !== entry.sha256 || bytes.length !== entry.bytes)
+      wrong.push(`${entry.file}: hash or size differs`);
   }
   assert.deepEqual(wrong, []);
   return `${manifest.files.length} files, version ${manifest.version}`;

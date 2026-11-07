@@ -307,8 +307,8 @@ export function fastestGood(entries, network = "mainnet") {
 
 // The name of the network as monero-ts takes it (lowercase). The node answers with its own nettype,
 // and the wallet MUST be built from that: a mainnet wallet against a stagenet node looks like a
-// broken sweep, and did once.
+// broken sweep, and did once. An unknown nettype is null: a caller must refuse it, not guess another chain.
 export function networkFromNode(info) {
   const t = String((info && info.nettype) || "").toLowerCase();
-  return t === "mainnet" || t === "testnet" || t === "stagenet" ? t : "stagenet";
+  return t === "mainnet" || t === "testnet" || t === "stagenet" ? t : null;
 }

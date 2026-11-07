@@ -97,7 +97,12 @@ const common = {
 };
 
 // --- 2. Hash, stamp, report -----------------------------------------------------------------
-const sha = (buf) => createHash("sha256").update(buf).digest("hex").slice(0, 8);
+// THE MANIFEST NAMES THE WHOLE DIGEST; the `?v=` stamp names its first eight characters because it is a cache-busting
+// URL, not a security check. A 32-bit prefix in build.json would let a second preimage be found in minutes, so the
+// operator-facing manifest gets all 64 hex characters.
+const digest = (buf) => createHash("sha256").update(buf).digest("hex");
+const sha = (buf) => digest(buf).slice(0, 8);
+
 const size = (n) => (n / 1024 / 1024 >= 1 ? `${(n / 1048576).toFixed(2)} MB` : `${Math.round(n / 1024)} KB`);
 const written = [];
 // THE ARTEFACT HAS ONE SET OF BYTES ON EVERY MACHINE. A Windows checkout has CRLF in the sources, and copying
@@ -115,7 +120,7 @@ async function emit(rel, bytes) {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, artifact);
   const info = await stat(path);
-  written.push({ file: rel, bytes: info.size, sha256: sha(artifact) });
+  written.push({ file: rel, bytes: info.size, sha256: digest(artifact) });
   console.log(`  ${rel.padEnd(46)} ${size(info.size).padStart(8)}  ${sha(artifact)}`);
 }
 
