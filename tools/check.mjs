@@ -2161,6 +2161,33 @@ await check("the release checks the tag against package.json", async () => {
   assert.ok(!/run: bun tools\/version-from-tag\.mjs "\$TAG"\s*$/m.test(workflow), "the release rewrites package.json");
 });
 
+await check("the release keeps write and Cloudflare access out of the build", async () => {
+  const workflow = await read(".github/workflows/release.yml");
+  const block = (start, end) => {
+    const from = workflow.indexOf(start);
+    if (from < 0) throw new Error(`no ${start.trim()} job`);
+    const to = end ? workflow.indexOf(end, from + start.length) : workflow.length;
+    if (to < 0) throw new Error(`no ${end.trim()} after ${start.trim()}`);
+    return workflow.slice(from, to);
+  };
+  const build = block("  build:", "  publish:");
+  const publish = block("  publish:", "  deploy:");
+  const deploy = block("  deploy:");
+  assert.match(workflow, /^permissions:\s*\n\s*contents:\s*read/m, "the workflow grants write at the top level");
+  assert.match(build, /permissions:\s*\n\s*contents:\s*read/, "the build job does not have read-only contents");
+  assert.match(build, /persist-credentials:\s*false/, "the build checkout keeps the repository token");
+  assert.ok(!/contents:\s*write/.test(build), "the build job has a write token");
+  assert.ok(!/CLOUDFLARE_|secrets\./.test(build), "the build job sees a deploy secret");
+  assert.match(publish, /contents:\s*write/, "the publish job cannot create a release");
+  assert.match(publish, /actions\/download-artifact/, "the publish job does not take the tested artefact");
+  assert.match(deploy, /permissions:\s*\n\s*contents:\s*read/, "the deploy job has more than read access");
+  assert.match(deploy, /persist-credentials:\s*false/, "the deploy checkout keeps the repository token");
+  assert.match(deploy, /environment:\s*\n\s*name:\s*cloudflare-pages/, "the deploy job has no protected environment");
+  assert.match(deploy, /actions\/download-artifact/, "the deploy job does not take the tested artefact");
+  assert.match(workflow, /actions\/upload-artifact/, "the build does not keep the tested page");
+  assert.ok(!/HAS_CLOUDFLARE/.test(workflow), "the old secret-presence switch is back");
+});
+
 await check("the workflows run Bun and never npm", async () => {
   const dir = join(ROOT, ".github", "workflows");
   const files = (await readdir(dir)).filter((f) => f.endsWith(".yml"));

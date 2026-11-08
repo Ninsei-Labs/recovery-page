@@ -147,10 +147,15 @@ The tag must point at a commit on `main` whose `build` run, on the push to `main
 `release` workflow refuses any other before it builds anything, after waiting at most 20 minutes for
 a `build` run still going. It then takes the version from the tag, installs the locked dependencies,
 runs the checks, and attaches one archive to a GitHub release: the contents of `dist/`, plus a
-`.sha256`. Nothing is published to npm - the page is not a library. The same run then deploys that
-`dist/` to Cloudflare Pages (project `ninsei-recovery`), which serves it at
-`https://recovery.ninsei.finance`; it needs the repository secrets `CLOUDFLARE_API_TOKEN`
-(Cloudflare Pages: Edit) and `CLOUDFLARE_ACCOUNT_ID`.
+`.sha256`. Nothing is published to npm - the page is not a library.
+
+The workflow has three jobs with different access: `build` has `contents: read`, no write token and
+no Cloudflare secret; `publish` has `contents: write` and only attaches the verified archive;
+`deploy` has `contents: read` and uploads the same built `dist/` to Cloudflare Pages. The deploy job
+uses the protected `cloudflare-pages` environment, which is where the required reviewers belong. It
+needs the repository secrets `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit) and
+`CLOUDFLARE_ACCOUNT_ID`. A missing Cloudflare token leaves the archive published and skips the
+deploy, as before.
 
 To verify an archive before serving it, compare every file with `build.json` inside it, or check the
 archive itself against the published `.sha256`.
