@@ -16,7 +16,7 @@
         "https-browserify": "1.0.0",
         "keccak256": "1.0.6",
         "memfs": "4.80.0",
-        "monero-ts": "0.11.21",
+        "monero-ts": "0.11.22",
         "os-browserify": "0.3.0",
         "path-browserify": "1.0.1",
         "process": "0.11.10",
@@ -307,7 +307,7 @@
 
     "minimalistic-crypto-utils": ["minimalistic-crypto-utils@1.0.1", "", {}, "sha512-JIYlbt6g8i5jKfJ3xz7rF0LXmv2TkDxBLUkiBeZ7bAx4GnnNMr8xFpGnOxn6GhTEHx3SjRrZEoU+j04prX1ktg=="],
 
-    "monero-ts": ["monero-ts@0.11.21", "", { "dependencies": { "@babel/runtime": "^7.23.2", "@types/node": "^20.6.0", "ajv": "^6.12.6", "async": "2.6.4", "axios": "^1.7.4", "crypto-js": "^4.0.0", "decimal.js": "^10.4.3", "net": "^1.0.2", "socks-proxy-agent": "^8.0.5", "text-encoding": "^0.7.0", "tls": "0.0.1", "web-worker": "1.3.0" } }, "sha512-In7BnKO4lutIPjiIBQeMexDFHKik17i6nhu618D0IrKopftYeTJAtBIdKeSaHuUua+sntDWp5FhOqyFQYVooLg=="],
+    "monero-ts": ["monero-ts@0.11.22", "", { "dependencies": { "@babel/runtime": "^7.23.2", "@types/node": "^20.6.0", "ajv": "^6.12.6", "async": "2.6.4", "axios": "^1.7.4", "crypto-js": "^4.0.0", "decimal.js": "^10.4.3", "net": "^1.0.2", "socks-proxy-agent": "^8.0.5", "text-encoding": "^0.7.0", "tls": "0.0.1", "web-worker": "1.3.0" } }, "sha512-+AoET0GD1lKaENhE+TVQGONeNJUWNBI7cei0qBh21EGzYzDSW4OmYgDy3+FeFdCdUPulhiy1v0CfSibWzNDNSQ=="],
 
     "ms": ["ms@2.1.3", "", {}, "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="],
 

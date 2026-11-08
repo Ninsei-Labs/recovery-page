@@ -6724,7 +6724,7 @@ Source: git+ssh://git@github.com/indutny/minimalistic-crypto-utils.git
 No licence file was included by the package; the declared licence is MIT.
 
 ====================================================================================================
-monero-ts 0.11.21
+monero-ts 0.11.22
 License: MIT
 Source: git+https://github.com/woodser/monero-ts.git
 
