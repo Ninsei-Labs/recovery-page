@@ -1,18 +1,18 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.3.7",
-  "commit": "05deee2d48ca7bfa4f1cce6a64356ef0207d2c2a",
-  "builtAt": "2026-11-07T09:58:59.485Z",
+  "commit": "af4130b6b122a6493c19276ba7c6470f24013449",
+  "builtAt": "2026-11-08T15:06:13.730Z",
   "files": [
     {
       "file": "monero.worker.js",
-      "bytes": 3668386,
-      "sha256": "0d6effe1f50c40118560a2e43837615e5f8b3f4f77fd746d2a5b4a74a911c036"
+      "bytes": 3669221,
+      "sha256": "a118abf560ecbba372fc41a0c41cef468feb4c5e3f732598d1316c4c06a78b84"
     },
     {
       "file": "assets/vendors/monero/monero-ts-browser.js",
-      "bytes": 3995587,
-      "sha256": "4bdc3690f2ce3067757f4fd81f721ca74d0b0605dc83b51a7aeebb5d95dd99cf"
+      "bytes": 3996488,
+      "sha256": "9838c5914428da87514229dfff2411c583d1d7c9f34a296ba9fb9305aec06b7a"
     },
     {
       "file": "assets/vendors/sdk/sdk-browser.js",
@@ -142,12 +142,12 @@
     {
       "file": "recovery.js",
       "bytes": 74245,
-      "sha256": "f38350306b5ddea3919b99d1aaff2eb984062cbf2385f28dd1951329d9e749ca"
+      "sha256": "b24d66669e32148c420969e17071ad2c86fc9e05d51934c1d875cc8ec1a9435d"
     },
     {
       "file": "diagnostics.js",
       "bytes": 19853,
-      "sha256": "969d848f00536e6bda465a54f06276968a277d8b40035ec83f3406d6135074ad"
+      "sha256": "977ace3e02209017eb755ec92e955cb5f9a8cee19766d3372202710273ccdab2"
     }
   ]
 }

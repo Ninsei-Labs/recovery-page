@@ -27,8 +27,8 @@ function requireNetwork(info) {
   return net;
 }
 
-const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=4bdc3690";
-const WORKER = "./monero.worker.js?v=0d6effe1";
+const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=9838c591";
+const WORKER = "./monero.worker.js?v=a118abf5";
 const SCAN_LOOKBACK = 3000;
 
 const out = document.getElementById("out");
