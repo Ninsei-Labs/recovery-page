@@ -35,7 +35,8 @@ ENV TZ=UTC \
 
 # tzdata keeps timestamps honest in logs; ca-certificates is what a reverse proxy or an operator's
 # tooling may need. No secret ever enters through this file.
-RUN apt-get update \
+RUN apt-get update \ 
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends tzdata ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 
