@@ -11,7 +11,7 @@ name: release
 #   build   - no write token, no Cloudflare secret: checkout, test, pack the archive;
 #   publish - a write token, no dependency install: attach the verified archive to the release;
 #   deploy  - no repository write token: upload the same built `dist/` to Cloudflare Pages.
-# The deploy job uses the protected `cloudflare-pages` environment. The build job never sees the
+# The deploy job uses the protected `recovery-deploy` environment. The build job never sees the
 # Cloudflare token, and the publish job never runs a dependency install.
 
 on:
@@ -211,7 +211,7 @@ jobs:
       actions: read # download the release-dist artifact
     # The environment, not this file, carries the protection rule and the required reviewers (#58).
     environment:
-      name: cloudflare-pages
+      name: recovery-deploy
       url: https://recovery.ninsei.finance
     steps:
       - uses: actions/checkout@v7
