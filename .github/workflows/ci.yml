@@ -59,3 +59,43 @@ jobs:
           path: dist
           retention-days: 30
           if-no-files-found: error
+
+  # THE DOCKERFILE IS A DEPLOYABLE ARTEFACT TOO. The build above checks the Bun tree; this job proves the
+  # container image still builds and that the image answers its own health check. It pushes nothing.
+  docker:
+    name: build the container image
+    needs: build
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up BuildKit
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ninsei-recovery:ci
+
+      - name: The image serves the page
+        run: |
+          set -eu
+          docker run -d --name recovery-ci -p 127.0.0.1:18080:8080 ninsei-recovery:ci
+          trap 'docker rm -f recovery-ci >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/index.html | grep -q "Ninsei recovery"; then
+              echo "the image serves index.html"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs recovery-ci || true
+          echo "the image did not serve the page in 30 s" >&2
+          exit 1
