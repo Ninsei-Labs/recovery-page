@@ -28,6 +28,13 @@ RUN bun build/build.mjs && bun tools/check.mjs
 
 FROM oven/bun:1.4.4-slim AS runtime
 
+# THE PACKAGE BELONGS TO THIS REPOSITORY. GHCR uses the source label to link the image to the release repository,
+# which is also what lets the repository's Actions workflows pull the private package.
+LABEL org.opencontainers.image.source="https://github.com/Ninsei-Labs/recovery-page" \
+      org.opencontainers.image.title="Ninsei recovery page" \
+      org.opencontainers.image.description="Static page that finds the swaps of a Ninsei recovery key and withdraws their XMR" \
+      org.opencontainers.image.licenses="MIT"
+
 ENV TZ=UTC \
     NODE_ENV=production \
     PORT=8080 \
@@ -35,7 +42,8 @@ ENV TZ=UTC \
 
 # tzdata keeps timestamps honest in logs; ca-certificates is what a reverse proxy or an operator's
 # tooling may need. No secret ever enters through this file.
-RUN apt-get update \ 
+RUN export DEBIAN_FRONTEND=noninteractive; \
+    apt-get update \
  && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends tzdata ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*

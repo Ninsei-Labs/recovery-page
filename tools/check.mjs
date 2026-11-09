@@ -2170,7 +2170,8 @@ await check("the release keeps write and Cloudflare access out of the build", as
     if (to < 0) throw new Error(`no ${end.trim()} after ${start.trim()}`);
     return workflow.slice(from, to);
   };
-  const build = block("  build:", "  publish:");
+  const build = block("  build:", "  image:");
+  const image = block("  image:", "  publish:");
   const publish = block("  publish:", "  deploy:");
   const deploy = block("  deploy:");
   assert.match(workflow, /^permissions:\s*\n\s*contents:\s*read/m, "the workflow grants write at the top level");
@@ -2178,6 +2179,16 @@ await check("the release keeps write and Cloudflare access out of the build", as
   assert.match(build, /persist-credentials:\s*false/, "the build checkout keeps the repository token");
   assert.ok(!/contents:\s*write/.test(build), "the build job has a write token");
   assert.ok(!/CLOUDFLARE_|secrets\./.test(build), "the build job sees a deploy secret");
+  assert.match(
+    image,
+    /permissions:\s*\n\s*contents:\s*read\s*\n\s*packages:\s*write/,
+    "the image job cannot publish to GHCR",
+  );
+  assert.match(image, /persist-credentials:\s*false/, "the image checkout keeps the repository token");
+  assert.match(image, /docker\/login-action@v\d+/, "the image job does not log in to GHCR");
+  assert.match(image, /push:\s*true/, "the image job does not push the image");
+  assert.ok(!/CLOUDFLARE_/.test(image), "the image job sees a Cloudflare secret");
+  assert.match(publish, /needs:\s*\[build,\s*image\]/, "the release can publish before the image exists");
   assert.match(publish, /contents:\s*write/, "the publish job cannot create a release");
   assert.match(publish, /actions\/download-artifact/, "the publish job does not take the tested artefact");
   assert.match(deploy, /permissions:\s*\n\s*contents:\s*read/, "the deploy job has more than read access");
@@ -2186,6 +2197,18 @@ await check("the release keeps write and Cloudflare access out of the build", as
   assert.match(deploy, /actions\/download-artifact/, "the deploy job does not take the tested artefact");
   assert.match(workflow, /actions\/upload-artifact/, "the build does not keep the tested page");
   assert.ok(!/HAS_CLOUDFLARE/.test(workflow), "the old secret-presence switch is back");
+});
+
+await check("the container image is built in CI and published on a tag", async () => {
+  const ci = await read(".github/workflows/ci.yml");
+  const release = await read(".github/workflows/release.yml");
+  assert.match(ci, /^  docker:/m, "CI has no docker job");
+  assert.match(ci, /docker\/build-push-action@v\d+/, "CI does not build the Dockerfile");
+  assert.match(ci, /push:\s*false/, "the CI image job pushes an image");
+  assert.match(release, /ghcr\.io\/ninsei-labs\/recovery-page/, "the release has no GHCR image name");
+  assert.match(release, /packages:\s*write/, "the release cannot write the package");
+  assert.match(release, /docker\/login-action@v\d+/, "the release does not log in to GHCR");
+  assert.match(release, /push:\s*true/, "the release does not push the image");
 });
 
 await check("the workflows run Bun and never npm", async () => {

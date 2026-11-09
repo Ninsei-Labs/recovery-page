@@ -134,6 +134,20 @@ UID 10001, `TZ=UTC`, and a health check that fetches `index.html` over HTTP and 
 The container speaks **HTTP**. Terminate TLS in front of it and make sure the reverse proxy passes the
 `Content-Security-Policy` through untouched.
 
+On a `v*` tag the release workflow also publishes the image:
+
+```
+ghcr.io/ninsei-labs/recovery-page:<tag>
+ghcr.io/ninsei-labs/recovery-page:latest
+```
+
+The package is private by default. Pull it with a GitHub token that has `read:packages`:
+
+```
+echo "$GHCR_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
+docker pull ghcr.io/ninsei-labs/recovery-page:<tag>
+```
+
 ## Releases
 
 A tag makes a release:
@@ -149,8 +163,9 @@ a `build` run still going. It then takes the version from the tag, installs the 
 runs the checks, and attaches one archive to a GitHub release: the contents of `dist/`, plus a
 `.sha256`. Nothing is published to npm - the page is not a library.
 
-The workflow has three jobs with different access: `build` has `contents: read`, no write token and
-no Cloudflare secret; `publish` has `contents: write` and only attaches the verified archive;
+The workflow has four jobs with different access: `build` has `contents: read`, no write token and
+no Cloudflare secret; `image` has `packages: write` and publishes the container image to GHCR;
+`publish` has `contents: write` and only attaches the verified archive, after the image exists;
 `deploy` has `contents: read` and uploads the same built `dist/` to Cloudflare Pages. The deploy job
 uses the protected `cloudflare-pages` environment, which is where the required reviewers belong. It
 needs the repository secrets `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit) and
