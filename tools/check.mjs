@@ -2193,7 +2193,7 @@ await check("the release keeps write and Cloudflare access out of the build", as
   assert.match(publish, /actions\/download-artifact/, "the publish job does not take the tested artefact");
   assert.match(deploy, /permissions:\s*\n\s*contents:\s*read/, "the deploy job has more than read access");
   assert.match(deploy, /persist-credentials:\s*false/, "the deploy checkout keeps the repository token");
-  assert.match(deploy, /environment:\s*\n\s*name:\s*cloudflare-pages/, "the deploy job has no protected environment");
+  assert.match(deploy, /environment:\s*\n\s*name:\s*recovery-deploy/, "the deploy job has no protected environment");
   assert.match(deploy, /actions\/download-artifact/, "the deploy job does not take the tested artefact");
   assert.match(workflow, /actions\/upload-artifact/, "the build does not keep the tested page");
   assert.ok(!/HAS_CLOUDFLARE/.test(workflow), "the old secret-presence switch is back");
