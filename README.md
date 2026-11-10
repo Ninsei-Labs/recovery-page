@@ -168,10 +168,9 @@ The workflow has four jobs with different access: `build` has `contents: read`, 
 no Cloudflare secret; `image` has `packages: write` and publishes the container image to GHCR;
 `publish` has `contents: write` and only attaches the verified archive, after the image exists;
 `deploy` has `contents: read` and uploads the same built `dist/` to Cloudflare Pages. The deploy job
-uses the protected `cloudflare-pages` environment, which is where the required reviewers belong. It
-needs the repository secrets `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit) and
-`CLOUDFLARE_ACCOUNT_ID`. A missing Cloudflare token leaves the archive published and skips the
-deploy, as before.
+uses the protected `recovery-deploy` environment, which is where the required reviewers and the
+`CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit) and `CLOUDFLARE_ACCOUNT_ID` environment secrets
+belong. A missing Cloudflare token leaves the archive published and skips the deploy, as before.
 
 To verify an archive before serving it, compare every file with `build.json` inside it, or check the
 archive itself against the published `.sha256`.
