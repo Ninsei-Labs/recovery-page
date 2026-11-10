@@ -1100,8 +1100,16 @@ async function ethSend() {
     ]);
     const receipt = await waitForEthReceipt(hash, adapter);
     if (!receipt.ok) {
-      ethSendBtn.disabled = false;
-      return say(ethErrorEl, receipt.why === "reverted" ? "eth.err.reverted" : "eth.err.receipt");
+      if (receipt.why === "reverted") {
+        // A REVERTED CALL IS A TERMINAL ANSWER: no receipt will arrive, so the confirmation comes back with a
+        // usable send button. A timeout is different: the transaction may still land, and re-sending it would be a
+        // second action on the same order.
+        ethDoneEl.hidden = true;
+        ethConfirmEl.hidden = false;
+        ethSendBtn.disabled = false;
+        return say(ethErrorEl, "eth.err.reverted");
+      }
+      return say(ethErrorEl, "eth.err.receipt");
     }
     // ONLY AN OBSERVED RECEIPT MOVES THE ROW. The row state is local until a fresh search; no claim of success
     // before the chain has executed the call.
@@ -1125,13 +1133,18 @@ async function ethSend() {
           ? "eth.err.chain"
           : e && e.code === "wallet-rejected"
             ? "eth.err.rejectSend"
-            : e && e.code === "contract-reverted"
-              ? ["too-early", "window-closed", "not-ready", "ready-window-closed"].includes(e.params && e.params.why)
-                ? "eth.err.window"
-                : "eth.err.reverted"
-              : e && e.code === "wallet-not-connected"
-                ? "eth.err.connect"
-                : "eth.err.send";
+            : e &&
+                e.code === "bad-input" &&
+                e.params &&
+                (e.params.field === "wallet" || e.params.field === "wallet.address")
+              ? "eth.err.account"
+              : e && e.code === "contract-reverted"
+                ? ["too-early", "window-closed", "not-ready", "ready-window-closed"].includes(e.params && e.params.why)
+                  ? "eth.err.window"
+                  : "eth.err.reverted"
+                : e && e.code === "wallet-not-connected"
+                  ? "eth.err.connect"
+                  : "eth.err.send";
     return say(ethErrorEl, key);
   } finally {
     ethBusy = false;
