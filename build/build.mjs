@@ -34,13 +34,21 @@ const require = createRequire(import.meta.url);
 
 const pkg = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
 
-// THE COMMIT OF THE CHECKOUT, read once: `build.json` and the footer must name the same build.
-let commit = null;
-try {
-  const { checkoutCommit } = await import(pathToFileURL(join(ROOT, "build", "commit.mjs")).href);
-  commit = checkoutCommit();
-} catch {
-  commit = null;
+// THE COMMIT OF THE CHECKOUT, read once: `build.json` and the footer must name the same build. CI checks a pull
+// request at its merge commit, so it passes the commit the committed dist was built from; otherwise the footer
+// would differ on every PR even when the page bytes are identical.
+const requestedCommit = String(process.env.BUILD_COMMIT || "").trim();
+if (requestedCommit && !/^[0-9a-f]{40}$/i.test(requestedCommit)) {
+  throw new Error("BUILD_COMMIT must be a full 40-character commit hash");
+}
+let commit = requestedCommit ? requestedCommit.toLowerCase() : null;
+if (!commit) {
+  try {
+    const { checkoutCommit } = await import(pathToFileURL(join(ROOT, "build", "commit.mjs")).href);
+    commit = checkoutCommit();
+  } catch {
+    commit = null;
+  }
 }
 const commitShort = commit ? commit.slice(0, 7) : "unknown";
 

@@ -43,7 +43,13 @@ jobs:
           bun fmt --no-script --check --changed="origin/$base"
 
       - name: Build and check
-        run: bun run test
+        run: |
+          # THE CHECKOUT IS THE MERGE COMMIT, BUT THE COMMITTED dist/ CARRIES THE COMMIT IT WAS BUILT FROM.
+          # Rebuild with that commit so the footer is identical and the dist comparison tests the page, not the
+          # pull request ref.
+          commit="$(node -p "require('./dist/build.json').commit || ''")"
+          if [ -n "$commit" ]; then export BUILD_COMMIT="$commit"; fi
+          bun run test
 
       # THE COMMITTED ARTEFACT MUST BE THE ONE THE SOURCES BUILD. The build rewrites build.json's commit and time on
       # every run, so that file is excluded; every other byte in dist/ must match the checked-in copy.
