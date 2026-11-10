@@ -89,6 +89,7 @@ export function keyNetworks(chains) {
       since: Math.min(...factories.map((factory) => factory.deploymentBlock)),
       monero: own.monero,
       native: chain.native || null,
+      explorer: chain.explorerTx || null,
     });
   }
   return { search, unreadable };

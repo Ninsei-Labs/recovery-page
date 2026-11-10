@@ -512,7 +512,7 @@ const SWAP_STATES = [
     "a buy at its deadline",
     { side: "buy", status: funded(), deadline: DEADLINE, now: DEADLINE },
     "buy.late",
-    "later",
+    "refund",
     { deadline: DEADLINE },
   ],
   [
@@ -551,11 +551,25 @@ const SWAP_STATES = [
     { deadline: DEADLINE },
   ],
   [
+    "a sell with the maker's ready mark",
+    { side: "sell", status: funded({ isReady: true }), deadline: DEADLINE, now: DEADLINE - 60_000 },
+    "sell.open",
+    "claim",
+    { deadline: DEADLINE },
+  ],
+  [
+    "a sell after readyBy without a mark",
+    { side: "sell", status: funded(), deadline: DEADLINE, readyBy: DEADLINE - 30_000, now: DEADLINE - 60_000 + 31_000 },
+    "sell.open",
+    "claim",
+    { deadline: DEADLINE },
+  ],
+  [
     "a sell past its deadline",
     { side: "sell", status: funded(), deadline: DEADLINE, now: DEADLINE + 1 },
     "sell.late",
-    "later",
-    { deadline: DEADLINE },
+    "none",
+    {},
   ],
   ["the status read failed", { side: "buy", status: null }, "unknown", "unknown", {}],
   ["an escrow that was never funded", { side: "sell", status: funded({ isFunded: false }) }, "unknown", "unknown", {}],
@@ -585,25 +599,35 @@ await check("escrow events name the claim, refund and decline without status()",
     isClaimed: false,
     isRefunded: false,
     isDeclined: false,
+    isReady: false,
   });
   assert.deepEqual(
     statusFromEvents([
       { event: "Ready", by: "0x" + "1".repeat(40) },
       { event: "HalfRevealed", byClaimer: true, half: "0x" + "2".repeat(64) },
     ]),
-    { isFunded: true, isClaimed: true, isRefunded: false, isDeclined: false },
+    { isFunded: true, isClaimed: true, isRefunded: false, isDeclined: false, isReady: true },
   );
   assert.deepEqual(statusFromEvents([{ event: "HalfRevealed", byClaimer: false, half: "0x" + "3".repeat(64) }]), {
     isFunded: true,
     isClaimed: false,
     isRefunded: true,
     isDeclined: false,
+    isReady: false,
   });
   assert.deepEqual(statusFromEvents([{ event: "Declined", by: "0x" + "4".repeat(40) }]), {
     isFunded: true,
     isClaimed: false,
     isRefunded: true,
     isDeclined: true,
+    isReady: false,
+  });
+  assert.deepEqual(statusFromEvents([{ event: "Ready", by: "0x" + "0".repeat(40) }]), {
+    isFunded: true,
+    isClaimed: false,
+    isRefunded: false,
+    isDeclined: false,
+    isReady: false,
   });
 });
 
@@ -788,6 +812,12 @@ await check("sweep.fromOrder opens the address the maker paid, on a buy and a se
           order: found,
         });
         assert.equal(built.address, paid, `${what}: the SDK's address is not the one the maker paid`);
+        assert.equal(built.kind, buy ? "refund" : "claim", `${what}: ETH action kind`);
+        assert.equal(built.escrow, escrow, `${what}: ETH action escrow`);
+        assert.equal(built.expect.chainId, 421614, `${what}: ETH action chain`);
+        assert.equal(built.expect.locker, found.locker, `${what}: ETH action locker`);
+        assert.equal(built.expect.claimer, found.claimer, `${what}: ETH action claimer`);
+        assert.match(built.half, /^0x[0-9a-fA-F]{64}$/, `${what}: ETH action half`);
         const payload = built.payload;
         validatePayload(payload);
         assert.equal(payload.swapId, escrow, what);
@@ -1435,7 +1465,72 @@ await check(
   },
 );
 
-// THE TWO READERS: what they ask, and that a missing answer throws instead of reading as 0.
+// THE ETH ACTION GOES THROUGH THE SAME WALLET THAT WILL SIGN. `sweep.fromOrder` plans from order fields; the call
+// that leaves the tab is built by the SDK's action and sent by the wallet adapter, not by the page.
+await check("the ETH action is built by the SDK and sent by the wallet's own provider", async () => {
+  const page = (await read("recovery.js")).replace(/\/\/.*$/gm, "");
+  assert.match(page, /const ETH_SELECTOR = Object\.freeze\(\{ refund: "0x7249fbb6", claim: "0xbd66528a" \}\)/);
+  const core = bodyOf(page, "actionCore");
+  assert.match(core, /evmCall: call/, "the action core does not read through the wallet provider");
+  assert.match(core, /provider\.request\(\{ method: "eth_call"/, "the action core is not an eth_call");
+  assert.match(
+    core,
+    /settlement: \{ chain: row\.net\.chainId \}/,
+    "the action core names the chain by id, not by name",
+  );
+  assert.match(core, /fetch: noService/, "the action core's SDK may reach a service");
+  const send = bodyOf(page, "ethSend");
+  assert.match(send, /core\.actions\[kind\]\(request, adapter\)/, "the ETH send does not go through the SDK action");
+  assert.ok(!/eth_sendTransaction[^\n]*core\.actions/.test(send), "the page sends its own eth_sendTransaction");
+  assert.match(
+    bodyOf(page, "ethConnect"),
+    /mod\.evmWallet\(provider\)/,
+    "the ETH action does not use the wallet adapter",
+  );
+  assert.ok(!/eth_sendTransaction/.test(page), "the page builds its own eth_sendTransaction");
+  const open = bodyOf(page, "openSwap");
+  assert.match(
+    open,
+    /openState\.action === "refund" \|\| openState\.action === "claim"/,
+    "an ETH row opens the XMR flow",
+  );
+  assert.match(open, /return await openEth\(row\)/, "an ETH row does not open the ETH block");
+  assert.match(open, /moneyEl\.hidden = true/, "the XMR block is shown for an ETH row");
+});
+
+// A FAKE EIP-1193 PROVIDER RECORDS WHAT THE ADAPTER ACTUALLY PUTS ON THE WIRE: the escrow address, the exact
+// calldata, the sender and the chain. The action's data is not rebuilt here; this checks the boundary it crosses.
+await check("the wallet adapter sends the escrow, the calldata and the sender unchanged", async () => {
+  const { evmWallet } = await import("@ninsei-labs/sdk/adapters");
+  const account = "0x" + "a".repeat(40);
+  const to = "0x" + "b".repeat(40);
+  const data = "0x7249fbb6" + "c".repeat(64);
+  const seen = [];
+  const provider = {
+    async request({ method, params }) {
+      seen.push({ method, params });
+      if (method === "eth_chainId") return "0x66eee";
+      if (method === "eth_accounts") return [account];
+      if (method === "eth_sendTransaction") return "0x" + "d".repeat(64);
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  const wallet = evmWallet(provider);
+  const hash = await wallet.send({ to, data, chainId: 421614, from: account });
+  assert.equal(hash, "0x" + "d".repeat(64));
+  const sent = seen.find((call) => call.method === "eth_sendTransaction");
+  assert.ok(sent, "the adapter never asked the wallet to send");
+  assert.equal(sent.params[0].to, to, "the escrow address changed on the way to the wallet");
+  assert.equal(sent.params[0].data, data, "the calldata changed on the way to the wallet");
+  assert.equal(sent.params[0].from, account, "the sender changed on the way to the wallet");
+  assert.equal(sent.params[0].chainId, "0x66eee", "the chain changed on the way to the wallet");
+  await assert.rejects(
+    () => wallet.send({ to, data, chainId: 1, from: account }),
+    (e) => e && e.code === "wrong-chain",
+    "a chain switch inside the send was not refused",
+  );
+});
+
 const fakeFetch = (answers) => {
   const calls = [];
   const fetchImpl = async (url, init) => {
@@ -1878,12 +1973,12 @@ await check(
   async () => {
     const page = await read("recovery.js");
     const html = await read("index.html");
-    assert.match(html, /<input id="restoreHeight"[^>]*value=""/, "the height field starts with a value");
+    assert.match(html, /<input\s+id="restoreHeight"[\s\S]*?value=""/, "the height field starts with a value");
     assert.ok(!/heightInput\.value = "0"/.test(page), "the page writes 0 into the height field");
     const box = html.slice(html.indexOf('<div id="heightBox"'), html.indexOf('<div id="stepTransfer"'));
     assert.ok(box.length > 0, "no height box before the transfer");
     assert.match(box, /data-i18n="page\.warn\.height"/, "no warning for a swap without a start block");
-    assert.match(box, /<input id="restoreHeight"/, "the height field is not beside the warning");
+    assert.match(box, /<input\s+id="restoreHeight"/, "the height field is not beside the warning");
     assert.match(page, /heightBox\.hidden = height > 0/, "the field and the warning do not follow the height");
   },
 );
@@ -1921,7 +2016,10 @@ await check("the page talks to no service, so only the node and the chain hear f
   assert.ok(!/["']\.\/api["']|apiBase/.test(page), "the page names a service base");
   const build = bodyOf(page, "facadeFor");
   assert.match(build, /fetch: noService,/, "the SDK gets the browser's fetch for its service routes");
-  assert.equal([...page.matchAll(/createNinsei\(/g)].length, 1, "a facade is built outside facadeFor");
+  // THE ACTION FACADE IS A SECOND createNinsei ON PURPOSE: it reads through the wallet provider, never the public
+  // RPC. Both must use noService for the SDK's own service routes.
+  assert.equal([...page.matchAll(/createNinsei\(/g)].length, 2, "a facade is built outside facadeFor/actionCore");
+  assert.match(bodyOf(page, "actionCore"), /fetch: noService,/, "the action facade gets the browser's fetch");
   const at = page.indexOf("const noService =");
   const body = page.slice(at, page.indexOf("};", at) + 2);
   assert.match(body, /throw new TypeError/, "noService does not refuse");
@@ -2055,7 +2153,11 @@ await check("no per-swap recovery file can be opened any more", async () => {
     !/decryptFile|isEncrypted|validatePayload/.test(entry),
     "the SDK entry still exports the per-swap file reader",
   );
-  assert.match(html, /<input id="keyFile" type="file" accept="\.txt,text\/plain">/, "no field for the key file");
+  assert.match(
+    html,
+    /<input\s+id="keyFile"[^>]*type="file"[^>]*accept="\.txt,text\/plain"[^>]*>/,
+    "no field for the key file",
+  );
 });
 
 await check("dist/ was built", async () => {
@@ -2144,7 +2246,7 @@ await check("the stamped page names the hashes of the files it loads", async () 
 await check("both pages name the icon the build ships, so no browser asks for /favicon.ico", async () => {
   for (const file of ["index.html", "diagnostics.html"]) {
     const html = await readFile(join(DIST, file), "utf8");
-    assert.match(html, /<link rel="icon" href="\.\/favicon\.svg" type="image\/svg\+xml">/, `${file} names no icon`);
+    assert.match(html, /<link\s+rel="icon"\s+href="\.\/favicon\.svg"[^>]*>/, `${file} names no icon`);
   }
   const svg = await readFile(join(DIST, "favicon.svg"), "utf8");
   assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/, "favicon.svg is not an SVG");

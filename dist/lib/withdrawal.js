@@ -9,11 +9,13 @@
 
 // WHAT A SWAP NEEDS, from the escrow's events and its deadline (`deadline` in ms, `now` in ms):
 //   withdraw - the maker's half is on chain: a buy it claimed, a sell it refunded;
+//   refund   - a buy whose deposit deadline passed: the person's ETH can go back to the locker;
+//   claim    - a sell the person may take before t1, once the maker marked ready or readyBy passed;
 //   later    - the deal is open; the money can be taken back after the deadline if it does not complete;
 //   none     - nothing to do here: a buy refunded to the wallet that paid, a sell paid out to the person;
 //   unknown  - the chain did not answer, or answered with an escrow that was never funded: never "nothing to do".
 // `state` names the sentence: `<side>.<claimed|refunded|declined|open|late>`, or `unknown`.
-export function swapState({ side, status, deadline = null, now = Date.now() } = {}) {
+export function swapState({ side, status, deadline = null, readyBy = null, now = Date.now() } = {}) {
   const unknown = { state: "unknown", action: "unknown", params: {} };
   if ((side !== "buy" && side !== "sell") || !status || typeof status !== "object" || status.isFunded !== true)
     return unknown;
@@ -26,17 +28,32 @@ export function swapState({ side, status, deadline = null, now = Date.now() } = 
   if (status.isRefunded === true)
     return { state: `${side}.refunded`, action: side === "buy" ? "none" : "withdraw", params: {} };
   if (!Number.isFinite(deadline) || deadline <= 0 || !Number.isFinite(now)) return unknown;
-  return { state: `${side}.${now < deadline ? "open" : "late"}`, action: "later", params: { deadline } };
+  // THE PERSON'S SIDE DECIDES THE ACTION. On a buy the person deposited the ETH (locker): after t1 the deposit can be
+  // refunded. On a sell the person is the claimer: before t1 they may claim once the maker marked ready or readyBy
+  // passed; at t1 the claim window closes and the maker's refund is awaited.
+  if (side === "buy") {
+    return now >= deadline
+      ? { state: "buy.late", action: "refund", params: { deadline } }
+      : { state: "buy.open", action: "later", params: { deadline } };
+  }
+  if (now >= deadline) return { state: "sell.late", action: "none", params: {} };
+  const claimOpen = status.isReady === true || (Number.isFinite(readyBy) && readyBy > 0 && now >= readyBy);
+  return { state: "sell.open", action: claimOpen ? "claim" : "later", params: { deadline } };
 }
 
 // THE STATUS FROM THE ESCROW'S EVENTS, WITHOUT ONE CALL PER ORDER. A found order starts funded. A claim emits
 // `HalfRevealed(half, true)`; an ordinary refund emits `HalfRevealed(half, false)`; a decline emits `Declined`
 // and sets the escrow's refunded flag without revealing any half. The last fact wins if an RPC returns duplicates.
 export function statusFromEvents(events = []) {
-  const status = { isFunded: true, isClaimed: false, isRefunded: false, isDeclined: false };
+  const status = { isFunded: true, isClaimed: false, isRefunded: false, isDeclined: false, isReady: false };
   for (const event of Array.isArray(events) ? events : []) {
     if (!event || typeof event !== "object") continue;
-    if (event.event === "HalfRevealed") {
+    if (event.event === "Ready") {
+      // Ready(address(0)) is a DEPOSIT MARKER, not a readiness mark: only the depositor's non-zero address opens
+      // the claim before readyBy.
+      const by = String(event.by || "").toLowerCase();
+      if (/^0x[0-9a-f]{40}$/.test(by) && !/^0x0{40}$/.test(by)) status.isReady = true;
+    } else if (event.event === "HalfRevealed") {
       if (event.byClaimer === true) status.isClaimed = true;
       else status.isRefunded = true;
     } else if (event.event === "Declined") {

@@ -1,203 +1,272 @@
 <!doctype html>
 <html lang="en" data-i18n-title="page.title">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#07070e">
-<title>Ninsei recovery</title>
-<link rel="icon" href="./favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="./recovery.css">
-</head>
-<body>
-  <!-- WHOSE PAGE THIS IS, BEFORE ANY PASSWORD IS TYPED: a person must be able to tell the page apart from a
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#07070e" />
+    <title>Ninsei recovery</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./recovery.css" />
+  </head>
+  <body>
+    <!-- WHOSE PAGE THIS IS, BEFORE ANY PASSWORD IS TYPED: a person must be able to tell the page apart from a
        look-alike, so the header is the site's own wordmark. The tag names the job, not a product tier. -->
-  <header class="site-head">
-    <div class="wrap">
-      <span class="logo">
-        <span class="glitch" data-text="NINSEI" aria-hidden="true">NINSEI</span>
-        <span class="head-tag" aria-hidden="true">recovery</span>
-        <span class="sr-only">Ninsei recovery</span>
-      </span>
-      <!-- LANGUAGE: the list and the labels come from the locale layer, one folder per language. -->
-      <label class="field lang">
-        <span data-i18n="page.lang"></span>
-        <select id="lang"></select>
-      </label>
-    </div>
-  </header>
+    <header class="site-head">
+      <div class="wrap">
+        <span class="logo">
+          <span class="glitch" data-text="NINSEI" aria-hidden="true">NINSEI</span>
+          <span class="head-tag" aria-hidden="true">recovery</span>
+          <span class="sr-only">Ninsei recovery</span>
+        </span>
+        <!-- LANGUAGE: the list and the labels come from the locale layer, one folder per language. -->
+        <label class="field lang">
+          <span data-i18n="page.lang"></span>
+          <select id="lang"></select>
+        </label>
+      </div>
+    </header>
 
-  <main class="page">
-    <div class="intro">
-      <h1 data-i18n="page.h1"></h1>
-      <p class="note" data-i18n="page.intro"></p>
-    </div>
+    <main class="page">
+      <div class="intro">
+        <h1 data-i18n="page.h1"></h1>
+        <p class="note" data-i18n="page.intro"></p>
+      </div>
 
-    <!-- THE FLOW IS ONE CARD: what the page checked and the node on top, then the two steps in the order they run.
+      <!-- THE FLOW IS ONE CARD: what the page checked and the node on top, then the two steps in the order they run.
          Nothing in it opens by itself except what the person must answer. -->
-    <div class="card">
-      <!-- WHAT THE PAGE CHECKED, one line each, with the reason under a line that failed. -->
-      <ul id="checks" class="checks" aria-live="polite">
-        <li id="checkWallet" data-state="wait"><span class="check-text"></span><span class="check-why"></span></li>
-        <li id="checkNode" data-state="wait"><span class="check-text"></span><span class="check-why"></span></li>
-        <li id="checkSecure" data-state="wait"><span class="check-text"></span><span class="check-why"></span></li>
-      </ul>
-      <!-- A LINE THAT FAILED points to the check of this browser, right where it failed. -->
-      <p id="checksHelp" class="hint checks-help" hidden>
-        <span data-i18n="check.help.lead"></span><a href="./diagnostics.html" data-i18n="check.help.link"></a><span data-i18n="check.help.tail"></span>
-      </p>
+      <div class="card">
+        <!-- WHAT THE PAGE CHECKED, one line each, with the reason under a line that failed. -->
+        <ul id="checks" class="checks" aria-live="polite">
+          <li id="checkWallet" data-state="wait"><span class="check-text"></span><span class="check-why"></span></li>
+          <li id="checkNode" data-state="wait"><span class="check-text"></span><span class="check-why"></span></li>
+          <li id="checkSecure" data-state="wait"><span class="check-text"></span><span class="check-why"></span></li>
+        </ul>
+        <!-- A LINE THAT FAILED points to the check of this browser, right where it failed. -->
+        <p id="checksHelp" class="hint checks-help" hidden>
+          <span data-i18n="check.help.lead"></span><a href="./diagnostics.html" data-i18n="check.help.link"></a
+          ><span data-i18n="check.help.tail"></span>
+        </p>
 
-      <!-- THE NODE IS THE VISITOR'S CHOICE, folded into one line under the checks, so it stays in place while the steps grow: the page picks the fastest good public node, and
+        <!-- THE NODE IS THE VISITOR'S CHOICE, folded into one line under the checks, so it stays in place while the steps grow: the page picks the fastest good public node, and
            "Change" opens the list with each node's live state and a field for a node of one's own. The listed rows
            are drawn by recovery.js from lib/node.js, so the list lives in one place; real radio inputs carry the
            choice and the keyboard. -->
-      <section class="node-line" id="stepNode">
-        <div class="node-current" id="nodeLine" data-state="checking">
-          <span id="nodeHead" class="node-label" data-i18n="page.node.h"></span>
-          <span class="node-dot" aria-hidden="true"></span>
-          <span id="nodeCurrent" class="node-now"></span>
-          <button id="nodeChange" type="button" class="link" aria-controls="nodePanel" aria-expanded="false"></button>
-        </div>
-        <div id="nodePanel" class="node-panel" hidden>
-          <fieldset id="nodeList" class="nodes" aria-labelledby="nodeHead">
-            <div class="node node-own" data-state="idle">
-              <label class="node-pick">
-                <input type="radio" name="node" value="own">
-                <span class="node-text">
-                  <span class="node-name" id="nodeOwnName" data-i18n="page.node.own"></span>
-                  <span class="node-why"></span>
-                </span>
-                <span class="node-signal"><span class="node-dot" aria-hidden="true"></span><span class="node-ms"></span></span>
-              </label>
-              <input id="node" type="text" spellcheck="false" autocomplete="off" aria-labelledby="nodeOwnName" data-i18n-placeholder="page.node.placeholder">
-            </div>
-          </fieldset>
-          <p id="nodeNote" class="hint node-note" aria-live="polite"></p>
-          <p class="hint" data-i18n="page.node.own.hint"></p>
-        </div>
-      </section>
+        <section class="node-line" id="stepNode">
+          <div class="node-current" id="nodeLine" data-state="checking">
+            <span id="nodeHead" class="node-label" data-i18n="page.node.h"></span>
+            <span class="node-dot" aria-hidden="true"></span>
+            <span id="nodeCurrent" class="node-now"></span>
+            <button id="nodeChange" type="button" class="link" aria-controls="nodePanel" aria-expanded="false"></button>
+          </div>
+          <div id="nodePanel" class="node-panel" hidden>
+            <fieldset id="nodeList" class="nodes" aria-labelledby="nodeHead">
+              <div class="node node-own" data-state="idle">
+                <label class="node-pick">
+                  <input type="radio" name="node" value="own" />
+                  <span class="node-text">
+                    <span class="node-name" id="nodeOwnName" data-i18n="page.node.own"></span>
+                    <span class="node-why"></span>
+                  </span>
+                  <span class="node-signal"
+                    ><span class="node-dot" aria-hidden="true"></span><span class="node-ms"></span
+                  ></span>
+                </label>
+                <input
+                  id="node"
+                  type="text"
+                  spellcheck="false"
+                  autocomplete="off"
+                  aria-labelledby="nodeOwnName"
+                  data-i18n-placeholder="page.node.placeholder"
+                />
+              </div>
+            </fieldset>
+            <p id="nodeNote" class="hint node-note" aria-live="polite"></p>
+            <p class="hint" data-i18n="page.node.own.hint"></p>
+          </div>
+        </section>
 
-      <!-- THE RECOVERY KEY: the 12 words or the key file, one search. The key is read in this tab and never sent:
+        <!-- THE RECOVERY KEY: the 12 words or the key file, one search. The key is read in this tab and never sent:
            the search asks the settlement chain for the factory's orders and matches them here. -->
-      <section class="step" id="stepKey">
-        <h2 id="keyHead" data-i18n="page.step.key"></h2>
-        <p class="hint" id="keyHint" data-i18n="page.hint.key"></p>
-        <label class="field">
-          <span data-i18n="page.field.words"></span>
-          <textarea id="keyWords" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="keyHint"></textarea>
-        </label>
-        <label class="field">
-          <span data-i18n="page.field.keyFile"></span>
-          <input id="keyFile" type="file" accept=".txt,text/plain">
-        </label>
-        <p class="hint key-file-hint"><span data-i18n="page.hint.keyFile"></span><a href="#findFile" data-i18n="page.hint.keyFile.link"></a></p>
-        <!-- The password is asked only for a key file written with one; the SDK's reader of the file says which. -->
-        <label class="field" id="keyPassField" hidden>
-          <span data-i18n="page.field.keyPass"></span>
-          <input id="keyPass" type="password" autocomplete="off" spellcheck="false">
-        </label>
-        <div class="bar">
-          <button id="findSwaps" type="button" class="cta" data-i18n="page.btn.find"></button>
-        </div>
-        <p id="keyError" class="flow-error" role="alert" hidden></p>
-        <!-- WHAT THE SEARCH FOUND: the key's fingerprint, the same four characters as at the end of its file name, then
-             one row per swap with its date, side, amount, state and the action it needs. -->
-        <div id="keyResult" class="key-result" aria-live="polite" hidden>
-          <p class="key-head"><span id="keyPrint" class="key-print"></span><span id="keyCount"></span></p>
-          <p id="keyNone" class="key-none" hidden><span data-i18n="key.none"></span> <a href="#findFile" data-i18n="key.none.link"></a></p>
-          <p id="keyPartial" class="hint warn" hidden></p>
-          <ul id="swapList" class="swaps"></ul>
-        </div>
-      </section>
-
-      <!-- THE WITHDRAWAL OF ONE SWAP, in plain steps: the state of its money, your address, one button. The button
-           syncs, builds and signs; nothing leaves before "Confirm and send". -->
-      <section class="step" id="stepSwap" hidden>
-        <h2 id="swapHead" data-i18n="page.step.swap"></h2>
-        <!-- THE STATE OF THE MONEY, in words, and the swap's facts from the chain. -->
-        <div id="moneyState" class="money" data-state="" hidden>
-          <p class="money-head" id="moneyHead"></p>
-          <div id="swapInfo" class="money-facts"></div>
-        </div>
-        <p id="openError" class="flow-error" role="alert" hidden></p>
-        <!-- A SWAP WHOSE START BLOCK THE CHAIN DID NOT GIVE would scan Monero from its first block: the step says so
-             and asks for one right here. A found height fills the field and keeps it out of sight. -->
-        <div id="heightBox" class="height-box" hidden>
-          <p id="heightWarn" class="hint warn" data-i18n="page.warn.height"></p>
+        <section class="step" id="stepKey">
+          <h2 id="keyHead" data-i18n="page.step.key"></h2>
+          <p class="hint" id="keyHint" data-i18n="page.hint.key"></p>
           <label class="field">
-            <span data-i18n="page.field.height"></span>
-            <input id="restoreHeight" type="text" inputmode="numeric" value="" data-i18n-placeholder="page.placeholder.height">
+            <span data-i18n="page.field.words"></span>
+            <textarea
+              id="keyWords"
+              rows="3"
+              spellcheck="false"
+              autocomplete="off"
+              autocapitalize="off"
+              aria-describedby="keyHint"
+            ></textarea>
           </label>
-        </div>
-        <div id="stepTransfer" class="transfer" hidden>
           <label class="field">
-            <span id="destHead" data-i18n="page.field.dest"></span>
-            <input id="dest" type="text" spellcheck="false" autocomplete="off" data-i18n-placeholder="page.field.dest.placeholder">
+            <span data-i18n="page.field.keyFile"></span>
+            <input id="keyFile" type="file" accept=".txt,text/plain" />
+          </label>
+          <p class="hint key-file-hint">
+            <span data-i18n="page.hint.keyFile"></span><a href="#findFile" data-i18n="page.hint.keyFile.link"></a>
+          </p>
+          <!-- The password is asked only for a key file written with one; the SDK's reader of the file says which. -->
+          <label class="field" id="keyPassField" hidden>
+            <span data-i18n="page.field.keyPass"></span>
+            <input id="keyPass" type="password" autocomplete="off" spellcheck="false" />
           </label>
           <div class="bar">
-            <button id="withdraw" type="button" class="cta" data-i18n="page.btn.withdraw"></button>
+            <button id="findSwaps" type="button" class="cta" data-i18n="page.btn.find"></button>
           </div>
-          <!-- PROGRESS: the stage in words and a bar; the scan fills the bar block by block, the other stages run it
-               without an end. -->
-          <div id="progress" class="progress" data-mode="busy" hidden>
-            <p id="progressHead" class="progress-head"></p>
-            <div class="progress-bar" role="progressbar" aria-labelledby="progressHead" aria-valuemin="0" aria-valuemax="100"><span id="progressFill"></span></div>
-            <p id="progressSub" class="progress-sub"></p>
+          <p id="keyError" class="flow-error" role="alert" hidden></p>
+          <!-- WHAT THE SEARCH FOUND: the key's fingerprint, the same four characters as at the end of its file name, then
+             one row per swap with its date, side, amount, state and the action it needs. -->
+          <div id="keyResult" class="key-result" aria-live="polite" hidden>
+            <p class="key-head"><span id="keyPrint" class="key-print"></span><span id="keyCount"></span></p>
+            <p id="keyNone" class="key-none" hidden>
+              <span data-i18n="key.none"></span> <a href="#findFile" data-i18n="key.none.link"></a>
+            </p>
+            <p id="keyPartial" class="hint warn" hidden></p>
+            <ul id="swapList" class="swaps"></ul>
           </div>
-          <p id="withdrawError" class="flow-error" role="alert" hidden></p>
-          <!-- CONFIRM: what leaves, what it costs and where it goes, before anything is sent. -->
-          <div id="confirm" class="confirm" hidden>
-            <h3 data-i18n="page.confirm.h"></h3>
-            <div id="txInfo" class="info"></div>
+        </section>
+
+        <!-- THE WITHDRAWAL OF ONE SWAP, in plain steps: the state of its money, your address, one button. The button
+           syncs, builds and signs; nothing leaves before "Confirm and send". -->
+        <section class="step" id="stepSwap" hidden>
+          <h2 id="swapHead" data-i18n="page.step.swap"></h2>
+          <!-- THE STATE OF THE MONEY, in words, and the swap's facts from the chain. -->
+          <div id="moneyState" class="money" data-state="" hidden>
+            <p class="money-head" id="moneyHead"></p>
+            <div id="swapInfo" class="money-facts"></div>
+          </div>
+          <p id="openError" class="flow-error" role="alert" hidden></p>
+          <!-- A SWAP WHOSE START BLOCK THE CHAIN DID NOT GIVE would scan Monero from its first block: the step says so
+             and asks for one right here. A found height fills the field and keeps it out of sight. -->
+          <div id="heightBox" class="height-box" hidden>
+            <p id="heightWarn" class="hint warn" data-i18n="page.warn.height"></p>
+            <label class="field">
+              <span data-i18n="page.field.height"></span>
+              <input
+                id="restoreHeight"
+                type="text"
+                inputmode="numeric"
+                value=""
+                data-i18n-placeholder="page.placeholder.height"
+              />
+            </label>
+          </div>
+          <!-- THE OTHER SETTLEMENT: ETH, not XMR. A buy refunds its deposit after t1; a sell claims the ETH before t1.
+             It is a separate block because it needs a wallet of its own and never waits on a Monero node. -->
+          <section id="ethAction" class="eth-action" hidden>
+            <h3 data-i18n="page.eth.head"></h3>
+            <p id="ethState" class="money-head"></p>
+            <div id="ethFacts" class="money-facts"></div>
             <div class="bar">
-              <button id="send" type="button" class="cta ready" data-i18n="page.btn.send"></button>
+              <button id="ethConnect" type="button" class="cta" data-i18n="page.btn.eth.connect"></button>
+            </div>
+            <p id="ethWallet" class="hint" hidden></p>
+            <p id="ethRecipient" class="hint" hidden></p>
+            <p id="ethError" class="flow-error" role="alert" hidden></p>
+            <div id="ethConfirm" class="confirm" hidden>
+              <h3 data-i18n="page.eth.confirm.h"></h3>
+              <div id="ethInfo" class="info"></div>
+              <div class="bar">
+                <button id="ethSend" type="button" class="cta ready" data-i18n="page.btn.eth.send"></button>
+              </div>
+            </div>
+            <div id="ethDone" class="done" hidden>
+              <p class="done-head" data-i18n="page.eth.done.h"></p>
+              <div id="ethDoneInfo" class="info"></div>
+            </div>
+          </section>
+          <div id="stepTransfer" class="transfer" hidden>
+            <label class="field">
+              <span id="destHead" data-i18n="page.field.dest"></span>
+              <input
+                id="dest"
+                type="text"
+                spellcheck="false"
+                autocomplete="off"
+                data-i18n-placeholder="page.field.dest.placeholder"
+              />
+            </label>
+            <div class="bar">
+              <button id="withdraw" type="button" class="cta" data-i18n="page.btn.withdraw"></button>
+            </div>
+            <!-- PROGRESS: the stage in words and a bar; the scan fills the bar block by block, the other stages run it
+               without an end. -->
+            <div id="progress" class="progress" data-mode="busy" hidden>
+              <p id="progressHead" class="progress-head"></p>
+              <div
+                class="progress-bar"
+                role="progressbar"
+                aria-labelledby="progressHead"
+                aria-valuemin="0"
+                aria-valuemax="100"
+              >
+                <span id="progressFill"></span>
+              </div>
+              <p id="progressSub" class="progress-sub"></p>
+            </div>
+            <p id="withdrawError" class="flow-error" role="alert" hidden></p>
+            <!-- CONFIRM: what leaves, what it costs and where it goes, before anything is sent. -->
+            <div id="confirm" class="confirm" hidden>
+              <h3 data-i18n="page.confirm.h"></h3>
+              <div id="txInfo" class="info"></div>
+              <div class="bar">
+                <button id="send" type="button" class="cta ready" data-i18n="page.btn.send"></button>
+              </div>
+            </div>
+            <div id="done" class="done" hidden>
+              <p class="done-head" data-i18n="page.done.h"></p>
+              <div id="doneInfo" class="info"></div>
+              <p class="hint" data-i18n="page.done.close"></p>
             </div>
           </div>
-          <div id="done" class="done" hidden>
-            <p class="done-head" data-i18n="page.done.h"></p>
-            <div id="doneInfo" class="info"></div>
-            <p class="hint" data-i18n="page.done.close"></p>
-          </div>
-        </div>
-      </section>
+        </section>
+      </div>
 
-    </div>
-
-    <section class="aside">
-      <h2 data-i18n="page.keys.head"></h2>
-      <ul class="legend">
-        <li data-i18n="page.keys.li1"></li>
-        <li data-i18n="page.keys.li2"></li>
-        <li data-i18n="page.keys.li3"></li>
-      </ul>
-      <!-- WHERE THE KEY FILE IS: the name every key file starts with, and where each system keeps a download. -->
-      <h2 id="findFile" class="find-head" data-i18n="page.find.head"></h2>
-      <p class="note" data-i18n="page.find.lead"></p>
-      <ul class="legend find">
-        <li data-i18n="page.find.mac"></li>
-        <li data-i18n="page.find.windows"></li>
-        <li data-i18n="page.find.ios"></li>
-        <li data-i18n="page.find.android"></li>
-        <li data-i18n="page.find.cloud"></li>
-      </ul>
-      <p class="note" data-i18n="page.find.many"></p>
-      <p class="note" data-i18n="page.find.words"></p>
-      <!-- THE TECHNICAL LOG: every step in words, for whoever helps when something fails. Folded, never opened by
+      <section class="aside">
+        <h2 data-i18n="page.keys.head"></h2>
+        <ul class="legend">
+          <li data-i18n="page.keys.li1"></li>
+          <li data-i18n="page.keys.li2"></li>
+          <li data-i18n="page.keys.li3"></li>
+        </ul>
+        <!-- WHERE THE KEY FILE IS: the name every key file starts with, and where each system keeps a download. -->
+        <h2 id="findFile" class="find-head" data-i18n="page.find.head"></h2>
+        <p class="note" data-i18n="page.find.lead"></p>
+        <ul class="legend find">
+          <li data-i18n="page.find.mac"></li>
+          <li data-i18n="page.find.windows"></li>
+          <li data-i18n="page.find.ios"></li>
+          <li data-i18n="page.find.android"></li>
+          <li data-i18n="page.find.cloud"></li>
+        </ul>
+        <p class="note" data-i18n="page.find.many"></p>
+        <p class="note" data-i18n="page.find.words"></p>
+        <!-- THE TECHNICAL LOG: every step in words, for whoever helps when something fails. Folded, never opened by
            the page, with a button that copies it whole. -->
-      <details class="techlog" id="techlog">
-        <summary data-i18n="page.log.head"></summary>
-        <pre id="log" class="log" data-i18n="page.log.placeholder"></pre>
-        <div class="bar">
-          <button id="copyLog" type="button" class="ghost small" data-i18n="page.log.copy"></button>
-        </div>
-      </details>
-    </section>
-  </main>
+        <details class="techlog" id="techlog">
+          <summary data-i18n="page.log.head"></summary>
+          <pre id="log" class="log" data-i18n="page.log.placeholder"></pre>
+          <div class="bar">
+            <button id="copyLog" type="button" class="ghost small" data-i18n="page.log.copy"></button>
+          </div>
+        </details>
+      </section>
+    </main>
 
-  <footer class="site-foot">
-    <div class="wrap">
-      <p class="fine"><span data-i18n="page.foot"></span><a href="./diagnostics.html" data-i18n="page.foot.diag"></a><a href="https://github.com/Ninsei-Labs/recovery-page" rel="noopener noreferrer">github.com/Ninsei-Labs/recovery-page</a></p>
-    </div>
-  </footer>
-  <script type="module" src="./recovery.js"></script>
-</body>
+    <footer class="site-foot">
+      <div class="wrap">
+        <p class="fine">
+          <span data-i18n="page.foot"></span><a href="./diagnostics.html" data-i18n="page.foot.diag"></a
+          ><a href="https://github.com/Ninsei-Labs/recovery-page" rel="noopener noreferrer"
+            >github.com/Ninsei-Labs/recovery-page</a
+          >
+        </p>
+      </div>
+    </footer>
+    <script type="module" src="./recovery.js"></script>
+  </body>
 </html>

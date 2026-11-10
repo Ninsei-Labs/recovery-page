@@ -1,11 +1,12 @@
 # Ninsei recovery page
 
-A static page that moves XMR out of a swap wallet. A person opens it in a browser and enters their Ninsei key:
+A static page that moves XMR out of a swap wallet and settles the ETH side. A person opens it in a browser and enters their Ninsei key:
 the twelve words, or the key file the swap widget saved
 (`ninsei-recovery-key-DO-NOT-DELETE-<date>-<fingerprint>.txt`, optionally with a password). The page finds the
 swaps the key made on the settlement chain, lists each with what it needs, and for a swap whose XMR can be taken
 it rebuilds the wallet **in the tab**, syncs it against a Monero node, and sends a transfer to an address the
-person types. The key, its password and the wallet keys never leave the tab; the page has no server of its own.
+person types. When the ETH side is the remaining action, it asks the person's own browser wallet to sign one
+refund or claim. The key, its password and the wallet keys never leave the tab; the page has no server of its own.
 
 The Ninsei key is not a wallet seed and is never imported into a wallet. The SDK calls it the recovery key, and
 its file keeps that name and its first line, `NINSEI RECOVERY KEY`, which is what people search for on disk.
@@ -180,11 +181,12 @@ archive itself against the published `.sha256`.
 - **The keys stay in the tab.** The page sends the node only what a wallet sends a node: height,
   block headers and blocks, the signed transaction. It never sends the Ninsei key, its password, a half or
   a spend key. The words are cleared from the field once read, never logged and never stored.
-- **The settlement chain is read, never written.** The search sends a public RPC the factory, the
-  `OrderCreated` topic and a block range, never the key or a commitment; the swap's state comes from one
-  bulk `eth_getLogs` over the found escrows, and the maker's half is an `eth_call` (`sweep.plan`) only for
-  the swap the person opens. The page holds no EVM key and sends no EVM transaction. A network the SDK names
-  a live factory for, but which this page cannot read, is said, not skipped.
+- **The settlement chain is read, and written only when the person asks.** The search sends a public RPC the
+  factory, the `OrderCreated` topic and a block range, never the key or a commitment; the swap's state comes from
+  one bulk `eth_getLogs` over the found escrows, and the maker's half is an `eth_call` (`sweep.plan`) only for
+  the swap the person opens. The page holds no EVM key: a refund or claim is one transaction signed by the
+  person's own browser wallet, through the SDK. A network the SDK names a live factory for, but which this page
+  cannot read, is said, not skipped.
 - **A missing answer is unknown.** A swap whose state could not be read is shown as unknown, a network that did
   not answer makes the list say it is incomplete, and a start block the chain does not give is asked for.
 - **Verify what you serve.** `dist/build.json` lists a SHA-256 for every file, and a release archive
