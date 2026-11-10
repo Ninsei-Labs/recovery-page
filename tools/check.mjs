@@ -67,17 +67,8 @@ const LIB = (await readdir(join(ROOT, "lib")))
   .map((name) => `lib/${name}`);
 
 // --- 1. the node address ----------------------------------------------------------------
-const {
-  parseNodeUrl,
-  NODES,
-  DEFAULT_NODE,
-  STAGENET_NODE,
-  nodeVerdict,
-  medianHeight,
-  fastestGood,
-  pingNode,
-  networkFromNode,
-} = await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
+const { parseNodeUrl, NODES, DEFAULT_NODE, STAGENET_NODE, nodeVerdict, medianHeight, pingNode, networkFromNode } =
+  await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
 
 // A FAKE MONEROD, shaped as monerod answers (examples, not a recorded chain): get_info's `height` is the number of
 // blocks, so the top block is one lower; a header past the top is refused with monerod's own error; the genesis
@@ -223,9 +214,6 @@ await check("the stagenet node is good on stagenet and is never auto-picked for 
     params: { height: 2_000_000 },
   });
   assert.equal(nodeVerdict(stagenet, 2_000_000).state, "bad");
-  const rows = [{ url: STAGENET_NODE, network: "stagenet", answer: stagenet }];
-  assert.equal(fastestGood(rows, "mainnet"), null);
-  assert.equal(fastestGood(rows, "stagenet"), STAGENET_NODE);
   assert.equal(medianHeight([stagenet], "stagenet"), 2_000_000);
 });
 
@@ -249,38 +237,6 @@ await check("the reference height is the median of the mainnet answers, so one i
   assert.equal(
     medianHeight([3_500_000, 3_500_001, 3_500_002, 3_500_003].map((height) => answer({ height }))),
     3_500_001,
-  );
-});
-
-await check("the page picks the fastest good node, and nothing when none is good", () => {
-  const entries = [
-    { url: "https://a.example", answer: answer({ ms: 120 }) },
-    { url: "https://b.example", answer: answer({ ms: 80 }) },
-    { url: "https://c.example", answer: answer({ ms: 20, network: "stagenet", height: 2_000_000 }) },
-    { url: "https://d.example", answer: answer({ ms: 30, height: 3_499_990 }) },
-    { url: "https://e.example", answer: answer({ ms: 10, synchronized: false }) },
-    { url: "https://f.example", answer: { ok: false, why: "timeout", ms: 5 } },
-    { url: "https://g.example", answer: null },
-  ];
-  assert.equal(fastestGood(entries), "https://b.example");
-  // One node claims a far higher height and answers fastest: the honest nodes stay good, and it is not picked.
-  const liar = [
-    { url: "https://h1.example", answer: answer({ ms: 90 }) },
-    { url: "https://h2.example", answer: answer({ ms: 60, height: 3_500_001 }) },
-    { url: "https://liar.example", answer: answer({ ms: 5, height: 4_500_000 }) },
-    { url: "https://h3.example", answer: answer({ ms: 70, height: 3_499_999 }) },
-    { url: "https://h4.example", answer: answer({ ms: 120 }) },
-  ];
-  assert.equal(fastestGood(liar), "https://h2.example");
-  assert.equal(fastestGood(entries.filter((e) => !/[abd]\./.test(e.url))), null);
-  assert.equal(fastestGood([]), null);
-  // Equal times: the list order decides.
-  assert.equal(
-    fastestGood([
-      { url: "https://x.example", answer: answer({ ms: 50 }) },
-      { url: "https://y.example", answer: answer({ ms: 50 }) },
-    ]),
-    "https://x.example",
   );
 });
 
@@ -407,7 +363,7 @@ await check("the node list has no check button, and its rows are radios of one g
 });
 
 // --- 2b. the recovery key, the swaps it finds, the state of their money --------------------------
-const { swapState, moneyState, statusFromEvents, scanStartHeight } = await import(
+const { swapState, moneyState, statusFromEvents, scanStartHeight, tipHeaderHeight, tipTrusted } = await import(
   pathToFileURL(join(ROOT, "lib", "withdrawal.js")).href
 );
 const { SETTLEMENT, settlementOf, evmCall, keyNetworks, evmLogs, LOG_WINDOW } = await import(
@@ -714,6 +670,24 @@ await check("a start height is a block the node already has", () => {
   ];
   for (const [what, value, tip, expected] of cases) assert.deepEqual(scanStartHeight(value, tip), expected, what);
   return `${cases.length} cases`;
+});
+
+await check("a daemon height is a block count, and a tip is trusted only when recent and after the order", () => {
+  // getDaemonHeight is the daemon's get_info.height: the count of blocks, so the top block is one lower. Asking for
+  // a header at the count is the off-by-one that made every scan incomplete.
+  assert.equal(tipHeaderHeight(3_803_298), 3_803_297);
+  assert.equal(tipHeaderHeight(0), null);
+  assert.equal(tipHeaderHeight(null), null);
+  const now = 1_700_000_000_000;
+  const recent = now / 1000 - 60;
+  assert.equal(tipTrusted({ tipTime: recent, now }), true);
+  // The chains' clocks can differ by seconds; a fresh order is not a short chain.
+  assert.equal(tipTrusted({ tipTime: recent, orderTime: recent + 300, now }), true);
+  // A tip older than the order by more than the margin is a chain that cannot hold the swap.
+  assert.equal(tipTrusted({ tipTime: recent, orderTime: recent + 20 * 60, now }), false);
+  // A tip hours old is a node that stopped following the chain.
+  assert.equal(tipTrusted({ tipTime: now / 1000 - 3 * 60 * 60, now }), false);
+  assert.equal(tipTrusted({ tipTime: null, now }), false);
 });
 
 await check("every word a swap row, the state of the money and the flow's stops can show exists", async () => {
@@ -1784,11 +1758,12 @@ await check("the page keeps the SDK's scan verdict and scans from the start bloc
     "the full scan is not from the start block",
   );
   assert.match(sync, /restored\.scanComplete === true/, "syncWallet treats a missing scan verdict as complete");
-  assert.match(sync, /moneroHeaderTime\(nodeUrl\(\), nodeTip\)/, "syncWallet does not corroborate the node's tip");
-  assert.match(sync, /tipTrusted/, "syncWallet can call a short chain complete");
+  assert.match(sync, /moneroHeaderTime\(nodeUrl\(\), daemonTip\)/, "syncWallet does not corroborate the node's tip");
+  assert.match(sync, /tipHeaderHeight\(nodeTip\)/, "syncWallet asks for a header at the block count");
+  assert.match(sync, /tipIsTrusted\(\{ tipTime, orderTime \}\)/, "syncWallet can call a short chain complete");
   assert.match(
     sync,
-    /scanStartHeight\(height, nodeTip\)/,
+    /scanStartHeight\(height, daemonTip\)/,
     "syncWallet does not bound the start height by the node tip",
   );
   assert.match(sync, /flow\.err\.height/, "an above-tip start height has no refusal");

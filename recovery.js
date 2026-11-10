@@ -38,7 +38,14 @@ import {
   nodeFor,
 } from "./lib/node.js";
 import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
-import { swapState, moneyState, statusFromEvents, scanStartHeight } from "./lib/withdrawal.js";
+import {
+  swapState,
+  moneyState,
+  statusFromEvents,
+  scanStartHeight,
+  tipHeaderHeight,
+  tipTrusted as tipIsTrusted,
+} from "./lib/withdrawal.js";
 
 // THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
 // anything else; this function only names the row before the withdrawal is opened.
@@ -159,11 +166,6 @@ let ethProvider = null;
 let ethAdapter = null;
 let ethMaterial = null;
 let ethBusy = false;
-
-// A NODE'S TIP IS CORROBORATED BY ITS OWN BLOCK TIME. A daemon that answers `synchronized: true` while its chain is
-// days behind would make a complete wallet scan look empty; a tip whose block is recent - and not older than the
-// order being recovered - is a chain that can contain the swap's XMR.
-const TIP_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 // Console and test state: no secrets (no words, no keys, no halves).
 window.__sweepFlow = {
@@ -1518,9 +1520,10 @@ async function syncWallet() {
   } catch (e) {
     log(t("log.diag.failed", { why: String((e && e.message) || e) }), "wait");
   }
-  const start = scanStartHeight(height, nodeTip);
+  const daemonTip = tipHeaderHeight(nodeTip);
+  const start = scanStartHeight(height, daemonTip);
   if (!start.ok) {
-    log(t("log.height.aboveTip", { height: n(height), tip: nodeTip === null ? "?" : n(nodeTip) }), "bad");
+    log(t("log.height.aboveTip", { height: n(height), tip: daemonTip === null ? "?" : n(daemonTip) }), "bad");
     await closeWallet();
     return "flow.err.height";
   }
@@ -1592,15 +1595,11 @@ async function syncWallet() {
   // a complete, empty scan into "nothing ever arrived". The tip block's own timestamp is the corroboration: it must
   // be recent, and not older than the order.
   let tipTrusted = false;
-  if (Number.isSafeInteger(nodeTip) && nodeTip > 0) {
+  if (daemonTip !== null) {
     try {
-      const tipTime = await moneroHeaderTime(nodeUrl(), nodeTip);
-      const now = Date.now();
+      const tipTime = await moneroHeaderTime(nodeUrl(), daemonTip);
       const orderTime = current && Number.isFinite(Number(current.time)) ? Number(current.time) : null;
-      tipTrusted =
-        Number.isFinite(tipTime) &&
-        Math.abs(now - tipTime * 1000) <= TIP_MAX_AGE_MS &&
-        (orderTime === null || orderTime <= 0 || tipTime >= orderTime);
+      tipTrusted = tipIsTrusted({ tipTime, orderTime });
     } catch {
       // A node that cannot name its tip's time cannot prove the chain holds the swap: incomplete, never "unseen".
     }
