@@ -75,6 +75,31 @@ export function scanStartHeight(value, tip) {
   return { ok: true, height };
 }
 
+// A NODE'S TIP IS READ AS A COUNT OF BLOCKS, NOT AS A BLOCK HEIGHT. monero's `get_info.height` is the number of
+// blocks (top + 1); a header asked at that value does not exist. The header of the top block is one below it.
+export function tipHeaderHeight(daemonHeight) {
+  const height = Number(daemonHeight);
+  return Number.isSafeInteger(height) && height >= 1 ? height - 1 : null;
+}
+
+export const TIP_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+// THE SETTLEMENT CHAIN AND MONERO DO NOT SHARE A CLOCK. A lock can be mined a little before the EVM order's block
+// timestamp by seconds; a block of margin prevents a fresh swap from being called a short chain on that difference.
+export const TIP_ORDER_MARGIN_SECONDS = 10 * 60;
+
+export function tipTrusted({
+  tipTime = null,
+  orderTime = null,
+  now = Date.now(),
+  maxAgeMs = TIP_MAX_AGE_MS,
+  marginSeconds = TIP_ORDER_MARGIN_SECONDS,
+} = {}) {
+  if (!Number.isFinite(tipTime) || !Number.isFinite(now) || tipTime < 0) return false;
+  if (Math.abs(now - tipTime * 1000) > maxAgeMs) return false;
+  if (Number.isFinite(orderTime) && orderTime > 0 && tipTime < orderTime - marginSeconds) return false;
+  return true;
+}
+
 // THE STATE OF THE MONEY in the withdrawal step, for a swap whose action is "withdraw":
 //   ready     - the SDK read the maker's half: the wallet can be built;
 //   unread    - the swap says the half is on chain, but the SDK could not read it: unknown, never "not yet";

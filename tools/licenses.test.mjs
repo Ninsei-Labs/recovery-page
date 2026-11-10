@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { licenseAllowed, licenseOf, NON_SHIPPED, violations } from "./licenses.mjs";
+import { licenseAllowed, licenseFiles, licenseOf, NON_SHIPPED, ROOT, violations } from "./licenses.mjs";
+import { join } from "node:path";
 
 test("the same permissive allowlist and SPDX expressions as the SDK", () => {
   for (const license of ["MIT", "ISC", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "Unlicense", "0BSD"]) {
@@ -42,4 +43,14 @@ test("the SDK's LGPL expression is allowed for the SDK only", () => {
     { package: "other@1.0.0", license: expression },
   ]);
   assert.equal(licenseAllowed(expression), false, "the exception did not widen the general allowlist");
+});
+
+test("the SDK's third-party notices file is selected with its licence texts", () => {
+  const files = licenseFiles(join(ROOT, "node_modules", "@ninsei-labs", "sdk"));
+  assert.ok(files.includes("THIRD_PARTY_NOTICES.md"), "THIRD_PARTY_NOTICES.md is not selected");
+});
+
+test("the generated notices carry the SDK's LGPL text", async () => {
+  const { notices } = await import("./third-party-notices.mjs");
+  assert.match(notices(), /GNU LESSER GENERAL PUBLIC LICENSE/i);
 });

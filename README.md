@@ -63,12 +63,12 @@ Two conditions apply in a browser:
    send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, the page
    reports it in the diagnostics and nothing changes. A CORS-passing answer also passes `require-corp`.
 
-The page lists public community nodes that pass CORS in a browser. When it opens, it asks each of
-them for `get_info` and picks the fastest one that is on mainnet, synchronized and within three blocks
-of the median answer; each row shows its state and round trip. That request tells a listed node only
-that a visitor asked for its height. A person can pick another row or enter their own node, a link can
-name one (`?node=https://node.example`), and a person's choice is remembered for the tab. Once a wallet
-exists the choice is locked until the wallet is forgotten. A node of your own behind an HTTPS
+The page lists public community nodes that pass CORS in a browser. It opens on the first listed node
+without probing any node; when a search begins or a person chooses a row, that node is asked for
+`get_info`, and a row shows its state and round trip once checked. Those requests tell a listed node
+only that a visitor asked for its height. A person can pick another row or enter their own node, a link
+can name one (`?node=https://node.example`), and a person's choice is remembered for the tab. Once a
+wallet exists the choice is locked until the wallet is forgotten. A node of your own behind an HTTPS
 proxy is enough; `deploy/xmr-proxy.conf` has the block and `deploy/own-node.md` walks through the setup,
 including a public fallback and the exact headers.
 

@@ -289,22 +289,6 @@ export function nodeVerdict(answer, median, network = "mainnet") {
   return { state: "good", why: "good", params: { height: answer.height } };
 }
 
-// THE PAGE'S PICK: the fastest good node on `network`, or null when none is good. Ties go to the list order.
-// `entries` is [{ url, answer, network? }] for the listed nodes.
-export function fastestGood(entries, network = "mainnet") {
-  const onNetwork = entries.filter((e) => (e.network || nodeNetwork(e.url)) === network);
-  const median = medianHeight(
-    onNetwork.map((e) => e.answer),
-    network,
-  );
-  let best = null;
-  for (const e of onNetwork) {
-    if (nodeVerdict(e.answer, median, network).state !== "good") continue;
-    if (best === null || e.answer.ms < best.answer.ms) best = e;
-  }
-  return best ? best.url : null;
-}
-
 // The name of the network as monero-ts takes it (lowercase). The node answers with its own nettype,
 // and the wallet MUST be built from that: a mainnet wallet against a stagenet node looks like a
 // broken sweep, and did once. An unknown nettype is null: a caller must refuse it, not guess another chain.

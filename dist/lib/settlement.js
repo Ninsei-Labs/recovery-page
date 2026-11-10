@@ -149,11 +149,16 @@ export async function evmCall(network, request, fetchImpl = globalThis.fetch) {
 // a rate limit) moves on to the next RPC; when none answers, the read throws: a missing answer is unknown, never an
 // empty list.
 //
-// A RANGE IS READ IN WINDOWS of at most LOG_WINDOW blocks: the RPC that serves wide ranges refuses more than ten
-// million blocks in one query, and a testnet factory a month old already spans more. The windows cover the range
-// exactly, in order, and a window no RPC answers fails the whole read: a list with a hole in it would say "no swap"
-// for a swap that is there.
+// A RANGE IS READ IN WINDOWS of at most LOG_WINDOW blocks. Public RPCs refuse a range in different places: the
+// official Arbitrum Sepolia endpoint accepts 100,000 blocks for a factory filter and 30,000 for a topic-only one,
+// while another configured endpoint allows 10,000. A window the whole set refuses for its width is split in half and
+// read again, down to one block; a window nobody answers for another reason still fails the read.
 export const LOG_WINDOW = 9_000_000;
+
+// WHAT A REFUSED RANGE LOOKS LIKE across the providers. A limit is not a missing answer: the same filter over a
+// smaller range is a valid request, and a search that gives up on it reports "no swaps" for a chain it could read.
+const RANGE_REFUSAL =
+  /(?:block\s*range|range\s+too|too\s+many\s+(?:blocks|results)|more\s+than\s+\d+\s+results|too\s+wide|exceed\w*.*(?:block|range|result)|maximum.*(?:block|range)|max\s*results|response\s+size)/i;
 
 export async function evmLogs(network, request, fetchImpl = globalThis.fetch) {
   const chain = settlementOf(network);
@@ -196,10 +201,31 @@ export async function evmLogs(network, request, fetchImpl = globalThis.fetch) {
     windows.push([blockTag(from, "earliest"), blockTag(to, "latest")]);
   }
   const logs = [];
-  for (const [fromBlock, toBlock] of windows) {
+  const readRange = async (fromBlock, toBlock) => {
     const filter = hasAddress ? { address: filterAddress, topics, fromBlock, toBlock } : { topics, fromBlock, toBlock };
-    logs.push(...(await logWindow(network, chain, filter, fetchImpl)));
-  }
+    try {
+      return await logWindow(network, chain, filter, fetchImpl);
+    } catch (error) {
+      // THE PROVIDER NAMED THE WIDTH, NOT THE FILTER. Split the range and ask the same question again; the halves
+      // cover the original range exactly, and a one-block window still refused ends the read as unknown.
+      if (
+        error &&
+        error.code === "range-too-wide" &&
+        /^0x[0-9a-f]+$/i.test(fromBlock) &&
+        /^0x[0-9a-f]+$/i.test(toBlock) &&
+        fromBlock !== toBlock
+      ) {
+        const start = Number(BigInt(fromBlock));
+        const end = Number(BigInt(toBlock));
+        const middle = Math.floor((start + end) / 2);
+        const left = await readRange(blockTag(start), blockTag(middle));
+        const right = await readRange(blockTag(middle + 1), blockTag(end));
+        return [...left, ...right];
+      }
+      throw error;
+    }
+  };
+  for (const [fromBlock, toBlock] of windows) logs.push(...(await readRange(fromBlock, toBlock)));
   return logs;
 }
 
@@ -209,6 +235,7 @@ export async function evmLogs(network, request, fetchImpl = globalThis.fetch) {
 
 async function logWindow(network, chain, filter, fetchImpl) {
   const failures = [];
+  let refusedWidth = false;
   for (const url of chain.rpcs) {
     let body;
     try {
@@ -228,6 +255,7 @@ async function logWindow(network, chain, filter, fetchImpl) {
       continue;
     }
     if (body && body.error) {
+      if (RANGE_REFUSAL.test(String(body.error.message || ""))) refusedWidth = true;
       failures.push(`${url}: RPC ${body.error.code ?? "error"}`);
       continue;
     }
@@ -237,9 +265,11 @@ async function logWindow(network, chain, filter, fetchImpl) {
     }
     return body.result;
   }
-  throw new Error(
+  const failure = new Error(
     `no ${network} RPC answered eth_getLogs ${filter.fromBlock}..${filter.toBlock} (${failures.join("; ")})`,
   );
+  if (refusedWidth) failure.code = "range-too-wide";
+  throw failure;
 }
 
 // THE TIME OF ONE BLOCK, in seconds: the block that holds a found order's OrderCreated, from which the SDK derives

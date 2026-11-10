@@ -67,17 +67,8 @@ const LIB = (await readdir(join(ROOT, "lib")))
   .map((name) => `lib/${name}`);
 
 // --- 1. the node address ----------------------------------------------------------------
-const {
-  parseNodeUrl,
-  NODES,
-  DEFAULT_NODE,
-  STAGENET_NODE,
-  nodeVerdict,
-  medianHeight,
-  fastestGood,
-  pingNode,
-  networkFromNode,
-} = await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
+const { parseNodeUrl, NODES, DEFAULT_NODE, STAGENET_NODE, nodeVerdict, medianHeight, pingNode, networkFromNode } =
+  await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
 
 // A FAKE MONEROD, shaped as monerod answers (examples, not a recorded chain): get_info's `height` is the number of
 // blocks, so the top block is one lower; a header past the top is refused with monerod's own error; the genesis
@@ -159,7 +150,6 @@ await check("every listed node is https and written the way the parser gives it 
   return `${NODES.length} nodes`;
 });
 
-// AN ANSWER as the SDK's probeMoneroNode gives it; heights and times are example values.
 const answer = (fields) => ({
   ok: true,
   network: "mainnet",
@@ -224,9 +214,6 @@ await check("the stagenet node is good on stagenet and is never auto-picked for 
     params: { height: 2_000_000 },
   });
   assert.equal(nodeVerdict(stagenet, 2_000_000).state, "bad");
-  const rows = [{ url: STAGENET_NODE, network: "stagenet", answer: stagenet }];
-  assert.equal(fastestGood(rows, "mainnet"), null);
-  assert.equal(fastestGood(rows, "stagenet"), STAGENET_NODE);
   assert.equal(medianHeight([stagenet], "stagenet"), 2_000_000);
 });
 
@@ -250,38 +237,6 @@ await check("the reference height is the median of the mainnet answers, so one i
   assert.equal(
     medianHeight([3_500_000, 3_500_001, 3_500_002, 3_500_003].map((height) => answer({ height }))),
     3_500_001,
-  );
-});
-
-await check("the page picks the fastest good node, and nothing when none is good", () => {
-  const entries = [
-    { url: "https://a.example", answer: answer({ ms: 120 }) },
-    { url: "https://b.example", answer: answer({ ms: 80 }) },
-    { url: "https://c.example", answer: answer({ ms: 20, network: "stagenet", height: 2_000_000 }) },
-    { url: "https://d.example", answer: answer({ ms: 30, height: 3_499_990 }) },
-    { url: "https://e.example", answer: answer({ ms: 10, synchronized: false }) },
-    { url: "https://f.example", answer: { ok: false, why: "timeout", ms: 5 } },
-    { url: "https://g.example", answer: null },
-  ];
-  assert.equal(fastestGood(entries), "https://b.example");
-  // One node claims a far higher height and answers fastest: the honest nodes stay good, and it is not picked.
-  const liar = [
-    { url: "https://h1.example", answer: answer({ ms: 90 }) },
-    { url: "https://h2.example", answer: answer({ ms: 60, height: 3_500_001 }) },
-    { url: "https://liar.example", answer: answer({ ms: 5, height: 4_500_000 }) },
-    { url: "https://h3.example", answer: answer({ ms: 70, height: 3_499_999 }) },
-    { url: "https://h4.example", answer: answer({ ms: 120 }) },
-  ];
-  assert.equal(fastestGood(liar), "https://h2.example");
-  assert.equal(fastestGood(entries.filter((e) => !/[abd]\./.test(e.url))), null);
-  assert.equal(fastestGood([]), null);
-  // Equal times: the list order decides.
-  assert.equal(
-    fastestGood([
-      { url: "https://x.example", answer: answer({ ms: 50 }) },
-      { url: "https://y.example", answer: answer({ ms: 50 }) },
-    ]),
-    "https://x.example",
   );
 });
 
@@ -408,7 +363,7 @@ await check("the node list has no check button, and its rows are radios of one g
 });
 
 // --- 2b. the recovery key, the swaps it finds, the state of their money --------------------------
-const { swapState, moneyState, statusFromEvents, scanStartHeight } = await import(
+const { swapState, moneyState, statusFromEvents, scanStartHeight, tipHeaderHeight, tipTrusted } = await import(
   pathToFileURL(join(ROOT, "lib", "withdrawal.js")).href
 );
 const { SETTLEMENT, settlementOf, evmCall, keyNetworks, evmLogs, LOG_WINDOW } = await import(
@@ -430,6 +385,17 @@ const bodyOf = (text, name) => {
   assert.ok(at >= 0, `no ${name}()`);
   return text.slice(at, text.indexOf("\n}\n", at));
 };
+
+await check("the page probes only the chosen node, and not when it opens", async () => {
+  const page = await read("recovery.js");
+  assert.ok(!/pingAll/.test(page), "the page still probes every listed node");
+  const start = bodyOf(page, "startNode");
+  assert.match(start, /runPreflight\(\{ probeNode: false \}\)/, "opening the page still probes the node");
+  assert.ok(!/pingRows/.test(start), "opening the page still probes the list");
+  const recheck = bodyOf(page, "recheck");
+  assert.match(recheck, /pingRows\(\[row\]\)/, "a tab return does not check the chosen node");
+  assert.ok(!/pingRows\((?:\[\.\.\.)?listed/.test(recheck), "a tab return still probes the list");
+});
 
 // THE PASSWORD FIELD FOLLOWS THE SDK'S READING OF THE KEY FILE, so the page keeps no rule of its own that could
 // drift from the files the widget writes. Both kinds below are written by the installed SDK itself.
@@ -704,6 +670,24 @@ await check("a start height is a block the node already has", () => {
   ];
   for (const [what, value, tip, expected] of cases) assert.deepEqual(scanStartHeight(value, tip), expected, what);
   return `${cases.length} cases`;
+});
+
+await check("a daemon height is a block count, and a tip is trusted only when recent and after the order", () => {
+  // getDaemonHeight is the daemon's get_info.height: the count of blocks, so the top block is one lower. Asking for
+  // a header at the count is the off-by-one that made every scan incomplete.
+  assert.equal(tipHeaderHeight(3_803_298), 3_803_297);
+  assert.equal(tipHeaderHeight(0), null);
+  assert.equal(tipHeaderHeight(null), null);
+  const now = 1_700_000_000_000;
+  const recent = now / 1000 - 60;
+  assert.equal(tipTrusted({ tipTime: recent, now }), true);
+  // The chains' clocks can differ by seconds; a fresh order is not a short chain.
+  assert.equal(tipTrusted({ tipTime: recent, orderTime: recent + 300, now }), true);
+  // A tip older than the order by more than the margin is a chain that cannot hold the swap.
+  assert.equal(tipTrusted({ tipTime: recent, orderTime: recent + 20 * 60, now }), false);
+  // A tip hours old is a node that stopped following the chain.
+  assert.equal(tipTrusted({ tipTime: now / 1000 - 3 * 60 * 60, now }), false);
+  assert.equal(tipTrusted({ tipTime: null, now }), false);
 });
 
 await check("every word a swap row, the state of the money and the flow's stops can show exists", async () => {
@@ -1197,6 +1181,39 @@ await check(
       /no arbitrum-sepolia RPC answered eth_getLogs/,
     );
     assert.ok(calls >= 2, `${calls} requests`);
+    // The whole set refuses a range for its width: the read splits it until a width is accepted, and the pieces
+    // cover the original range exactly. This is the shape of the public Arbitrum endpoints' answers.
+    let splitCalls = 0;
+    const split = await evmLogs(
+      "arbitrum-sepolia",
+      { address: factory, topics, fromBlock: 100, toBlock: 5_100 },
+      async (url, init) => {
+        splitCalls += 1;
+        const filter = JSON.parse(init.body).params[0];
+        const span = Number(BigInt(filter.toBlock)) - Number(BigInt(filter.fromBlock)) + 1;
+        if (span > 1_000)
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ error: { code: -32602, message: "block range is too large" } }),
+          };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ result: [{ window: [filter.fromBlock, filter.toBlock] }] }),
+        };
+      },
+    );
+    const splitSpans = split.map((log) => [Number(BigInt(log.window[0])), Number(BigInt(log.window[1]))]);
+    assert.ok(
+      splitSpans.every(([start, end]) => end - start + 1 <= 1_000),
+      "a refused width was not split",
+    );
+    assert.equal(splitSpans[0][0], 100);
+    assert.equal(splitSpans[splitSpans.length - 1][1], 5_100);
+    for (let i = 1; i < splitSpans.length; i += 1)
+      assert.equal(splitSpans[i][0], splitSpans[i - 1][1] + 1, "the split left a gap");
+    assert.ok(splitCalls > 1, `${splitCalls} requests`);
     // A range that is not two block numbers is one request, as given.
     const { asked } = await windowsOf(1000, "latest");
     assert.deepEqual(
@@ -1260,6 +1277,11 @@ await check("the page's escrow-state read sends no escrow addresses", async () =
     "the escrow-state read still sends the visitor's escrow list",
   );
   assert.doesNotMatch(page, /evmLogsByTopic|escrows: networkRows/, "the address-stripping wrapper is still wired");
+  assert.match(
+    page,
+    /fromBlock: \(\(\) => \{[\s\S]*?networkRows\.reduce\(/,
+    "the escrow-state read still starts at the earliest factory, not the earliest found order",
+  );
 });
 
 await check("the SDK's topic-only escrow events decode through the page's log reader", async () => {
@@ -1736,9 +1758,12 @@ await check("the page keeps the SDK's scan verdict and scans from the start bloc
     "the full scan is not from the start block",
   );
   assert.match(sync, /restored\.scanComplete === true/, "syncWallet treats a missing scan verdict as complete");
+  assert.match(sync, /moneroHeaderTime\(nodeUrl\(\), daemonTip\)/, "syncWallet does not corroborate the node's tip");
+  assert.match(sync, /tipHeaderHeight\(nodeTip\)/, "syncWallet asks for a header at the block count");
+  assert.match(sync, /tipIsTrusted\(\{ tipTime, orderTime \}\)/, "syncWallet can call a short chain complete");
   assert.match(
     sync,
-    /scanStartHeight\(height, nodeTip\)/,
+    /scanStartHeight\(height, daemonTip\)/,
     "syncWallet does not bound the start height by the node tip",
   );
   assert.match(sync, /flow\.err\.height/, "an above-tip start height has no refusal");
@@ -1763,6 +1788,11 @@ await check("a refreshed balance keeps the scan verdict", async () => {
     refresh,
     /previous\.scanComplete === false/,
     "refreshBalance can upgrade an incomplete scan to complete",
+  );
+  assert.match(
+    refresh,
+    /scanComplete === false[\s\S]*?return syncWallet\(\)/,
+    "a retry after an incomplete scan does not run the scan again",
   );
 });
 

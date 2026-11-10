@@ -17,6 +17,7 @@ export default {
     "check.wallet.ok": "Wallet loaded",
     "check.wallet.bad": "The wallet did not load",
     "check.node.wait": "Asking the node",
+    "check.node.idle": "Node not checked yet",
     "check.node.ok": "Node answers",
     "check.node.bad": "No node answers",
     "check.secure.wait": "Checking the connection",
@@ -423,9 +424,8 @@ export default {
     "node.state.behind": "{blocks} blocks behind",
     "node.state.ahead": "{blocks} blocks ahead of the others",
     "node.state.unchecked": "not checked",
-    "node.note.checking": "Asking each node for its height",
-    "node.note.picked": "Picked the fastest node that answers well: {host}",
-    "node.note.none": "No listed node answers well right now. Pick one to try it anyway, or enter your own node",
+    "node.note.default":
+      "Using the default node: {host}. Pick another node or enter your own before opening a swap if you prefer",
     "node.note.link":
       "The link chose {host}. A link from someone else chose this node; check it before entering your key",
     "node.note.own": "Enter your node's address in the field",
