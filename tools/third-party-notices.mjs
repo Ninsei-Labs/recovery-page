@@ -12,7 +12,6 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { licenseFiles, NON_SHIPPED, ROOT, shippedPackages } from "./licenses.mjs";
-
 const OUT = join(ROOT, "THIRD_PARTY_NOTICES.txt");
 const textOf = (file) => readFileSync(file, "utf8").replace(/\r\n/g, "\n").trimEnd();
 
@@ -70,9 +69,7 @@ if (isMain) {
       console.error("third-party notices: THIRD_PARTY_NOTICES.txt is stale; run `bun run notices`");
       process.exit(1);
     }
-    console.log(
-      `third-party notices: ${expected.split("\n").filter((line) => line.startsWith("License: ")).length} package(s), current`,
-    );
+    console.log(`third-party notices: ${shippedPackages().length} package(s), current`);
   } else {
     writeFileSync(OUT, expected, "utf8");
     console.log(`third-party notices: wrote ${OUT}`);

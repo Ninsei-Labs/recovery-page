@@ -159,7 +159,6 @@ await check("every listed node is https and written the way the parser gives it 
   return `${NODES.length} nodes`;
 });
 
-// AN ANSWER as the SDK's probeMoneroNode gives it; heights and times are example values.
 const answer = (fields) => ({
   ok: true,
   network: "mainnet",
@@ -430,6 +429,17 @@ const bodyOf = (text, name) => {
   assert.ok(at >= 0, `no ${name}()`);
   return text.slice(at, text.indexOf("\n}\n", at));
 };
+
+await check("the page probes only the chosen node, and not when it opens", async () => {
+  const page = await read("recovery.js");
+  assert.ok(!/pingAll/.test(page), "the page still probes every listed node");
+  const start = bodyOf(page, "startNode");
+  assert.match(start, /runPreflight\(\{ probeNode: false \}\)/, "opening the page still probes the node");
+  assert.ok(!/pingRows/.test(start), "opening the page still probes the list");
+  const recheck = bodyOf(page, "recheck");
+  assert.match(recheck, /pingRows\(\[row\]\)/, "a tab return does not check the chosen node");
+  assert.ok(!/pingRows\((?:\[\.\.\.)?listed/.test(recheck), "a tab return still probes the list");
+});
 
 // THE PASSWORD FIELD FOLLOWS THE SDK'S READING OF THE KEY FILE, so the page keeps no rule of its own that could
 // drift from the files the widget writes. Both kinds below are written by the installed SDK itself.
@@ -1197,6 +1207,39 @@ await check(
       /no arbitrum-sepolia RPC answered eth_getLogs/,
     );
     assert.ok(calls >= 2, `${calls} requests`);
+    // The whole set refuses a range for its width: the read splits it until a width is accepted, and the pieces
+    // cover the original range exactly. This is the shape of the public Arbitrum endpoints' answers.
+    let splitCalls = 0;
+    const split = await evmLogs(
+      "arbitrum-sepolia",
+      { address: factory, topics, fromBlock: 100, toBlock: 5_100 },
+      async (url, init) => {
+        splitCalls += 1;
+        const filter = JSON.parse(init.body).params[0];
+        const span = Number(BigInt(filter.toBlock)) - Number(BigInt(filter.fromBlock)) + 1;
+        if (span > 1_000)
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ error: { code: -32602, message: "block range is too large" } }),
+          };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ result: [{ window: [filter.fromBlock, filter.toBlock] }] }),
+        };
+      },
+    );
+    const splitSpans = split.map((log) => [Number(BigInt(log.window[0])), Number(BigInt(log.window[1]))]);
+    assert.ok(
+      splitSpans.every(([start, end]) => end - start + 1 <= 1_000),
+      "a refused width was not split",
+    );
+    assert.equal(splitSpans[0][0], 100);
+    assert.equal(splitSpans[splitSpans.length - 1][1], 5_100);
+    for (let i = 1; i < splitSpans.length; i += 1)
+      assert.equal(splitSpans[i][0], splitSpans[i - 1][1] + 1, "the split left a gap");
+    assert.ok(splitCalls > 1, `${splitCalls} requests`);
     // A range that is not two block numbers is one request, as given.
     const { asked } = await windowsOf(1000, "latest");
     assert.deepEqual(
@@ -1260,6 +1303,11 @@ await check("the page's escrow-state read sends no escrow addresses", async () =
     "the escrow-state read still sends the visitor's escrow list",
   );
   assert.doesNotMatch(page, /evmLogsByTopic|escrows: networkRows/, "the address-stripping wrapper is still wired");
+  assert.match(
+    page,
+    /fromBlock: \(\(\) => \{[\s\S]*?networkRows\.reduce\(/,
+    "the escrow-state read still starts at the earliest factory, not the earliest found order",
+  );
 });
 
 await check("the SDK's topic-only escrow events decode through the page's log reader", async () => {
@@ -1736,6 +1784,8 @@ await check("the page keeps the SDK's scan verdict and scans from the start bloc
     "the full scan is not from the start block",
   );
   assert.match(sync, /restored\.scanComplete === true/, "syncWallet treats a missing scan verdict as complete");
+  assert.match(sync, /moneroHeaderTime\(nodeUrl\(\), nodeTip\)/, "syncWallet does not corroborate the node's tip");
+  assert.match(sync, /tipTrusted/, "syncWallet can call a short chain complete");
   assert.match(
     sync,
     /scanStartHeight\(height, nodeTip\)/,
@@ -1763,6 +1813,11 @@ await check("a refreshed balance keeps the scan verdict", async () => {
     refresh,
     /previous\.scanComplete === false/,
     "refreshBalance can upgrade an incomplete scan to complete",
+  );
+  assert.match(
+    refresh,
+    /scanComplete === false[\s\S]*?return syncWallet\(\)/,
+    "a retry after an incomplete scan does not run the scan again",
   );
 });
 

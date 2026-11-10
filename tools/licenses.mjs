@@ -193,7 +193,7 @@ export function summary(packages) {
 export function licenseFiles(dir) {
   try {
     return readdirSync(dir)
-      .filter((name) => /^(?:licen[cs]e|copying|notice)(?:\..+)?$/i.test(name))
+      .filter((name) => /^(?:licen[cs]e|copying|notice|third[-_ ]?party[-_ ]?notices?)(?:\..+)?$/i.test(name))
       .sort((a, b) => a.localeCompare(b));
   } catch {
     return [];
