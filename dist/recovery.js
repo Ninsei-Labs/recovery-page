@@ -50,7 +50,7 @@ function sideOf(found) {
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=9838c591";
 const WORKER = "./monero.worker.js?v=a118abf5";
-const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=6ed34554";
+const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=05386b9e";
 // THIS PAGE TALKS TO NO SERVICE. The SDK's service routes (a height the app remembers, the revealed half's
 // fallback, the "withdrawn" mark) get this fetch, which answers "unavailable" without a request: the height comes
 // from the chain or the person, the half from the chain, and a withdrawal needs nobody told. So only the Monero
@@ -99,6 +99,19 @@ keyMoreEl.className = "small";
 keyMoreEl.setAttribute("data-i18n", "key.more");
 keyMoreEl.hidden = true;
 const swapListEl = $("swapList");
+const swapHeadEl = $("swapHead");
+const ethBox = $("ethAction");
+const ethStateEl = $("ethState");
+const ethFactsEl = $("ethFacts");
+const ethConnectBtn = $("ethConnect");
+const ethWalletEl = $("ethWallet");
+const ethRecipientEl = $("ethRecipient");
+const ethErrorEl = $("ethError");
+const ethConfirmEl = $("ethConfirm");
+const ethInfoEl = $("ethInfo");
+const ethSendBtn = $("ethSend");
+const ethDoneEl = $("ethDone");
+const ethDoneInfoEl = $("ethDoneInfo");
 keyActionsEl.append(keyMoreEl);
 keyResultEl.insertBefore(keyActionsEl, swapListEl);
 const stepSwap = $("stepSwap");
@@ -140,6 +153,11 @@ let settlement = null; // settlement network of the current swap, one lib/settle
 let balance = null; // { total, unlocked, txs } after a sync, null before one
 let signedToken = null; // signing token (sweep.sign -> sweep.relay)
 let lastTx = null; // signed transfer data for the confirmation
+// ETH SETTLEMENT: the injected provider, its adapter, the action material from sweep.fromOrder, and the receipt wait.
+let ethProvider = null;
+let ethAdapter = null;
+let ethMaterial = null;
+let ethBusy = false;
 
 // Console and test state: no secrets (no words, no keys, no halves).
 window.__sweepFlow = {
@@ -750,7 +768,7 @@ async function findKeySwaps(options = {}) {
   return true;
 }
 
-// THE DEADLINE OF A FOUND ORDER in ms, by the SDK's one conversion; a value of the wrong scale is unknown.
+// THE DEADLINES OF A FOUND ORDER in ms, by the SDK's one conversion; a value of the wrong scale is unknown.
 function deadlineOf(swap) {
   try {
     return mod.msFromOrderSeconds(swap.t1, "t1");
@@ -758,15 +776,28 @@ function deadlineOf(swap) {
     return null;
   }
 }
+function readyByOf(swap) {
+  try {
+    return mod.msFromOrderSeconds(swap.readyBy, "readyBy");
+  } catch {
+    return null;
+  }
+}
 const swapStateOf = (row) =>
-  swapState({ side: row.side, status: row.status, deadline: deadlineOf(row.swap), now: Date.now() });
+  swapState({
+    side: row.side,
+    status: row.status,
+    deadline: deadlineOf(row.swap),
+    readyBy: readyByOf(row.swap),
+    now: Date.now(),
+  });
 
 // THE ORDER'S AMOUNT in the settlement chain's coin, for display: the escrow holds it in its smallest unit.
-function coinAmount(row) {
-  const decimals = Number(row.net.native && row.net.native.decimals) || 18;
-  const symbol = (row.net.native && row.net.native.symbol) || "ETH";
+function formatCoin(net, value) {
+  const decimals = Number(net.native && net.native.decimals) || 18;
+  const symbol = (net.native && net.native.symbol) || "ETH";
   try {
-    const units = BigInt(row.swap.amount);
+    const units = BigInt(value);
     const scale = 10n ** BigInt(decimals);
     const whole = units / scale;
     const fraction = (units % scale).toString().padStart(decimals, "0").slice(0, 6);
@@ -774,6 +805,9 @@ function coinAmount(row) {
   } catch {
     return t("swap.amount.unknown");
   }
+}
+function coinAmount(row) {
+  return formatCoin(row.net, row.swap.amount);
 }
 
 // THE LIST, drawn from the last search, so a language change redraws the same rows. The SDK reads every matching
@@ -808,11 +842,11 @@ function swapRow(row) {
   const when = row.time ? d(row.time * 1000, { dateStyle: "medium" }) : t("swap.date.unknown");
   const side = t(row.side === "buy" ? "value.side.buy" : row.side === "sell" ? "value.side.sell" : "swap.side.unknown");
   let action;
-  if (state.action === "withdraw") {
+  if (state.action === "withdraw" || state.action === "refund" || state.action === "claim") {
     action = h("button", {
       type: "button",
       class: current === row ? "small ready" : "small",
-      text: t("swap.action.withdraw"),
+      text: t("swap.action." + state.action),
     });
     action.addEventListener("click", () => busy(action, () => openSwap(row), openErrorEl));
   } else {
@@ -842,6 +876,308 @@ function swapRow(row) {
   );
 }
 
+// --- 2. The ETH side: refund a buy, claim a sell ------------------------------------------------
+
+// THE CONTRACT'S TWO PUBLIC SELECTORS, used only for the gas estimate. The SDK builds and sends the actual call;
+// this module never signs from these strings. If the estimate refuses, the page says so and the SDK still decides.
+const ETH_SELECTOR = Object.freeze({ refund: "0x7249fbb6", claim: "0xbd66528a" });
+
+function injectedProvider() {
+  const eth = window.ethereum;
+  if (!eth || typeof eth.request !== "function") return null;
+  if (Array.isArray(eth.providers) && eth.providers.length) {
+    return eth.providers.find((p) => p && p.isMetaMask && typeof p.request === "function") || eth.providers[0];
+  }
+  return eth;
+}
+
+// THE ACTION FACADE READS THROUGH THE SAME PROVIDER THAT WILL SEND. createNinsei's `evmCall` is the action's slot
+// check and clock; using the page's public RPC here would let the check and the signature see two different chains.
+function actionCore(row, provider) {
+  const call = async ({ to, data, from }) => {
+    const tx = from ? { to, data, from } : { to, data };
+    const result = await provider.request({ method: "eth_call", params: [tx, "latest"] });
+    if (typeof result !== "string" || !result.startsWith("0x")) throw new Error("eth_call: bad answer");
+    return result;
+  };
+  return mod.createNinsei({
+    settlement: { chain: row.net.chainId },
+    xmrNetwork: row.net.monero,
+    mode: "live",
+    fetch: noService,
+    storage: mod.memoryAdapter(),
+    evmCall: call,
+  });
+}
+
+function clearEthState() {
+  if (ethAdapter) {
+    try {
+      ethAdapter.disconnect();
+    } catch {
+      /* the provider is going away */
+    }
+  }
+  ethAdapter = null;
+  ethProvider = null;
+  ethMaterial = null;
+  ethBusy = false;
+}
+
+function ethRecipient(row, material) {
+  return material.kind === "refund"
+    ? String(material.expect.locker || "")
+    : String(material.claimer || material.expect.claimer || "");
+}
+
+function drawEthFacts(row, material) {
+  const deadline = deadlineOf(row.swap);
+  const rows = [
+    ["info.swap", material.escrow],
+    ["eth.kind.label", () => t("eth.kind." + material.kind)],
+    ["info.amount.order", () => formatCoin(row.net, material.expect.amount)],
+    ["eth.recipient.label", () => ethRecipient(row, material)],
+    [
+      "eth.window.label",
+      () =>
+        t(material.kind === "refund" ? "eth.window.refund" : "eth.window.claim", {
+          deadline: deadline ? d(deadline) : "",
+        }),
+    ],
+  ];
+  renderInfo(ethFactsEl, rows);
+}
+
+function drawEthState(row, material) {
+  ethStateEl.textContent = t(material.kind === "refund" ? "eth.state.refund" : "eth.state.claim", {
+    deadline: deadlineOf(row.swap) ? d(deadlineOf(row.swap)) : "",
+  });
+  ethRecipientEl.textContent = t("eth.recipient", { address: ethRecipient(row, material) });
+  ethRecipientEl.hidden = false;
+}
+
+async function openEth(row) {
+  clearEthState();
+  ethDoneEl.hidden = true;
+  ethConfirmEl.hidden = true;
+  ethWalletEl.hidden = true;
+  ethRecipientEl.hidden = true;
+  ethConnectBtn.hidden = true;
+  ethConnectBtn.disabled = true;
+  quiet(ethErrorEl);
+  stepTransfer.hidden = true;
+  ethBox.hidden = false;
+  swapHeadEl.textContent = t("page.step.eth");
+  try {
+    const core = await facadeFor(row.net.chainId, row.net.monero);
+    const built = await core.sweep.fromOrder({
+      mnemonic: key.mnemonic,
+      chainId: row.net.chainId,
+      network: row.net.id,
+      moneroNetwork: row.net.monero,
+      order: row.swap,
+    });
+    if (!built || (built.kind !== "refund" && built.kind !== "claim")) throw new Error("no ETH action");
+    ethMaterial = built;
+    drawEthFacts(row, built);
+    drawEthState(row, built);
+    ethConnectBtn.hidden = false;
+    ethConnectBtn.disabled = false;
+    ethConnectBtn.textContent = t("page.btn.eth.connect");
+    log(t("log.eth.opened", { kind: built.kind, escrow: short(built.escrow) }));
+    return true;
+  } catch (e) {
+    log(t("log.eth.prepareFailed", { words: sdkWords(e) }), "bad");
+    return say(ethErrorEl, "eth.err.prepare");
+  }
+}
+
+async function ethConnect() {
+  quiet(ethErrorEl);
+  if (!ethMaterial || !current) return say(ethErrorEl, "eth.err.prepare");
+  const provider = injectedProvider();
+  if (!provider) return say(ethErrorEl, "eth.err.noProvider");
+  ethConnectBtn.disabled = true;
+  try {
+    ethProvider = provider;
+    ethAdapter = mod.evmWallet(provider);
+    await ethAdapter.connect({ chainId: current.net.chainId });
+    const address = await ethAdapter.address();
+    const chainId = await ethAdapter.chainId();
+    if (!address) throw new Error("wallet-not-connected");
+    if (chainId !== Number(ethMaterial.expect.chainId)) {
+      throw Object.assign(new Error("wrong-chain"), {
+        code: "wrong-chain",
+        params: { want: ethMaterial.expect.chainId, got: chainId },
+      });
+    }
+    if (ethMaterial.kind === "claim") {
+      const expected = String(ethMaterial.claimer || ethMaterial.expect.claimer || "").toLowerCase();
+      if (address.toLowerCase() !== expected) {
+        ethConnectBtn.hidden = false;
+        ethConnectBtn.disabled = false;
+        return say(ethErrorEl, "eth.err.claimer", { account: address, expected });
+      }
+    }
+    ethWalletEl.textContent = t("eth.wallet", { address, chain: current.net.name });
+    ethWalletEl.hidden = false;
+    ethConnectBtn.hidden = true;
+    ethConfirmEl.hidden = false;
+    ethSendBtn.disabled = false;
+    await drawEthGas();
+    log(t("log.eth.connected", { address, chainId }));
+    return true;
+  } catch (e) {
+    const words = sdkWords(e);
+    log(t("log.eth.connectFailed", { words }), "bad");
+    clearEthState();
+    ethConnectBtn.hidden = false;
+    ethConnectBtn.disabled = false;
+    return say(
+      ethErrorEl,
+      e && e.code === "wrong-chain"
+        ? "eth.err.chain"
+        : e && e.code === "wallet-rejected"
+          ? "eth.err.rejected"
+          : "eth.err.connect",
+    );
+  }
+}
+
+async function drawEthGas() {
+  const rows = [];
+  try {
+    const data = ETH_SELECTOR[ethMaterial.kind] + String(ethMaterial.half).replace(/^0x/, "");
+    const from = await ethAdapter.address();
+    const gas = await ethProvider.request({
+      method: "eth_estimateGas",
+      params: [{ from, to: ethMaterial.escrow, data }],
+    });
+    const gasUnits = BigInt(gas);
+    rows.push(["eth.gas.label", () => t("eth.gas", { gas: n(gasUnits.toString()) })]);
+    try {
+      const price = BigInt(await ethProvider.request({ method: "eth_gasPrice" }));
+      rows.push(["eth.cost.label", () => t("eth.cost", { amount: formatCoin(current.net, gasUnits * price) })]);
+    } catch {
+      rows.push(["eth.cost.label", () => t("eth.cost.unknown")]);
+    }
+  } catch {
+    rows.push(["eth.gas.label", () => t("eth.gas.unknown")]);
+  }
+  rows.push(["eth.recipient.label", () => ethRecipient(current, ethMaterial)]);
+  renderInfo(ethInfoEl, rows);
+}
+
+async function ethSend() {
+  quiet(ethErrorEl);
+  const row = current;
+  const material = ethMaterial;
+  if (ethBusy || !material || !ethAdapter || !ethProvider || !row) return say(ethErrorEl, "eth.err.prepare");
+  const provider = ethProvider;
+  const adapter = ethAdapter;
+  ethBusy = true;
+  ethSendBtn.disabled = true;
+  const kind = material.kind;
+  try {
+    const core = actionCore(row, provider);
+    const request = { escrow: material.escrow, expect: material.expect };
+    if (kind === "claim") {
+      request.halfClaimer = material.half;
+      request.claimer = material.claimer;
+    } else {
+      request.halfLocker = material.half;
+    }
+    const sent = await core.actions[kind](request, adapter);
+    const hash = sent && sent.hash;
+    if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("no transaction hash");
+    log(t("log.eth.sent", { kind, hash }));
+    ethConfirmEl.hidden = true;
+    ethDoneEl.hidden = false;
+    ethDoneInfoEl.replaceChildren();
+    renderInfo(ethDoneInfoEl, [
+      ["info.txid", () => ethExplorerLink(hash, row)],
+      ["eth.state.label", () => t(kind === "refund" ? "eth.done.refund" : "eth.done.claim")],
+    ]);
+    const receipt = await waitForEthReceipt(hash, adapter);
+    if (!receipt.ok) {
+      if (receipt.why === "reverted") {
+        // A REVERTED CALL IS A TERMINAL ANSWER: no receipt will arrive, so the confirmation comes back with a
+        // usable send button. A timeout is different: the transaction may still land, and re-sending it would be a
+        // second action on the same order.
+        ethDoneEl.hidden = true;
+        ethConfirmEl.hidden = false;
+        ethSendBtn.disabled = false;
+        return say(ethErrorEl, "eth.err.reverted");
+      }
+      return say(ethErrorEl, "eth.err.receipt");
+    }
+    // ONLY AN OBSERVED RECEIPT MOVES THE ROW. The row state is local until a fresh search; no claim of success
+    // before the chain has executed the call.
+    if (current !== row) return false;
+    row.status =
+      kind === "refund"
+        ? { ...row.status, isRefunded: true, isClaimed: false, isDeclined: false }
+        : { ...row.status, isClaimed: true, isRefunded: false, isDeclined: false };
+    drawSwaps();
+    ethStateEl.textContent = t(kind === "refund" ? "eth.done.refund" : "eth.done.claim");
+    log(t("log.eth.receipt", { kind, hash }));
+    return true;
+  } catch (e) {
+    const words = sdkWords(e);
+    log(t("log.eth.failed", { words }), "bad");
+    ethSendBtn.disabled = false;
+    const key =
+      e && e.code === "wrong-account"
+        ? "eth.err.account"
+        : e && e.code === "wrong-chain"
+          ? "eth.err.chain"
+          : e && e.code === "wallet-rejected"
+            ? "eth.err.rejectSend"
+            : e &&
+                e.code === "bad-input" &&
+                e.params &&
+                (e.params.field === "wallet" || e.params.field === "wallet.address")
+              ? "eth.err.account"
+              : e && e.code === "contract-reverted"
+                ? ["too-early", "window-closed", "not-ready", "ready-window-closed"].includes(e.params && e.params.why)
+                  ? "eth.err.window"
+                  : "eth.err.reverted"
+                : e && e.code === "wallet-not-connected"
+                  ? "eth.err.connect"
+                  : "eth.err.send";
+    return say(ethErrorEl, key);
+  } finally {
+    ethBusy = false;
+  }
+}
+
+async function waitForEthReceipt(hash, adapter) {
+  const started = Date.now();
+  for (;;) {
+    try {
+      const receipt = await adapter.receipt(hash);
+      if (receipt && typeof receipt === "object") {
+        if (receipt.status === "0x1" || receipt.status === 1) return { ok: true, receipt };
+        if (receipt.status === "0x0" || receipt.status === 0) return { ok: false, why: "reverted" };
+      }
+    } catch {
+      /* a receipt that cannot be read is not a success; keep asking until the deadline */
+    }
+    if (Date.now() - started > 120_000) return { ok: false, why: "timeout" };
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+}
+
+function ethExplorerLink(hash, row = current) {
+  const a = document.createElement("a");
+  a.href = ((row && row.net.explorer) || "") + hash;
+  a.target = "_blank";
+  a.rel = "noreferrer noopener";
+  a.className = "explorer-link";
+  a.appendChild(document.createTextNode(t("link.explorer")));
+  return a;
+}
+
 // --- 2. One swap: its keys, its start height, the SDK's plan ---
 
 // OPEN ONE SWAP FOR THE WITHDRAWAL. sweep.fromOrder takes the key and the order, checks the chain's points against
@@ -859,10 +1195,25 @@ async function openSwap(row) {
   network = row.net.monero;
   window.__sweepFlow.network = network;
   stepSwap.hidden = false;
+  const openState = swapStateOf(row);
+  if (openState.action === "refund" || openState.action === "claim") {
+    // THE ETH PATH NEEDS NO MONERO NODE, NO WALLET SCAN AND NO START HEIGHT. It stops at this block.
+    moneyEl.hidden = true;
+    heightBox.hidden = true;
+    stepTransfer.hidden = true;
+    swapHeadEl.textContent = t("page.step.eth");
+    drawSwaps();
+    stepSwap.scrollIntoView({ block: "nearest" });
+    return await openEth(row);
+  }
   moneyEl.hidden = false;
   moneyEl.dataset.state = "wait";
+  swapHeadEl.textContent = t("page.step.swap");
   moneyHeadEl.textContent = t("money.reading");
   swapInfoEl.hidden = true;
+  ethBox.hidden = true;
+  ethDoneEl.hidden = true;
+  clearEthState();
   drawSwaps();
   stepSwap.scrollIntoView({ block: "nearest" });
   // A TESTNET SWAP NEEDS A STAGENET NODE. If the current pick is on another network, the project's stagenet node is
@@ -1430,6 +1781,7 @@ async function closeWallet() {
 // back to "choose a swap". The key and the list stay: the person is choosing among them.
 async function closeSwap() {
   await closeWallet();
+  clearEthState();
   current = null;
   contents = null;
   plan = null;
@@ -1450,6 +1802,12 @@ async function closeSwap() {
   };
   stepSwap.hidden = true;
   stepTransfer.hidden = true;
+  ethBox.hidden = true;
+  ethDoneEl.hidden = true;
+  ethConfirmEl.hidden = true;
+  ethWalletEl.hidden = true;
+  ethRecipientEl.hidden = true;
+  quiet(ethErrorEl);
   moneyEl.hidden = true;
   confirmEl.hidden = true;
   doneEl.hidden = true;
@@ -1468,6 +1826,7 @@ async function closeSwap() {
 // transfer go. The sent view and the txid stay; the list goes with the key, since every action in it needs the key.
 async function dropKeys() {
   await closeWallet();
+  clearEthState();
   // THE FACADES HOLD THE ONLY CACHED ADAPTERS. Disconnecting is not enough if the facade itself survives in this map:
   // clear it, so a later `createNinsei` starts from the key it is given and not from a wallet built from this one.
   facades.clear();
@@ -1850,6 +2209,8 @@ findSwapsBtn.addEventListener("click", () => busy(findSwapsBtn, findKeySwaps, ke
 keyMoreEl.addEventListener("click", () => busy(keyMoreEl, () => findKeySwaps({ more: true }), keyErrorEl));
 withdrawBtn.addEventListener("click", () => busy(withdrawBtn, withdraw, withdrawErrorEl));
 sendBtn.addEventListener("click", () => busy(sendBtn, sendTx, withdrawErrorEl));
+ethConnectBtn.addEventListener("click", () => busy(ethConnectBtn, ethConnect, ethErrorEl));
+ethSendBtn.addEventListener("click", () => busy(ethSendBtn, ethSend, ethErrorEl));
 
 // AN OLDER BUILD OF THIS PAGE REGISTERED A SERVICE WORKER (sw.js) that added COEP to every answer. The wallet
 // needs no isolation, and a worker outlives its file, so a tab that met the old build stays under require-corp

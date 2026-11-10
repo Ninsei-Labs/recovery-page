@@ -37,4 +37,4 @@ export { CHAINS } from "@ninsei-labs/sdk/networks";
 // CORE WALLET AND WITHDRAWAL WALLET, with in-memory storage. moneroWalletAdapter plays the core wallet
 // (vm/connect/address/chainId/unlockedBalance/driver), moneroWallet the withdrawal one
 // (open/sync/sweepUnlocked/relay/close). No WASM: createWallet comes from the page, so no monero-ts byte here.
-export { moneroWallet, moneroWalletAdapter, memoryAdapter } from "@ninsei-labs/sdk/adapters";
+export { moneroWallet, moneroWalletAdapter, evmWallet, memoryAdapter } from "@ninsei-labs/sdk/adapters";
