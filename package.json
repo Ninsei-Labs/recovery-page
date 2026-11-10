@@ -1,6 +1,6 @@
 {
   "name": "@ninsei-labs/recovery-page",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "description": "Static page that finds the swaps of a Ninsei recovery key, withdraws their XMR and settles the ETH side. Keys stay in the tab.",
