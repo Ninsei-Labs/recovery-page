@@ -2269,8 +2269,13 @@ await check("the footer names the running version and source commit", async () =
   const html = await readFile(join(DIST, "index.html"), "utf8");
   assert.ok(!/__VERSION__|__COMMIT__/.test(html), "a footer placeholder survived the build");
   assert.ok(html.includes(`v${manifest.version}`), "the footer does not name the version");
-  assert.match(manifest.commit, /^[0-9a-f]{40}$/, "build.json has no source commit");
-  assert.ok(html.includes(manifest.commit.slice(0, 7)), "the footer does not name the short commit");
+  if (manifest.commit === null) {
+    // A release archive or a container built outside git has no commit to name; the page says so.
+    assert.ok(html.includes("unknown"), "the footer does not name the missing commit");
+  } else {
+    assert.match(manifest.commit, /^[0-9a-f]{40}$/, "build.json has an invalid source commit");
+    assert.ok(html.includes(manifest.commit.slice(0, 7)), "the footer does not name the short commit");
+  }
 });
 
 // A WINDOWS CHECKOUT MUST NOT REWRITE THE ARTIFACT. dist/build.json hashes bytes; core.autocrlf=true would

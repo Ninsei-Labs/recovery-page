@@ -18,13 +18,17 @@
 FROM oven/bun:1.4.4-slim AS build
 WORKDIR /src
 
+# THE IMAGE HAS NO .git, SO THE COMMIT COMES FROM THE BUILD. CI passes the checked-out commit; a local image with
+# no argument builds without a commit rather than inventing one.
+ARG BUILD_COMMIT=
+
 # Dependencies first: the lock file changes less often than the page, so this layer is cached.
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY . .
 # Build and then the repository's own checks: a broken page fails the image, not a visitor.
-RUN bun build/build.mjs && bun tools/check.mjs
+RUN BUILD_COMMIT="$BUILD_COMMIT" bun build/build.mjs && bun tools/check.mjs
 
 FROM oven/bun:1.4.4-slim AS runtime
 

@@ -165,6 +165,8 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:${{ env.TAG }}
             ${{ env.IMAGE }}:latest
+          build-args: |
+            BUILD_COMMIT=${{ github.sha }}
 
   publish:
     name: publish the release

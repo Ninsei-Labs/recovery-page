@@ -2,7 +2,7 @@
   "name": "@ninsei-labs/recovery-page",
   "version": "0.4.0",
   "commit": "5618b691a82f2bc9d864f59d700c72816fdc887d",
-  "builtAt": "2026-11-10T12:13:28.840Z",
+  "builtAt": "2026-11-10T12:17:41.709Z",
   "files": [
     {
       "file": "monero.worker.js",

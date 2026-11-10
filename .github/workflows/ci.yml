@@ -89,6 +89,8 @@ jobs:
           push: false
           load: true
           tags: ninsei-recovery:ci
+          build-args: |
+            BUILD_COMMIT=${{ github.sha }}
 
       - name: The image serves the page
         run: |
