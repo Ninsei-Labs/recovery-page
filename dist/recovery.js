@@ -16,7 +16,7 @@
 // they live in one variable until the transfer is sent.
 
 // WORDS, NUMBERS AND DATES come from the page's locale module; the page keeps no refusal dictionary of its own.
-import { t, n, d, init as initLocale } from "./locales/index.js?v=0.3.8";
+import { t, n, d, init as initLocale } from "./locales/index.js?v=0.4.0";
 import {
   NODES,
   DEFAULT_NODE,
@@ -36,8 +36,8 @@ import {
   moneroReaders,
   moneroHeaderTime,
   nodeFor,
-} from "./lib/node.js?v=0.3.8";
-import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js?v=0.3.8";
+} from "./lib/node.js?v=0.4.0";
+import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js?v=0.4.0";
 import {
   swapState,
   moneyState,
@@ -45,7 +45,7 @@ import {
   scanStartHeight,
   tipHeaderHeight,
   tipTrusted as tipIsTrusted,
-} from "./lib/withdrawal.js?v=0.3.8";
+} from "./lib/withdrawal.js?v=0.4.0";
 
 // THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
 // anything else; this function only names the row before the withdrawal is opened.
