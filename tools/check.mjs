@@ -1483,6 +1483,12 @@ await check("the ETH action is built by the SDK and sent by the wallet's own pro
   assert.match(send, /core\.actions\[kind\]\(request, adapter\)/, "the ETH send does not go through the SDK action");
   assert.ok(!/eth_sendTransaction[^\n]*core\.actions/.test(send), "the page sends its own eth_sendTransaction");
   assert.match(
+    send,
+    /receipt\.why === "reverted"[\s\S]*?ethConfirmEl\.hidden = false/,
+    "a reverted send cannot be retried",
+  );
+  assert.match(send, /e\.params\.field === "wallet"/, "a wallet account change is not named");
+  assert.match(
     bodyOf(page, "ethConnect"),
     /mod\.evmWallet\(provider\)/,
     "the ETH action does not use the wallet adapter",
