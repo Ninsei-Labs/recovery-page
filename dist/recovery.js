@@ -19,6 +19,7 @@
 import { t, n, d, init as initLocale } from "./locales/index.js?v=0.3.8";
 import {
   NODES,
+  DEFAULT_NODE,
   STAGENET_NODE,
   nodeUrl,
   nodeSource,
@@ -32,8 +33,8 @@ import {
   pingNode,
   medianHeight,
   nodeVerdict,
-  fastestGood,
   moneroReaders,
+  moneroHeaderTime,
   nodeFor,
 } from "./lib/node.js?v=0.3.8";
 import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js?v=0.3.8";
@@ -158,6 +159,11 @@ let ethProvider = null;
 let ethAdapter = null;
 let ethMaterial = null;
 let ethBusy = false;
+
+// A NODE'S TIP IS CORROBORATED BY ITS OWN BLOCK TIME. A daemon that answers `synchronized: true` while its chain is
+// days behind would make a complete wallet scan look empty; a tip whose block is recent - and not older than the
+// order being recovered - is a chain that can contain the swap's XMR.
+const TIP_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 // Console and test state: no secrets (no words, no keys, no halves).
 window.__sweepFlow = {
@@ -287,7 +293,7 @@ function setCheck(name, state, why = null) {
 }
 const checksHelp = $("checksHelp");
 const nodeLine = $("nodeLine");
-const LINE_STATES = { wait: "checking", ok: "good", bad: "bad" };
+const LINE_STATES = { idle: "idle", wait: "checking", ok: "good", bad: "bad" };
 function drawChecks() {
   for (const [name, c] of Object.entries(checks)) {
     c.el.dataset.state = c.state;
@@ -636,6 +642,10 @@ async function findKeySwaps(options = {}) {
     return false;
   }
   if (!key) return false;
+  // THE NODE IS PROBED WHEN A SEARCH BEGINS, not when the page opens. The answer names the network of the swap's
+  // start height; a failed probe leaves the search on the settlement chain alone and the swap says its height is
+  // missing, rather than contacting every listed node on every visit.
+  if (!nodeNetwork && nodeUrl()) await checkNode(() => true);
   const m = await sdkBundle();
   if (!more) {
     const { search: networks, unreadable } = keyNetworks(m.CHAINS);
@@ -728,9 +738,17 @@ async function findKeySwaps(options = {}) {
       try {
         const events = await m.readEscrowEventsByTopic({
           // NO ESCROW ADDRESSES REACH THE RPC: the SDK asks for the three event topics over the block range and
-          // carries no address filter. The page keeps the events of its own rows below.
+          // carries no address filter. The page keeps the events of its own rows below. The range starts at the
+          // earliest order this key actually found, not at the earliest factory: a factory older than every order
+          // is a range the RPC does not have to scan.
           evmLogs: (request) => evmLogs(net.id, request),
-          fromBlock: net.since,
+          fromBlock: (() => {
+            const earliest = networkRows.reduce((first, row) => {
+              const block = Number(row.swap.blockNumber);
+              return Number.isSafeInteger(block) && block < first ? block : first;
+            }, Infinity);
+            return Number.isSafeInteger(earliest) ? earliest : net.since;
+          })(),
           toBlock: latest,
         });
         const byEscrow = new Map();
@@ -1335,6 +1353,13 @@ function drawMoney() {
 // after a failed signature and after every relay) is discarded and rebuilt from the same key and plan. The returned
 // value is `true` or the key of the plain line that says why not.
 async function refreshBalance() {
+  // A RETRY AFTER AN INCOMPLETE SCAN MUST RUN THE SCAN AGAIN. A plain sync cannot see a spend or a block the earlier
+  // pass never read, and keeping the old verdict would leave the page incomplete until the swap is reopened. Close
+  // the wallet and let syncWallet restore from the swap's height, which is the pass that can return a new verdict.
+  if (balance && balance.scanComplete === false) {
+    await closeWallet();
+    return syncWallet();
+  }
   if (!adapter || !wallet) return syncWallet();
   try {
     await adapter.sync();
@@ -1562,10 +1587,31 @@ async function syncWallet() {
   const ms = Math.round(performance.now() - t0);
   const unlocked = BigInt(restored.unlocked);
   const total = BigInt(restored.total);
-  // THE SCAN'S VERDICT TRAVELS WITH THE BALANCE. Only an explicit `true` from the SDK is a completed scan: a
-  // missing verdict (an older package) and a false one both mean the address's total is unknown, never zero.
-  const scanComplete = restored.scanComplete === true;
-  const scanIncompleteReason = scanComplete ? null : restored.scanIncompleteReason || "scan-incomplete";
+  // A COMPLETE SCAN IS NOT ENOUGH IF THE NODE'S CHAIN IS TOO SHORT TO HOLD THE SWAP. The SDK compares the wallet
+  // height with the height the daemon claims; a daemon that is days behind claims a matching short tip and would turn
+  // a complete, empty scan into "nothing ever arrived". The tip block's own timestamp is the corroboration: it must
+  // be recent, and not older than the order.
+  let tipTrusted = false;
+  if (Number.isSafeInteger(nodeTip) && nodeTip > 0) {
+    try {
+      const tipTime = await moneroHeaderTime(nodeUrl(), nodeTip);
+      const now = Date.now();
+      const orderTime = current && Number.isFinite(Number(current.time)) ? Number(current.time) : null;
+      tipTrusted =
+        Number.isFinite(tipTime) &&
+        Math.abs(now - tipTime * 1000) <= TIP_MAX_AGE_MS &&
+        (orderTime === null || orderTime <= 0 || tipTime >= orderTime);
+    } catch {
+      // A node that cannot name its tip's time cannot prove the chain holds the swap: incomplete, never "unseen".
+    }
+  }
+  // THE SCAN'S VERDICT TRAVELS WITH THE BALANCE. Only an explicit `true` from the SDK, corroborated by a recent tip,
+  // is a completed scan: a missing verdict (an older package), a false one, and a short chain all mean the address's
+  // total is unknown, never zero.
+  const scanComplete = restored.scanComplete === true && tipTrusted;
+  const scanIncompleteReason = scanComplete
+    ? null
+    : restored.scanIncompleteReason || (tipTrusted ? "scan-incomplete" : "tip-unconfirmed");
   // HOW MANY TRANSACTIONS THE WALLET SEES tells "withdrawn" (XMR came and left) from "unseen" (nothing ever came to
   // the address this key gives); a wallet that cannot say leaves it unknown.
   let txs = null;
@@ -1886,7 +1932,6 @@ const RECHECK_AFTER_MS = 60_000;
 // older one (another address in the own field, an earlier round) is dropped.
 const listed = NODES.map((url) => ({ url, network: nodeNetworkOf(url), answer: null, ask: 0, el: null, radio: null }));
 const own = { url: null, network: null, answer: null, ask: 0, refused: null, el: ownRow };
-let picking = false; // the page holds the choice, not the person: a re-check may pick again
 let note = null; // [key, params] of the line under the list
 
 function nodeLocked() {
@@ -2015,32 +2060,12 @@ async function pingRows(rows) {
   );
 }
 
-const pingAll = () => pingRows(own.url ? [...listed, own] : listed);
-
-// THE PAGE'S PICK: the fastest good listed node, or nothing - said plainly - when none is good.
-function autoPick() {
-  if (!picking) return false;
-  const before = nodeUrl();
-  const url = fastestGood(listed, "mainnet");
-  if (url) {
-    setNodeUrl(url, { remember: false, by: "pick" });
-    note = ["node.note.picked", { host: nodeHost(url) }];
-  } else {
-    clearNodeUrl();
-    note = ["node.note.none"];
-  }
-  markChoice(url);
-  drawNote();
-  return nodeUrl() !== before;
-}
-
 function chooseListed(url) {
   if (nodeLocked()) {
     markChoice(nodeUrl());
     drawNote();
     return;
   }
-  picking = false;
   setNodeUrl(url);
   markChoice(url);
   note = null;
@@ -2056,7 +2081,6 @@ function chooseOwn() {
     drawNote();
     return;
   }
-  picking = false;
   const parsed = parseNodeUrl(nodeInput.value);
   if (parsed.ok && NODES.includes(parsed.url)) {
     nodeInput.value = "";
@@ -2109,25 +2133,17 @@ document.addEventListener("visibilitychange", () => {
 
 async function recheck() {
   const before = stateOf(nodeUrl());
-  if (picking) {
-    note = ["node.note.checking"];
-    drawNote();
-  }
-  await pingAll();
+  // ONLY THE CHOSEN NODE IS ASKED AGAIN. Probing every listed node on a tab return tells three unrelated operators
+  // the visitor is back, and the choice itself does not need their answers.
+  const row = own.url === nodeUrl() ? own : listed.find((entry) => entry.url === nodeUrl());
+  if (row) await pingRows([row]);
   if (nodeLocked()) return;
-  let moved = false;
-  if (picking) {
-    if (stateOf(nodeUrl()) !== "good") moved = autoPick();
-    else {
-      note = ["node.note.picked", { host: nodeHost(nodeUrl()) }];
-      drawNote();
-    }
-  }
-  if (moved || stateOf(nodeUrl()) !== before) checkEnvironment();
+  if (stateOf(nodeUrl()) !== before) checkEnvironment();
 }
 
-// THE FIRST CHOICE: a link or this tab's earlier choice is taken at once and the list is checked beside it;
-// otherwise the page waits for the answers and picks.
+// THE FIRST CHOICE: a link or this tab's earlier choice is taken at once; otherwise the default listed node is used
+// WITHOUT probing the others. The chosen node is checked by the preflight, and the list is there for a person who
+// wants a different one.
 async function startNode() {
   buildRows();
   const source = nodeSource();
@@ -2141,30 +2157,34 @@ async function startNode() {
     note = source === "link" ? ["node.note.link", { host: nodeHost(url) }] : null;
     drawRows();
     drawNote();
-    await Promise.all([runPreflight(), pingAll()]);
+    await runPreflight({ probeNode: false });
     return;
   }
-  picking = true;
-  clearNodeUrl();
-  note = ["node.note.checking"];
+  const url = DEFAULT_NODE;
+  setNodeUrl(url, { remember: false, by: "default" });
+  markChoice(url);
+  note = ["node.note.default", { host: nodeHost(url) }];
+  drawRows();
   drawNote();
-  await pingAll();
-  autoPick();
-  await runPreflight();
+  await runPreflight({ probeNode: false });
 }
 
 // ONE CHECK AT A TIME COUNTS: a person who clicks through the rows gets the answer for the last one. The wallet is
 // loaded once; a change of node asks only the node.
 let preflightRun = 0;
 let announced = false;
-async function runPreflight() {
+async function runPreflight({ probeNode = true } = {}) {
   const mine = ++preflightRun;
   const isCurrent = () => mine === preflightRun;
   findSwapsBtn.disabled = true;
   // ISOLATION IS NOT A REQUIREMENT. monero-ts 0.11.20 has no pthreads and needs no SharedArrayBuffer; the headers
   // are still served when the host has them, and the diagnostics report the fact. WebCrypto needs a secure context.
   setCheck("secure", self.isSecureContext ? "ok" : "bad", () => t("preflight.fail.https"));
-  const [walletOk, nodeOk] = await Promise.all([checkWallet(), checkNode(isCurrent)]);
+  if (!probeNode) setCheck("node", "idle");
+  const [walletOk, nodeOk] = await Promise.all([
+    checkWallet(),
+    probeNode ? checkNode(isCurrent) : Promise.resolve(true),
+  ]);
   if (!isCurrent()) return false;
   const ready = walletOk && nodeOk && self.isSecureContext;
   window.__sweepFlow.ready = ready;
