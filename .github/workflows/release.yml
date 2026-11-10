@@ -121,7 +121,7 @@ jobs:
       # THE ONLY ARTEFACT THE LATER JOBS SEE. They do not rebuild: the archive and the page are the bytes this job
       # tested.
       - name: Keep the built page and the archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-dist
           path: |
@@ -148,23 +148,25 @@ jobs:
           persist-credentials: false
 
       - name: Set up BuildKit
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to the registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push the image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ env.TAG }}
             ${{ env.IMAGE }}:latest
+          build-args: |
+            BUILD_COMMIT=${{ github.sha }}
 
   publish:
     name: publish the release
@@ -175,7 +177,7 @@ jobs:
       actions: read # download the release-dist artifact
     steps:
       - name: Take the tested artefact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-dist
           path: release
@@ -194,10 +196,12 @@ jobs:
         run: |
           set -eu
           files="release/ninsei-recovery-${TAG}.zip release/ninsei-recovery-${TAG}.zip.sha256"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" $files --clobber
+          # THE JOB IS IN release/, WHICH IS NOT A GIT CHECKOUT. Name the repository explicitly, or gh looks for
+          # .git in the wrong directory and the release is never created.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" $files --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" $files \
+            gh release create "$TAG" $files --repo "$GITHUB_REPOSITORY" \
               --title "Ninsei recovery page $TAG" \
               --notes "Static page: unzip and serve the contents over HTTPS with the headers in deploy/. The archive holds dist/ only; every file's SHA-256 is in build.json."
           fi
@@ -220,7 +224,7 @@ jobs:
           persist-credentials: false
 
       - name: Take the tested artefact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-dist
           path: release
