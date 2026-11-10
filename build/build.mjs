@@ -34,6 +34,16 @@ const require = createRequire(import.meta.url);
 
 const pkg = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
 
+// THE COMMIT OF THE CHECKOUT, read once: `build.json` and the footer must name the same build.
+let commit = null;
+try {
+  const { checkoutCommit } = await import(pathToFileURL(join(ROOT, "build", "commit.mjs")).href);
+  commit = checkoutCommit();
+} catch {
+  commit = null;
+}
+const commitShort = commit ? commit.slice(0, 7) : "unknown";
+
 // --- 1. Node modules the browser needs under their own names --------------------------------
 // monero-ts was written for Node: `assert`, `path`, `fs`, `crypto`, `stream` and friends are
 // resolved to browser implementations here. A few modules have no browser meaning at all
@@ -230,6 +240,11 @@ for (const rel of PAGE_COPY) {
     // markup with the old rules; the versioned URL is a new resource.
     .split('href="./recovery.css"')
     .join(`href="./recovery.css?v=${pkg.version}"`);
+  // THE FOOTER NAMES THE BUILD THE VISITOR IS RUNNING. The values come from the same package and checkout as
+  // `build.json`, so the page and its manifest cannot disagree.
+  if (rel === "index.html") {
+    text = text.replaceAll("__VERSION__", pkg.version).replaceAll("__COMMIT__", commitShort);
+  }
   await emit(rel, Buffer.from(text));
 }
 // THE PAGE'S MODULES ARE THE FOLDER'S CONTENTS, like the languages and the fonts: a new module in lib/ ships
@@ -267,13 +282,6 @@ for (const rel of PAGE_TEXT) {
 // A file an operator can check after upload: the version, the commit when the checkout knows one, and
 // the hash of every file. It is not a substitute for the page's own release fields - it describes the
 // directory, not a running node.
-let commit = null;
-try {
-  const { checkoutCommit } = await import(pathToFileURL(join(ROOT, "build", "commit.mjs")).href);
-  commit = checkoutCommit();
-} catch {
-  commit = null;
-}
 await emit(
   "build.json",
   Buffer.from(

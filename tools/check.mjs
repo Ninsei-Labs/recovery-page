@@ -2264,6 +2264,15 @@ await check("build.json lists every built file with its real hash", async () => 
   return `${manifest.files.length} files, version ${manifest.version}`;
 });
 
+await check("the footer names the running version and source commit", async () => {
+  const manifest = JSON.parse(await readFile(join(DIST, "build.json"), "utf8"));
+  const html = await readFile(join(DIST, "index.html"), "utf8");
+  assert.ok(!/__VERSION__|__COMMIT__/.test(html), "a footer placeholder survived the build");
+  assert.ok(html.includes(`v${manifest.version}`), "the footer does not name the version");
+  assert.match(manifest.commit, /^[0-9a-f]{40}$/, "build.json has no source commit");
+  assert.ok(html.includes(manifest.commit.slice(0, 7)), "the footer does not name the short commit");
+});
+
 // A WINDOWS CHECKOUT MUST NOT REWRITE THE ARTIFACT. dist/build.json hashes bytes; core.autocrlf=true would
 // turn the shipped LF files into CRLF on checkout and make every hash wrong before the first build.
 await check("dist is marked as a byte-for-byte artifact", async () => {
@@ -2341,12 +2350,19 @@ await check("the release keeps write and Cloudflare access out of the build", as
     "the image job cannot publish to GHCR",
   );
   assert.match(image, /persist-credentials:\s*false/, "the image checkout keeps the repository token");
-  assert.match(image, /docker\/login-action@v\d+/, "the image job does not log in to GHCR");
+  assert.match(image, /docker\/login-action@[0-9a-f]{40}\s+#\s+v\d+/, "the image job does not log in to GHCR");
   assert.match(image, /push:\s*true/, "the image job does not push the image");
   assert.ok(!/CLOUDFLARE_/.test(image), "the image job sees a Cloudflare secret");
   assert.match(publish, /needs:\s*\[build,\s*image\]/, "the release can publish before the image exists");
   assert.match(publish, /contents:\s*write/, "the publish job cannot create a release");
   assert.match(publish, /actions\/download-artifact/, "the publish job does not take the tested artefact");
+  for (const verb of ["view", "upload", "create"]) {
+    assert.match(
+      publish,
+      new RegExp(`gh release ${verb}[^\\n]*--repo "\\$GITHUB_REPOSITORY"`),
+      `gh release ${verb} runs outside the git checkout`,
+    );
+  }
   assert.match(deploy, /permissions:\s*\n\s*contents:\s*read/, "the deploy job has more than read access");
   assert.match(deploy, /persist-credentials:\s*false/, "the deploy checkout keeps the repository token");
   assert.match(deploy, /environment:\s*\n\s*name:\s*recovery-deploy/, "the deploy job has no protected environment");
@@ -2359,12 +2375,26 @@ await check("the container image is built in CI and published on a tag", async (
   const ci = await read(".github/workflows/ci.yml");
   const release = await read(".github/workflows/release.yml");
   assert.match(ci, /^  docker:/m, "CI has no docker job");
-  assert.match(ci, /docker\/build-push-action@v\d+/, "CI does not build the Dockerfile");
+  assert.match(ci, /docker\/build-push-action@[0-9a-f]{40}\s+#\s+v\d+/, "CI does not build the Dockerfile");
   assert.match(ci, /push:\s*false/, "the CI image job pushes an image");
   assert.match(release, /ghcr\.io\/ninsei-labs\/recovery-page/, "the release has no GHCR image name");
   assert.match(release, /packages:\s*write/, "the release cannot write the package");
-  assert.match(release, /docker\/login-action@v\d+/, "the release does not log in to GHCR");
+  assert.match(release, /docker\/login-action@[0-9a-f]{40}\s+#\s+v\d+/, "the release does not log in to GHCR");
   assert.match(release, /push:\s*true/, "the release does not push the image");
+});
+
+await check("the actions that still ran on Node 20 are current and pinned by commit", async () => {
+  const workflows = [await read(".github/workflows/ci.yml"), await read(".github/workflows/release.yml")].join("\n");
+  for (const action of [
+    "upload-artifact",
+    "download-artifact",
+    "setup-buildx-action",
+    "login-action",
+    "build-push-action",
+  ]) {
+    assert.doesNotMatch(workflows, new RegExp(`${action}@v\\d`), `${action} still names a tag`);
+    assert.match(workflows, new RegExp(`${action}@[0-9a-f]{40}\\s+#\\s+v\\d+`), `${action} is not pinned by commit`);
+  }
 });
 
 await check("the workflows run Bun and never npm", async () => {
