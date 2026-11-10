@@ -28,7 +28,7 @@ export {
   importRecoveryKey,
   openRecoveryKeyFile,
   findSwaps,
-  readEscrowEvents,
+  readEscrowEventsByTopic,
   buildPayload,
   createRecoveryFile,
 } from "@ninsei-labs/sdk/recovery";

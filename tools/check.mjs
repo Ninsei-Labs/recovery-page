@@ -411,7 +411,7 @@ await check("the node list has no check button, and its rows are radios of one g
 const { swapState, moneyState, statusFromEvents, scanStartHeight } = await import(
   pathToFileURL(join(ROOT, "lib", "withdrawal.js")).href
 );
-const { SETTLEMENT, settlementOf, evmCall, keyNetworks, evmLogs, evmLogsByTopic, LOG_WINDOW } = await import(
+const { SETTLEMENT, settlementOf, evmCall, keyNetworks, evmLogs, LOG_WINDOW } = await import(
   pathToFileURL(join(ROOT, "lib", "settlement.js")).href
 );
 // THE 128-BIT TEST VECTORS OF THE BIP39 SPECIFICATION: valid twelve-word keys that are nobody's.
@@ -758,6 +758,11 @@ await check("sweep.fromOrder opens the address the maker paid, on a buy and a se
           factory,
           salt,
           side: buy ? "locker" : "claimer",
+          locker: buy ? "0x" + "11".repeat(20) : "0x" + "22".repeat(20),
+          claimer: buy ? "0x" + "22".repeat(20) : "0x" + "11".repeat(20),
+          commitHalfLocker: word("0x11"),
+          commitHalfClaimer: word("0x22"),
+          amount: "1000000000000000",
           readyBy: 1_790_000_000,
           t1: 1_790_003_600,
           startHeight: 2_100_000,
@@ -854,7 +859,18 @@ await check("sweep.fromOrder refuses an order that does not fit the key, by what
   const person = takerHalvesV2({ mnemonic: TEST_WORDS[1], chainId: 421614, factory, salt });
   const other = takerHalvesV2({ mnemonic: TEST_WORDS[2], chainId: 421614, factory, salt });
   const word = (hex) => "0x" + String(hex).replace(/^0x/, "").padStart(64, "0");
-  const base = { escrow: "0x" + "e5".repeat(20), factory, salt, readyBy: 1_790_000_000, t1: 1_790_003_600 };
+  const base = {
+    escrow: "0x" + "e5".repeat(20),
+    factory,
+    salt,
+    readyBy: 1_790_000_000,
+    t1: 1_790_003_600,
+    locker: "0x" + "11".repeat(20),
+    claimer: "0x" + "22".repeat(20),
+    commitHalfLocker: word("0x11"),
+    commitHalfClaimer: word("0x22"),
+    amount: "1000000000000000",
+  };
   const buy = {
     ...base,
     side: "locker",
@@ -1210,13 +1226,14 @@ await check("the page's escrow-state read sends no escrow addresses", async () =
   const page = await read("recovery.js");
   assert.match(
     page,
-    /evmLogs: \(request\) => evmLogsByTopic\(net\.id, request\)/,
+    /readEscrowEventsByTopic\(\{[\s\S]*?evmLogs: \(request\) => evmLogs\(net\.id, request\)/,
     "the escrow-state read still sends the visitor's escrow list",
   );
+  assert.doesNotMatch(page, /evmLogsByTopic|escrows: networkRows/, "the address-stripping wrapper is still wired");
 });
 
-await check("the SDK's bulk escrow events decode through the page's log reader", async () => {
-  const { readEscrowEvents, ESCROW_EVENT_TOPICS } = await import("@ninsei-labs/sdk/recovery");
+await check("the SDK's topic-only escrow events decode through the page's log reader", async () => {
+  const { readEscrowEventsByTopic, ESCROW_EVENT_TOPICS } = await import("@ninsei-labs/sdk/recovery");
   const escrow = "0x" + "c".repeat(40);
   const other = "0x" + "d".repeat(40);
   const half = "0x" + "e".repeat(64);
@@ -1234,14 +1251,15 @@ await check("the SDK's bulk escrow events decode through the page's log reader",
     filter = JSON.parse(init.body).params[0];
     return { ok: true, status: 200, json: async () => ({ result: [log] }) };
   };
-  const events = await readEscrowEvents({
-    escrows: [escrow, other],
-    evmLogs: (request) => evmLogsByTopic("arbitrum-sepolia", request, fetchImpl),
+  const events = await readEscrowEventsByTopic({
+    evmLogs: (request) => evmLogs("arbitrum-sepolia", request, fetchImpl),
     fromBlock: 1,
     toBlock: 2,
   });
   assert.equal("address" in filter, false, "the escrow-state read named the visitor's escrows");
   assert.equal(events.length, 1);
+  assert.equal(events[0].escrow, escrow);
+  assert.notEqual(events[0].escrow, other);
   assert.equal(events[0].event, "HalfRevealed");
   assert.equal(events[0].half, half);
   assert.equal(events[0].byClaimer, true);
