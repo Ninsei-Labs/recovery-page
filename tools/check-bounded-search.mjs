@@ -19,7 +19,7 @@ assert.ok(
   "the page still keeps a search cursor",
 );
 assert.match(search, /factories: net\.factories/, "the search does not name every factory");
-assert.match(search, /m\.readEscrowEvents\(/, "the escrow events are not read in one bulk request");
+assert.match(search, /m\.readEscrowEventsByTopic\(/, "the escrow events are not read in one bulk request");
 assert.ok(!/order\.status\(/.test(search), "the search still asks status() for every escrow");
 assert.match(search, /statusFromEvents/, "the bulk events are not turned into a row status");
 assert.match(search, /source\.complete = found\.complete === true/, "completeness is not recorded");

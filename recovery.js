@@ -1,7 +1,7 @@
 // The recovery page: the recovery key -> the swaps it made, found on chain -> one swap that needs it -> your
 // address -> one button that syncs, builds and signs -> confirm -> send.
 //
-// THE RULES LIVE IN @ninsei-labs/sdk: importRecoveryKey, openRecoveryKeyFile, findSwaps, readEscrowEvents,
+// THE RULES LIVE IN @ninsei-labs/sdk: importRecoveryKey, openRecoveryKeyFile, findSwaps, readEscrowEventsByTopic,
 // order.jointAddress, sweep.plan, sweep.fromOrder, sweep.keys, sweep.wallet, sweep.restore, sweep.destination,
 // sweep.sign, sweep.relay, formatXmr, probeMoneroNode. A found swap reaches the sweep through sweep.fromOrder: the
 // SDK takes the key and the order, checks the points, builds the joint address and returns the same file plan/keys
@@ -36,7 +36,7 @@ import {
   moneroReaders,
   nodeFor,
 } from "./lib/node.js";
-import { keyNetworks, evmCall, evmLogs, evmLogsByTopic, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
+import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
 import { swapState, moneyState, statusFromEvents, scanStartHeight } from "./lib/withdrawal.js";
 
 // THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
@@ -371,7 +371,7 @@ async function sdkBundle() {
 // its own chain, never a default one.
 //
 // THE CHAIN READ IS REAL: `evmCall` is an eth_call over the settlement network's public RPCs (lib/settlement.js),
-// and a failed read throws instead of answering "0x". The escrow events are read in bulk by readEscrowEvents, and
+// and a failed read throws instead of answering "0x". The escrow events are read in bulk by readEscrowEventsByTopic, and
 // sweep.plan reads the revealed half; the plan's app route fallback meets `noService`, which it reads as "not revealed".
 async function facadeFor(chainId, xmrNetwork) {
   const m = await sdkBundle();
@@ -708,13 +708,10 @@ async function findKeySwaps(options = {}) {
     const networkRows = search.rows.filter((row) => row.net === net);
     if (networkRows.length) {
       try {
-        const events = await m.readEscrowEvents({
-          escrows: networkRows.map((row) => row.swap.escrow),
-          // NO ESCROW ADDRESSES REACH THE RPC. The SDK still uses the list to keep the result shape, while
-          // `evmLogsByTopic` strips the address filter and leaves only the three event topics and the range; the
-          // page keeps the events of its own rows below. A per-escrow address list would tell the RPC which swaps
-          // belong to this visitor.
-          evmLogs: (request) => evmLogsByTopic(net.id, request),
+        const events = await m.readEscrowEventsByTopic({
+          // NO ESCROW ADDRESSES REACH THE RPC: the SDK asks for the three event topics over the block range and
+          // carries no address filter. The page keeps the events of its own rows below.
+          evmLogs: (request) => evmLogs(net.id, request),
           fromBlock: net.since,
           toBlock: latest,
         });

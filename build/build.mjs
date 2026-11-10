@@ -90,11 +90,6 @@ const common = {
   define: { "process.env.NODE_ENV": '"production"', global: "globalThis" },
   inject: [join(HERE, "monero-shims.js")],
   plugins: [polyfillPlugin],
-  // One dynamic import inside the SDK points at a page artifact, not at a package file: the WalletConnect
-  // bundle. It stays as written and resolves at run time against the SDK bundle's own directory
-  // (`dist/assets/vendors/walletconnect/...`). The page builds it from the pinned lock; this page never
-  // calls EVM wallet code, so the import is not reached here.
-  external: ["../../assets/vendors/walletconnect/*"],
 };
 
 // --- 2. Hash, stamp, report -----------------------------------------------------------------

@@ -37,7 +37,7 @@ test("a shipped package outside the allowlist is a violation", () => {
 
 test("the SDK's LGPL expression is allowed for the SDK only", () => {
   const expression = "(MIT AND LGPL-3.0-only)";
-  assert.deepEqual(violations([{ key: "@ninsei-labs/sdk@0.57.2", name: "@ninsei-labs/sdk", license: expression }]), []);
+  assert.deepEqual(violations([{ key: "@ninsei-labs/sdk@0.58.0", name: "@ninsei-labs/sdk", license: expression }]), []);
   assert.deepEqual(violations([{ key: "other@1.0.0", name: "other", license: expression }]), [
     { package: "other@1.0.0", license: expression },
   ]);
