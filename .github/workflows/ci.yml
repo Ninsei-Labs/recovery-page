@@ -79,6 +79,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # THE IMAGE LABELS NAME THE PAGE, NOT THE BUN BASE IMAGE. Docker inherits the base labels unless the
+      # Dockerfile overrides them; these values are the page's version, checkout commit and commit date.
+      - name: Name the image labels
+        id: labels
+        run: |
+          set -eu
+          version="$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)".*/\1/p' package.json | head -n 1)"
+          test -n "$version"
+          commit="$(git rev-parse HEAD)"
+          date="$(git show -s --format=%cI "$commit")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "date=$date" >> "$GITHUB_OUTPUT"
+
       - name: Set up BuildKit
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -90,7 +104,23 @@ jobs:
           load: true
           tags: ninsei-recovery:ci
           build-args: |
-            BUILD_COMMIT=${{ github.sha }}
+            BUILD_COMMIT=${{ steps.labels.outputs.commit }}
+            VERSION=${{ steps.labels.outputs.version }}
+            BUILD_DATE=${{ steps.labels.outputs.date }}
+
+      - name: The image labels name this page
+        env:
+          VERSION: ${{ steps.labels.outputs.version }}
+          COMMIT: ${{ steps.labels.outputs.commit }}
+          BUILT: ${{ steps.labels.outputs.date }}
+        run: |
+          set -eu
+          label() { docker image inspect ninsei-recovery:ci --format "{{ index .Config.Labels \"$1\" }}"; }
+          test "$(label org.opencontainers.image.version)" = "$VERSION"
+          test "$(label org.opencontainers.image.revision)" = "$COMMIT"
+          test "$(label org.opencontainers.image.created)" = "$BUILT"
+          test "$(label org.opencontainers.image.source)" = "https://github.com/Ninsei-Labs/recovery-page"
+          test "$(label org.opencontainers.image.url)" = "https://github.com/Ninsei-Labs/recovery-page"
 
       - name: The image serves the page
         run: |
