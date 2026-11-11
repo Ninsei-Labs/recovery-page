@@ -166,6 +166,9 @@ let ethProvider = null;
 let ethAdapter = null;
 let ethMaterial = null;
 let ethBusy = false;
+// A CONNECTION OUTLIVES THE CLICK ONLY UNTIL ANOTHER SWAP IS OPENED. The sequence lets a late wallet
+// answer be dropped instead of writing the new row's state.
+let ethConnectSeq = 0;
 
 // Console and test state: no secrets (no words, no keys, no halves).
 window.__sweepFlow = {
@@ -898,9 +901,9 @@ function swapRow(row) {
 
 // --- 2. The ETH side: refund a buy, claim a sell ------------------------------------------------
 
-// THE CONTRACT'S TWO PUBLIC SELECTORS, used only for the gas estimate. The SDK builds and sends the actual call;
-// this module never signs from these strings. If the estimate refuses, the page says so and the SDK still decides.
-const ETH_SELECTOR = Object.freeze({ refund: "0x7249fbb6", claim: "0xbd66528a" });
+// NO GAS ESTIMATE HERE. eth_estimateGas carries the action's calldata, and for a claim or a refund that
+// calldata contains the half. The wallet forwards the estimate to its RPC before Confirm, so the page
+// shows the limit the wallet will use at send instead. The SDK builds and sends the actual call.
 
 function injectedProvider() {
   const eth = window.ethereum;
@@ -930,7 +933,7 @@ function actionCore(row, provider) {
   });
 }
 
-function clearEthState() {
+function clearEthConnection() {
   if (ethAdapter) {
     try {
       ethAdapter.disconnect();
@@ -940,8 +943,15 @@ function clearEthState() {
   }
   ethAdapter = null;
   ethProvider = null;
-  ethMaterial = null;
   ethBusy = false;
+}
+
+function clearEthState() {
+  // A NEW SWAP INVALIDATES A CONNECTION STILL IN FLIGHT. The prepared material is cleared here, but a
+  // failed connect calls clearEthConnection so the person can retry the same action.
+  ethConnectSeq += 1;
+  clearEthConnection();
+  ethMaterial = null;
 }
 
 function ethRecipient(row, material) {
@@ -1014,43 +1024,53 @@ async function openEth(row) {
 
 async function ethConnect() {
   quiet(ethErrorEl);
-  if (!ethMaterial || !current) return say(ethErrorEl, "eth.err.prepare");
+  const row = current;
+  const material = ethMaterial;
+  if (!material || !row) return say(ethErrorEl, "eth.err.prepare");
   const provider = injectedProvider();
   if (!provider) return say(ethErrorEl, "eth.err.noProvider");
   ethConnectBtn.disabled = true;
+  const seq = ++ethConnectSeq;
   try {
-    ethProvider = provider;
-    ethAdapter = mod.evmWallet(provider);
-    await ethAdapter.connect({ chainId: current.net.chainId });
-    const address = await ethAdapter.address();
-    const chainId = await ethAdapter.chainId();
+    // THE ADAPTER IS LOCAL UNTIL THE WHOLE CHECK PASSES. A connection that answers after another swap
+    // was opened must not install itself over the new row.
+    const adapter = mod.evmWallet(provider);
+    await adapter.connect({ chainId: row.net.chainId });
+    const address = await adapter.address();
+    const chainId = await adapter.chainId();
+    if (seq !== ethConnectSeq || current !== row || ethMaterial !== material) return false;
     if (!address) throw new Error("wallet-not-connected");
-    if (chainId !== Number(ethMaterial.expect.chainId)) {
+    if (chainId !== Number(material.expect.chainId)) {
       throw Object.assign(new Error("wrong-chain"), {
         code: "wrong-chain",
-        params: { want: ethMaterial.expect.chainId, got: chainId },
+        params: { want: material.expect.chainId, got: chainId },
       });
     }
-    if (ethMaterial.kind === "claim") {
-      const expected = String(ethMaterial.claimer || ethMaterial.expect.claimer || "").toLowerCase();
+    if (material.kind === "claim") {
+      const expected = String(material.claimer || material.expect.claimer || "").toLowerCase();
       if (address.toLowerCase() !== expected) {
         ethConnectBtn.hidden = false;
         ethConnectBtn.disabled = false;
         return say(ethErrorEl, "eth.err.claimer", { account: address, expected });
       }
     }
-    ethWalletEl.textContent = t("eth.wallet", { address, chain: current.net.name });
+    ethProvider = provider;
+    ethAdapter = adapter;
+    ethWalletEl.textContent = t("eth.wallet", { address, chain: row.net.name });
     ethWalletEl.hidden = false;
     ethConnectBtn.hidden = true;
     ethConfirmEl.hidden = false;
     ethSendBtn.disabled = false;
-    await drawEthGas();
+    drawEthGas();
     log(t("log.eth.connected", { address, chainId }));
     return true;
   } catch (e) {
+    // THE PREPARED ACTION SURVIVES A FAILED CONNECTION. Only the adapter and the provider are dropped,
+    // so the next Connect wallet click retries the same action instead of answering eth.err.prepare.
+    if (seq !== ethConnectSeq || current !== row) return false;
     const words = sdkWords(e);
     log(t("log.eth.connectFailed", { words }), "bad");
-    clearEthState();
+    clearEthConnection();
     ethConnectBtn.hidden = false;
     ethConnectBtn.disabled = false;
     return say(
@@ -1064,28 +1084,13 @@ async function ethConnect() {
   }
 }
 
-async function drawEthGas() {
-  const rows = [];
-  try {
-    const data = ETH_SELECTOR[ethMaterial.kind] + String(ethMaterial.half).replace(/^0x/, "");
-    const from = await ethAdapter.address();
-    const gas = await ethProvider.request({
-      method: "eth_estimateGas",
-      params: [{ from, to: ethMaterial.escrow, data }],
-    });
-    const gasUnits = BigInt(gas);
-    rows.push(["eth.gas.label", () => t("eth.gas", { gas: n(gasUnits.toString()) })]);
-    try {
-      const price = BigInt(await ethProvider.request({ method: "eth_gasPrice" }));
-      rows.push(["eth.cost.label", () => t("eth.cost", { amount: formatCoin(current.net, gasUnits * price) })]);
-    } catch {
-      rows.push(["eth.cost.label", () => t("eth.cost.unknown")]);
-    }
-  } catch {
-    rows.push(["eth.gas.label", () => t("eth.gas.unknown")]);
-  }
-  rows.push(["eth.recipient.label", () => ethRecipient(current, ethMaterial)]);
-  renderInfo(ethInfoEl, rows);
+// THE GAS LIMIT IS THE WALLET'S, NOT AN ESTIMATE'S. Reading it would mean sending the action's calldata
+// to the wallet's RPC before Confirm; the half must stay in the tab until the SDK builds the send.
+function drawEthGas() {
+  renderInfo(ethInfoEl, [
+    ["eth.gas.label", () => t("eth.gas.unknown")],
+    ["eth.recipient.label", () => ethRecipient(current, ethMaterial)],
+  ]);
 }
 
 async function ethSend() {

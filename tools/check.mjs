@@ -1491,7 +1491,13 @@ await check(
 // that leaves the tab is built by the SDK's action and sent by the wallet adapter, not by the page.
 await check("the ETH action is built by the SDK and sent by the wallet's own provider", async () => {
   const page = (await read("recovery.js")).replace(/\/\/.*$/gm, "");
-  assert.match(page, /const ETH_SELECTOR = Object\.freeze\(\{ refund: "0x7249fbb6", claim: "0xbd66528a" \}\)/);
+  assert.ok(!/eth_estimateGas/.test(page), "the page estimates gas with the action calldata");
+  assert.ok(!/ETH_SELECTOR/.test(page), "the page keeps the action selectors for an estimate");
+  const gas = bodyOf(page, "drawEthGas");
+  assert.ok(
+    !/ethProvider|ethAdapter|eth_estimateGas|eth_gasPrice|\.half/.test(gas),
+    "the gas panel reads the action half or the provider",
+  );
   const core = bodyOf(page, "actionCore");
   assert.match(core, /evmCall: call/, "the action core does not read through the wallet provider");
   assert.match(core, /provider\.request\(\{ method: "eth_call"/, "the action core is not an eth_call");
@@ -1510,11 +1516,11 @@ await check("the ETH action is built by the SDK and sent by the wallet's own pro
     "a reverted send cannot be retried",
   );
   assert.match(send, /e\.params\.field === "wallet"/, "a wallet account change is not named");
-  assert.match(
-    bodyOf(page, "ethConnect"),
-    /mod\.evmWallet\(provider\)/,
-    "the ETH action does not use the wallet adapter",
-  );
+  const connect = bodyOf(page, "ethConnect");
+  assert.match(connect, /mod\.evmWallet\(provider\)/, "the ETH action does not use the wallet adapter");
+  assert.match(connect, /clearEthConnection/, "a failed connect does not keep the prepared action");
+  assert.ok(!/clearEthState\(\)/.test(connect), "a failed connect clears the prepared action");
+  assert.match(connect, /seq !== ethConnectSeq/, "a late connection is not ignored after another swap opens");
   assert.ok(!/eth_sendTransaction/.test(page), "the page builds its own eth_sendTransaction");
   const open = bodyOf(page, "openSwap");
   assert.match(
