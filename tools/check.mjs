@@ -2204,7 +2204,7 @@ await check("no per-swap recovery file can be opened any more", async () => {
 
 await check("dist/ was built", async () => {
   const info = await stat(DIST).catch(() => null);
-  assert.ok(info && info.isDirectory(), "run npm run build first");
+  assert.ok(info && info.isDirectory(), "run bun run build first");
 });
 
 const REQUIRED = [
@@ -2408,14 +2408,15 @@ await check("the actions that still ran on Node 20 are current and pinned by com
   }
 });
 
-await check("the workflows run Bun and never npm", async () => {
+await check("the workflows run Bun and never npm, npx or node", async () => {
   const dir = join(ROOT, ".github", "workflows");
   const files = (await readdir(dir)).filter((f) => f.endsWith(".yml"));
   const problems = [];
   const BUILD_WORKFLOWS = ["ci.yml", "release.yml"];
   for (const file of files) {
     const text = await readFile(join(dir, file), "utf8");
-    if (/\bnpm (ci|test|version)\b|actions\/setup-node/.test(text)) problems.push(`${file}: names npm or node`);
+    if (/\bnpm (ci|test|version)\b|actions\/setup-node|\bnode\s+-[ep]\b|\bnpx\b/.test(text))
+      problems.push(`${file}: names npm, npx or node`);
     // The build workflows install and run the page with Bun; CodeQL reads the sources and needs no
     // toolchain, so the setup-bun rule belongs to the two that build.
     if (BUILD_WORKFLOWS.includes(file) && !/oven-sh\/setup-bun/.test(text)) problems.push(`${file}: no setup-bun`);
@@ -2427,7 +2428,7 @@ await check("the workflows run Bun and never npm", async () => {
   // THE DEPLOY TOOL IS PINNED, NOT FETCHED AT RELEASE TIME. Its own manifest and lock keep the tree out of the
   // page's licence scan while still making the Cloudflare CLI reproducible.
   const deployManifest = JSON.parse(await readFile(join(ROOT, "tools", "deploy", "package.json"), "utf8"));
-  if (deployManifest.dependencies?.wrangler !== "4.147.0") problems.push("tools/deploy does not pin wrangler 4.147.0");
+  if (deployManifest.dependencies?.wrangler !== "4.160.1") problems.push("tools/deploy does not pin wrangler 4.160.1");
   if (/bunx\s+(?:--bun\s+)?wrangler/.test(release)) problems.push("release.yml fetches wrangler at deploy time");
   if (!/tools\/deploy\/node_modules\/wrangler\/bin\/wrangler\.js/.test(release))
     problems.push("release.yml does not run the pinned wrangler binary");

@@ -257,7 +257,7 @@ jobs:
         run: |
           cd tools/deploy
           bun install --frozen-lockfile
-          node -e "const p = require('./node_modules/wrangler/package.json'); if (p.version !== '4.147.0') { console.error('wrangler ' + p.version); process.exit(1); }"
+          bun -e 'const p = require("./node_modules/wrangler/package.json"); if (p.version !== "4.160.1") { console.error("wrangler " + p.version); process.exit(1); }'
 
       # CLOUDFLARE PAGES GETS THE dist/ THIS RUN BUILT AND CHECKED. Two repository secrets:
       # CLOUDFLARE_API_TOKEN (Account, Cloudflare Pages: Edit) and CLOUDFLARE_ACCOUNT_ID. The project is created on
