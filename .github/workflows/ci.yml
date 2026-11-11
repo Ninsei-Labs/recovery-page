@@ -47,7 +47,7 @@ jobs:
           # THE CHECKOUT IS THE MERGE COMMIT, BUT THE COMMITTED dist/ CARRIES THE COMMIT IT WAS BUILT FROM.
           # Rebuild with that commit so the footer is identical and the dist comparison tests the page, not the
           # pull request ref.
-          commit="$(node -p "require('./dist/build.json').commit || ''")"
+          commit="$(bun -e 'console.log(require("./dist/build.json").commit || "")')"
           if [ -n "$commit" ]; then export BUILD_COMMIT="$commit"; fi
           bun run test
 
