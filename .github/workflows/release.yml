@@ -147,6 +147,20 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
 
+      # THE TAG NAMES THE PAGE IN THE IMAGE, NOT THE BUN RUNTIME. The commit is the checked-out tag commit
+      # (github.sha is the branch ref on a dispatch run), and the date is that commit's date.
+      - name: Name the image labels
+        id: labels
+        run: |
+          set -eu
+          version="${TAG#v}"
+          test -n "$version"
+          commit="$(git rev-parse HEAD)"
+          date="$(git show -s --format=%cI "$commit")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "date=$date" >> "$GITHUB_OUTPUT"
+
       - name: Set up BuildKit
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -166,7 +180,9 @@ jobs:
             ${{ env.IMAGE }}:${{ env.TAG }}
             ${{ env.IMAGE }}:latest
           build-args: |
-            BUILD_COMMIT=${{ github.sha }}
+            BUILD_COMMIT=${{ steps.labels.outputs.commit }}
+            VERSION=${{ steps.labels.outputs.version }}
+            BUILD_DATE=${{ steps.labels.outputs.date }}
 
   publish:
     name: publish the release

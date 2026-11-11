@@ -32,12 +32,24 @@ RUN BUILD_COMMIT="$BUILD_COMMIT" bun build/build.mjs && bun tools/check.mjs
 
 FROM oven/bun:1.4.4-slim AS runtime
 
+# LABELS ARE PART OF THE ARTEFACT. Docker inherits every label of the base image, and Bun's image names
+# Bun's version, commit and build date. Override all of them here or a checker reading the image would
+# believe this is a Bun release. CI passes the page's version, checkout commit and commit date; a local
+# build can pass its own values.
+ARG VERSION=dev
+ARG BUILD_COMMIT=
+ARG BUILD_DATE=unknown
+
 # THE PACKAGE BELONGS TO THIS REPOSITORY. GHCR uses the source label to link the image to the release repository,
 # which is also what lets the repository's Actions workflows pull the private package.
 LABEL org.opencontainers.image.source="https://github.com/Ninsei-Labs/recovery-page" \
+      org.opencontainers.image.url="https://github.com/Ninsei-Labs/recovery-page" \
       org.opencontainers.image.title="Ninsei recovery page" \
       org.opencontainers.image.description="Static page that finds the swaps of a Ninsei recovery key and withdraws their XMR" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${BUILD_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
 
 ENV TZ=UTC \
     NODE_ENV=production \
