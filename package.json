@@ -1,6 +1,6 @@
 {
   "name": "@ninsei-labs/recovery-page",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
   "description": "Static page that finds the swaps of a Ninsei recovery key, withdraws their XMR and settles the ETH side. Keys stay in the tab.",
@@ -26,7 +26,7 @@
     "serve": "bun serve.bun.mjs"
   },
   "devDependencies": {
-    "@ninsei-labs/sdk": "0.58.0",
+    "@ninsei-labs/sdk": "0.60.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "assert": "2.1.0",
