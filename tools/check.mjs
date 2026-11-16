@@ -2453,5 +2453,10 @@ await check("the workflows run Bun and never npm, npx or node", async () => {
   return `${files.length} workflows, ${PR_WORKFLOWS.length} draft-gated`;
 });
 
+await check("found rows offer the correct settlement action at each deadline", async () => {
+  const { checkRows } = await import("./check-rows.mjs");
+  return checkRows();
+});
+
 console.log(`\n${pass} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
