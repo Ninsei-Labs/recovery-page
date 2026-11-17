@@ -16,7 +16,7 @@
 // they live in one variable until the transfer is sent.
 
 // WORDS, NUMBERS AND DATES come from the page's locale module; the page keeps no refusal dictionary of its own.
-import { t, n, d, init as initLocale } from "./locales/index.js?v=0.4.2";
+import { t, n, d, init as initLocale } from "./locales/index.js?v=0.4.3";
 import {
   NODES,
   DEFAULT_NODE,
@@ -36,8 +36,8 @@ import {
   moneroReaders,
   moneroHeaderTime,
   nodeFor,
-} from "./lib/node.js?v=0.4.2";
-import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js?v=0.4.2";
+} from "./lib/node.js?v=0.4.3";
+import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js?v=0.4.3";
 import {
   swapState,
   moneyState,
@@ -45,8 +45,8 @@ import {
   scanStartHeight,
   tipHeaderHeight,
   tipTrusted as tipIsTrusted,
-} from "./lib/withdrawal.js?v=0.4.2";
-import { sideOf, deadlineOf, swapStateOf, ethRecipient } from "./lib/rows.js?v=0.4.2";
+} from "./lib/withdrawal.js?v=0.4.3";
+import { sideOf, deadlineOf, swapStateOf, ethRecipient } from "./lib/rows.js?v=0.4.3";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=9838c591";
