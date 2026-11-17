@@ -1,5 +1,5 @@
-// Execute the page's row functions without moving them into a second production module.
-// Only locale startup and the DOM are substitutes; deadline conversion and swapState stay real.
+// Execute the page's row rules from lib/rows.js and render a row through the page's DOM. Only locale startup and
+// the DOM are substitutes; deadline conversion, swapState and the recipient rules are the production modules.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import { build } from "esbuild";
 import { msFromOrderSeconds } from "@ninsei-labs/sdk/core";
+import { deadlineOf, ethRecipient, readyByOf, sideOf, swapStateOf } from "../lib/rows.js";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -46,9 +47,7 @@ export async function checkRows() {
   const built = await build({
     stdin: {
       // Appended exports expose existing bindings only in this in-memory test bundle.
-      contents:
-        source +
-        "\nmod = globalThis.rowSdk;\nexport { sideOf, deadlineOf, readyByOf, swapStateOf, ethRecipient, swapRow };\n",
+      contents: source + "\nmod = globalThis.rowSdk;\nexport { swapRow };\n",
       resolveDir: ROOT,
       sourcefile: "recovery.js",
     },
@@ -100,7 +99,7 @@ export async function checkRows() {
   let rows = 0;
   const descendants = (node) => [node, ...node.children.flatMap(descendants)];
   function checkRow(row, expectedState, expectedAction) {
-    const result = page.swapStateOf(row);
+    const result = swapStateOf(row, { now, msFromOrderSeconds });
     assert.equal(result.state, expectedState);
     assert.equal(result.action, expectedAction);
     const rendered = page.swapRow(row);
@@ -116,10 +115,10 @@ export async function checkRows() {
     ["locker", "buy"],
     ["claimer", "sell"],
   ]) {
-    assert.equal(page.sideOf({ side: foundSide }), side, "the found side selects the person's money path");
-    const row = { swap: { ...swap, side: foundSide }, side: page.sideOf({ side: foundSide }), status: open, net };
-    assert.equal(page.deadlineOf(row.swap), deadline, "t1 is the settlement deadline, in milliseconds");
-    assert.equal(page.readyByOf(row.swap), 1_700_000_100_000, "readyBy has its own boundary");
+    assert.equal(sideOf({ side: foundSide }), side, "the found side selects the person's money path");
+    const row = { swap: { ...swap, side: foundSide }, side: sideOf({ side: foundSide }), status: open, net };
+    assert.equal(deadlineOf(row.swap, msFromOrderSeconds), deadline, "t1 is the settlement deadline, in milliseconds");
+    assert.equal(readyByOf(row.swap, msFromOrderSeconds), 1_700_000_100_000, "readyBy has its own boundary");
     for (const [time, buyAction, sellAction, readySellAction] of boundaries) {
       now = time;
       for (const ready of [false, true]) {
@@ -140,9 +139,9 @@ export async function checkRows() {
     row.status = null;
     checkRow(row, "unknown", "unknown");
   }
-  for (const found of [null, {}, { side: "provider" }]) assert.equal(page.sideOf(found), null);
+  for (const found of [null, {}, { side: "provider" }]) assert.equal(sideOf(found), null);
   for (const value of [undefined, null, "", -1, NaN, Infinity, 1_700_000_400_000]) {
-    assert.equal(page.deadlineOf({ ...swap, t1: value }), null, "missing or invalid t1 stays unknown");
+    assert.equal(deadlineOf({ ...swap, t1: value }, msFromOrderSeconds), null, "missing or invalid t1 stays unknown");
     const row = { swap: { ...swap, t1: value }, side: "buy", status: open, net };
     checkRow(row, "unknown", "unknown");
   }
@@ -156,7 +155,7 @@ export async function checkRows() {
     [{ kind: "refund", expect: {} }, ""],
     [{ kind: "claim", expect: {} }, ""],
   ])
-    assert.equal(page.ethRecipient({}, material), recipient, "settlement names the signed recipient");
+    assert.equal(ethRecipient({}, material), recipient, "settlement names the signed recipient");
   assert.equal(rows, 39, "all boundary, terminal and unknown rows ran");
   return `${rows} row states and rendered actions, named recipients, real SDK deadline conversion`;
 }

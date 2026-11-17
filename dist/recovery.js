@@ -46,14 +46,7 @@ import {
   tipHeaderHeight,
   tipTrusted as tipIsTrusted,
 } from "./lib/withdrawal.js?v=0.4.2";
-
-// THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
-// anything else; this function only names the row before the withdrawal is opened.
-function sideOf(found) {
-  if (found && found.side === "locker") return "buy";
-  if (found && found.side === "claimer") return "sell";
-  return null;
-}
+import { sideOf, deadlineOf, swapStateOf, ethRecipient } from "./lib/rows.js?v=0.4.2";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=9838c591";
@@ -184,6 +177,10 @@ window.__sweepFlow = {
 const looksLikeXmrAddress = (text) => /^[1-9A-HJ-NP-Za-km-z]{95}$|^[1-9A-HJ-NP-Za-km-z]{106}$/.test(text);
 const wordCount = () => keyWordsInput.value.trim().split(/\s+/).filter(Boolean).length;
 const currentState = () => (current ? moneyState({ plan, balance }) : null);
+// THE SDK'S DEADLINE CONVERSION IS LOADED ASYNCHRONOUSLY. The row rules live in lib/rows.js; this binding supplies
+// the converter once the bundle is present, without moving the decision back into the page.
+const rowStateOf = (row) => swapStateOf(row, { msFromOrderSeconds: mod && mod.msFromOrderSeconds });
+const rowDeadlineOf = (swap) => deadlineOf(swap, mod && mod.msFromOrderSeconds);
 
 // VIOLET IS THE NEXT ACTION: "Find my swaps" once twelve words or a key file (and its password) are there,
 // "Withdraw XMR" once the money is ready and an address is named.
@@ -782,7 +779,7 @@ async function findKeySwaps(options = {}) {
     fingerprint: key.fingerprint,
     failed: [...search.failed],
     complete: search.done,
-    swaps: search.rows.map((row) => ({ escrow: row.swap.escrow, side: row.side, ...swapStateOf(row) })),
+    swaps: search.rows.map((row) => ({ escrow: row.swap.escrow, side: row.side, ...rowStateOf(row) })),
   };
   drawSwaps();
   if (search.failed.length && !search.rows.length && search.failed.length >= search.sources.length) {
@@ -790,30 +787,6 @@ async function findKeySwaps(options = {}) {
   }
   return true;
 }
-
-// THE DEADLINES OF A FOUND ORDER in ms, by the SDK's one conversion; a value of the wrong scale is unknown.
-function deadlineOf(swap) {
-  try {
-    return mod.msFromOrderSeconds(swap.t1, "t1");
-  } catch {
-    return null;
-  }
-}
-function readyByOf(swap) {
-  try {
-    return mod.msFromOrderSeconds(swap.readyBy, "readyBy");
-  } catch {
-    return null;
-  }
-}
-const swapStateOf = (row) =>
-  swapState({
-    side: row.side,
-    status: row.status,
-    deadline: deadlineOf(row.swap),
-    readyBy: readyByOf(row.swap),
-    now: Date.now(),
-  });
 
 // THE ORDER'S AMOUNT in the settlement chain's coin, for display: the escrow holds it in its smallest unit.
 function formatCoin(net, value) {
@@ -861,7 +834,7 @@ function drawSwaps() {
 }
 
 function swapRow(row) {
-  const state = swapStateOf(row);
+  const state = rowStateOf(row);
   const when = row.time ? d(row.time * 1000, { dateStyle: "medium" }) : t("swap.date.unknown");
   const side = t(row.side === "buy" ? "value.side.buy" : row.side === "sell" ? "value.side.sell" : "swap.side.unknown");
   let action;
@@ -954,14 +927,8 @@ function clearEthState() {
   ethMaterial = null;
 }
 
-function ethRecipient(row, material) {
-  return material.kind === "refund"
-    ? String(material.expect.locker || "")
-    : String(material.claimer || material.expect.claimer || "");
-}
-
 function drawEthFacts(row, material) {
-  const deadline = deadlineOf(row.swap);
+  const deadline = rowDeadlineOf(row.swap);
   const rows = [
     ["info.swap", material.escrow],
     ["eth.kind.label", () => t("eth.kind." + material.kind)],
@@ -980,7 +947,7 @@ function drawEthFacts(row, material) {
 
 function drawEthState(row, material) {
   ethStateEl.textContent = t(material.kind === "refund" ? "eth.state.refund" : "eth.state.claim", {
-    deadline: deadlineOf(row.swap) ? d(deadlineOf(row.swap)) : "",
+    deadline: rowDeadlineOf(row.swap) ? d(rowDeadlineOf(row.swap)) : "",
   });
   ethRecipientEl.textContent = t("eth.recipient", { address: ethRecipient(row, material) });
   ethRecipientEl.hidden = false;
@@ -1220,7 +1187,7 @@ async function openSwap(row) {
   network = row.net.monero;
   window.__sweepFlow.network = network;
   stepSwap.hidden = false;
-  const openState = swapStateOf(row);
+  const openState = rowStateOf(row);
   if (openState.action === "refund" || openState.action === "claim") {
     // THE ETH PATH NEEDS NO MONERO NODE, NO WALLET SCAN AND NO START HEIGHT. It stops at this block.
     moneyEl.hidden = true;
