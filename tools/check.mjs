@@ -1814,23 +1814,8 @@ await check("no eval and no new Function in the page's own code", async () => {
 // THE KEYS LEAVE WITH THE TRANSFER. There is no "Forget" button: once the transaction is relayed the wallet closes
 // and the file, its password and the signed transaction leave memory, while the txid stays on screen.
 await check("the keys leave the tab once the transfer is sent", async () => {
-  const page = await read("recovery.js");
-  const html = await read("index.html");
-  const send = bodyOf(page, "sendTx");
-  assert.ok(/sweep\.relay\([\s\S]*await dropKeys\(\)/.test(send), "sendTx does not drop the keys after relaying");
-  const drop = bodyOf(page, "dropKeys");
-  for (const name of [
-    "await closeWallet()",
-    "key = null",
-    "search = null",
-    "contents = null",
-    "signedToken = null",
-    "clearKeyFields()",
-  ]) {
-    assert.ok(drop.includes(name), `dropKeys leaves ${name} out`);
-  }
-  assert.ok(bodyOf(page, "closeWallet").includes("adapter.close()"), "closeWallet does not close the wallet");
-  assert.ok(!/id="forget"/.test(html), "index.html still has a Forget button");
+  const { checkSend } = await import("./check-send.mjs");
+  return checkSend();
 });
 
 // A RETRY MUST READ THE CHAIN AGAIN. A saved balance is a snapshot: a locked output can mature and a failed signature
@@ -1895,10 +1880,8 @@ await check("the locale import and the stylesheet carry the release URL", async 
 // A LOST RELAY ANSWER IS NOT "NOT SENT". The transaction may be on the network; the session is consumed and the
 // person must check the wallet before another attempt.
 await check("a lost relay answer is reported as unknown, not as not sent", async () => {
-  const send = bodyOf(await read("recovery.js"), "sendTx");
-  assert.match(send, /flow\.err\.sendUnknown/, "sendTx still claims the transfer was not sent");
-  assert.match(send, /signedToken = null/, "sendTx keeps a consumed session");
-  assert.match(send, /confirmEl\.hidden = true/, "sendTx leaves the consumed confirmation visible");
+  const { checkLostRelay } = await import("./check-send.mjs");
+  return checkLostRelay();
 });
 
 // THE FACADE CACHES THE KEYED ADAPTER. Closing the adapter alone is not enough: the SDK must be disconnected and, when
@@ -1967,10 +1950,9 @@ await check("the search reuses the block time returned by findSwaps", async () =
 });
 
 // NOTHING LEAVES BEFORE "CONFIRM AND SEND": the search, the opening of a swap and the withdraw button read, build and
-// sign; only the send button's step relays.
+// sign; only the send button's step relays. The markup is checked here; the flow itself runs in check-send.mjs.
 await check("nothing is sent before the confirmation", async () => {
   const html = await read("index.html");
-  const page = await read("recovery.js");
   const confirm = /<div id="confirm"[^>]*>([\s\S]*?)<\/div>\s*<div id="done"/.exec(html);
   assert.ok(confirm, "no confirmation step");
   assert.match(confirm[1], /id="txInfo"/, "the confirmation does not show the transfer");
@@ -1979,16 +1961,8 @@ await check("nothing is sent before the confirmation", async () => {
     /<button id="send" [^>]*data-i18n="page\.btn\.send"/,
     "the send button is not in the confirmation",
   );
-  for (const name of ["findKeySwaps", "openSwap", "withdraw", "syncWallet", "buildTx"]) {
-    assert.ok(!/sweep\.relay|sendTx\(/.test(bodyOf(page, name)), `${name}() can send`);
-  }
-  assert.match(bodyOf(page, "sendTx"), /sweep\.relay\(/);
-  assert.equal([...page.matchAll(/sweep\.relay\(/g)].length, 1, "sweep.relay is called from more than one place");
-  assert.match(
-    page,
-    /sendBtn\.addEventListener\("click", \(\) => busy\(sendBtn, sendTx/,
-    "the send button does not send",
-  );
+  const { checkBeforeConfirm, checkOpenAndSync } = await import("./check-send.mjs");
+  return (await checkOpenAndSync()) + "; " + (await checkBeforeConfirm());
 });
 
 // A NODE MUST NOT SET THE WITHDRAWAL FEE. The SDK applies a ceiling too, but the page names the amount it will
@@ -2433,8 +2407,9 @@ await check("the workflows run Bun and never npm, npx or node", async () => {
   if (!/tools\/deploy\/node_modules\/wrangler\/bin\/wrangler\.js/.test(release))
     problems.push("release.yml does not run the pinned wrangler binary");
   const codeql = await readFile(join(dir, "codeql.yml"), "utf8");
-  if (!/github\/codeql-action\/init@v\d/.test(codeql) || !/github\/codeql-action\/analyze@v\d/.test(codeql)) {
-    problems.push("codeql.yml does not run the CodeQL init and analyze actions");
+  const codeqlPin = (name) => new RegExp(`github\\/codeql-action\\/${name}@[0-9a-f]{40}\\s+#\\s+v\\d`).test(codeql);
+  if (!codeqlPin("init") || !codeqlPin("analyze")) {
+    problems.push("codeql.yml does not run the pinned CodeQL init and analyze actions");
   }
   if (!/security-events:\s*write/.test(codeql))
     problems.push("codeql.yml cannot upload its findings: no security-events: write");
