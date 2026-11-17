@@ -2407,8 +2407,9 @@ await check("the workflows run Bun and never npm, npx or node", async () => {
   if (!/tools\/deploy\/node_modules\/wrangler\/bin\/wrangler\.js/.test(release))
     problems.push("release.yml does not run the pinned wrangler binary");
   const codeql = await readFile(join(dir, "codeql.yml"), "utf8");
-  if (!/github\/codeql-action\/init@v\d/.test(codeql) || !/github\/codeql-action\/analyze@v\d/.test(codeql)) {
-    problems.push("codeql.yml does not run the CodeQL init and analyze actions");
+  const codeqlPin = (name) => new RegExp(`github\\/codeql-action\\/${name}@[0-9a-f]{40}\\s+#\\s+v\\d`).test(codeql);
+  if (!codeqlPin("init") || !codeqlPin("analyze")) {
+    problems.push("codeql.yml does not run the pinned CodeQL init and analyze actions");
   }
   if (!/security-events:\s*write/.test(codeql))
     problems.push("codeql.yml cannot upload its findings: no security-events: write");
