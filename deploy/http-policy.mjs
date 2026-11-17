@@ -13,8 +13,9 @@ export const CSP = [
   "worker-src 'self' blob:",
   "style-src 'self'",
   "img-src 'self' data:",
-  // The node is the visitor's choice: any http(s) host must be reachable, or the field on the page would be a lie.
-  "connect-src 'self' http: https:",
+  // The node is the visitor's choice, but a remote node must use https: a plain-http node is mixed content on an
+  // HTTPS page. Localhost and the loopback range remain reachable for the supported local proxy.
+  "connect-src 'self' https: http://localhost:* http://*.localhost:* http://127.0.0.1:* http://[::1]:*",
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",
