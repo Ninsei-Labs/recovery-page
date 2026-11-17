@@ -273,12 +273,32 @@ function log(text, cls = "") {
     logEl.textContent = "";
     logEl.dataset.started = "1";
   }
+  // THE LOG IS COPIED TO THE CLIPBOARD. An error message is untrusted input: a future SDK or wallet error can
+  // include the phrase that is in the key field. Redact the known key before it reaches the element or the copied
+  // state; individual words are not redacted because ordinary errors use them too.
+  const safe = redactText(text);
   const line = document.createElement("span");
   line.className = cls;
-  line.textContent = text + "\n";
+  line.textContent = safe + "\n";
   logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
-  window.__sweepFlow.steps.push(text);
+  window.__sweepFlow.steps.push(safe);
+}
+
+const REDACTED = "[redacted]";
+function redactText(text) {
+  let out = String(text == null ? "" : text);
+  // Redact other values the page already holds: the chosen key file and its password can also appear in a future
+  // transport error. Exact, non-trivial strings only; ordinary words stay readable in the technical log.
+  const held = [keyFileText, keyPassInput && keyPassInput.value].filter(
+    (value) => typeof value === "string" && value.trim().length >= 4,
+  );
+  for (const secret of held) out = out.split(secret).join(REDACTED);
+  if (!key || typeof key.mnemonic !== "string" || !key.mnemonic.trim()) return out;
+  const words = key.mnemonic.trim().split(/\s+/);
+  if (words.length < 2) return out;
+  const escaped = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return out.replace(new RegExp(escaped.join("\\s+"), "gi"), REDACTED);
 }
 
 // WHAT THE PAGE CHECKED: the wallet in this tab, the chosen node and a secure connection, each a line with its

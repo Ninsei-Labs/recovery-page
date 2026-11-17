@@ -89,6 +89,7 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
     "closeSwap",
     "refreshBalance",
     "showDone",
+    "log",
   ];
   const built = await build({
     stdin: {
@@ -398,7 +399,15 @@ export async function checkOpenAndSync() {
     false,
     "a stale node tip must leave the refreshed scan incomplete",
   );
-  return "openSwap and syncWallet run without a relay; an incomplete balance reopens the wallet; a stale tip stays incomplete";
+  // THE LOG IS COPIED TO THE CLIPBOARD. A future error message that includes the key must not put the words there.
+  const redacted = await pageBundle();
+  const mnemonic = "abandon ability able about above absent absorb abstract absurd abuse access accident";
+  redacted.page.__seed({ key: { mnemonic, fingerprint: "fp" } });
+  redacted.page.log("failure: " + mnemonic + " after");
+  const steps = redacted.page.__state().steps.join("\n");
+  assert.ok(!steps.includes(mnemonic), "the recovery words reached the log");
+  assert.ok(steps.includes("[redacted]"), "the recovery words were not replaced in the log");
+  return "openSwap and syncWallet run without a relay; an incomplete balance reopens the wallet; a stale tip stays incomplete; secrets never reach the log";
 }
 
 export async function checkSend() {

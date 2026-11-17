@@ -436,6 +436,7 @@ export default {
     "node.why.empty": "the address is empty",
     "node.why.shape": "the address is not a plain http(s) address (no path query, no fragment)",
     "node.why.scheme": "only http and https are accepted",
+    "node.why.insecure": "a plain http address is allowed only for localhost; use https for a remote node",
     "node.why.credentials": "an address with a user name or password is refused: nothing secret belongs in it",
     "log.node.locked": "the wallet is already open: to use another node, reload the page and open the file again",
     "log.node.bad": "the node address was not accepted: {why}",

@@ -118,8 +118,11 @@ await check("a plain https address is accepted and loses a trailing slash", () =
   assert.equal(parseNodeUrl("https://node.example/xmr/").url, "https://node.example/xmr");
 });
 
-await check("http is accepted (a node behind a local proxy is a real case)", () => {
+await check("http is accepted only on loopback; a remote node needs https", () => {
   assert.equal(parseNodeUrl("http://127.0.0.1:38081").url, "http://127.0.0.1:38081");
+  assert.equal(parseNodeUrl("http://localhost:38081").url, "http://localhost:38081");
+  assert.equal(parseNodeUrl("http://node.example:38081").why, "insecure");
+  assert.equal(parseNodeUrl("https://node.example:38081").url, "https://node.example:38081");
 });
 
 await check("another scheme is refused by name", () => {
@@ -346,7 +349,7 @@ await check("every word a node row or the note under the list can show exists", 
   const keys = new Set(VERDICTS.map((v) => "node.state." + v[4]));
   // The note keys are written as data ([key, params]), not as t() calls, so the literal check misses them.
   for (const m of (await read("recovery.js")).matchAll(/"(node\.(?:note|state)\.[a-z]+)"/g)) keys.add(m[1]);
-  for (const why of ["empty", "shape", "scheme", "credentials"]) keys.add("node.why." + why);
+  for (const why of ["empty", "shape", "scheme", "credentials", "insecure"]) keys.add("node.why." + why);
   keys.add("node.ms");
   const missing = [...keys].filter((key) => !(key in strings));
   assert.deepEqual(missing, []);
@@ -1831,6 +1834,8 @@ await check("the nginx example revalidates page modules, and every server uses o
   for (const [name, value] of Object.entries(SECURITY_HEADERS))
     assert.ok(nginx.includes(name) && nginx.includes(value), `nginx misses ${name}`);
   assert.ok(nginx.includes(CSP), "nginx CSP differs from the shared policy");
+  assert.ok(!CSP.includes("connect-src 'self' http: https:"), "the CSP still allows every http and https host");
+  assert.match(CSP, /connect-src 'self' https: http:\/\/localhost:\*/, "the CSP does not allow a local http node");
   assert.equal(cacheControl("/assets/vendors/sdk/sdk-browser.js"), "public, max-age=31536000, immutable");
   assert.equal(cacheControl("/monero.worker.js"), "public, max-age=3600");
   assert.equal(cacheControl("/recovery.js"), "no-cache");
