@@ -41,7 +41,7 @@ export default {
     "key.none.link": "How to find your Ninsei key file",
     "key.partial": "Not searched: {list}. A swap there would be missing from this list; search again in a minute.",
     "key.more": "Search again",
-    "key.gone": "The Ninsei key is no longer held in this tab. Enter it again to withdraw another swap.",
+    "key.gone": "The Ninsei key is no longer held in this tab. Enter it again to withdraw or settle another swap.",
     "swap.amount": "{amount} {symbol}",
     "swap.amount.unknown": "amount unknown",
     "swap.date.unknown": "date unknown",
@@ -103,7 +103,7 @@ export default {
     "eth.err.reverted": "The contract rejected this transaction",
     "eth.err.window": "This action is not open in the order's current window",
     "eth.err.receipt":
-      "The transaction was sent, but its receipt was not read in time. Check the explorer before trying again",
+      "The transaction was sent, but its receipt was not read in time. Check the explorer, then reopen the swap from the list to continue",
     "eth.err.send": "The ETH transaction was not sent. The technical log below says why",
     "log.eth.opened": "ETH action for {escrow}: {kind}",
     "log.eth.prepareFailed": "the ETH action could not be prepared: {words}",
