@@ -387,14 +387,8 @@ const bodyOf = (text, name) => {
 };
 
 await check("the page probes only the chosen node, and not when it opens", async () => {
-  const page = await read("recovery.js");
-  assert.ok(!/pingAll/.test(page), "the page still probes every listed node");
-  const start = bodyOf(page, "startNode");
-  assert.match(start, /runPreflight\(\{ probeNode: false \}\)/, "opening the page still probes the node");
-  assert.ok(!/pingRows/.test(start), "opening the page still probes the list");
-  const recheck = bodyOf(page, "recheck");
-  assert.match(recheck, /pingRows\(\[row\]\)/, "a tab return does not check the chosen node");
-  assert.ok(!/pingRows\((?:\[\.\.\.)?listed/.test(recheck), "a tab return still probes the list");
+  const { checkNodeProbe } = await import("./check-page.mjs");
+  return checkNodeProbe();
 });
 
 // THE PASSWORD FIELD FOLLOWS THE SDK'S READING OF THE KEY FILE, so the page keeps no rule of its own that could
@@ -424,19 +418,8 @@ await check("a key file's password is asked only when the SDK's reader stops at 
     (await openRecoveryKeyFile(sealed, "example-password-1234")).fingerprint,
     importRecoveryKey(words).fingerprint,
   );
-  const page = await read("recovery.js");
-  const chosen = bodyOf(page, "onKeyFileChosen");
-  assert.match(
-    chosen,
-    /openRecoveryKeyFile\(keyFileText, ""\)/,
-    "the page does not ask the SDK whether the key file needs a password",
-  );
-  assert.match(
-    chosen,
-    /e\.params\.stage === "passphrase"\) \{\s*keyPassField\.hidden = false;/,
-    "the password field does not follow the SDK's stage",
-  );
-  assert.ok(!/startsWith\("\{"\)/.test(page), "the page keeps its own rule for a protected key file");
+  const { checkKeyFile } = await import("./check-page.mjs");
+  return (await checkKeyFile()) + "; the installed SDK keeps all four stages";
 });
 
 // WHAT A FOUND SWAP NEEDS, from the escrow's events and its deadline. The expected answers come from the
@@ -931,13 +914,8 @@ await check("sweep.fromOrder refuses an order that does not fit the key, by what
   return `${refusals.length} refusals`;
 });
 
-await check("the page builds a withdrawal through sweep.fromOrder, not a local payload", async () => {
-  const page = await read("recovery.js");
-  assert.match(page, /sweep\.fromOrder\(\{/, "the page does not call sweep.fromOrder");
-  assert.ok(!/found-swap|payloadOf|buildPayload/.test(page), "the page still builds a payload of its own");
-  return "one call";
-});
-
+// THE CHAIN READ IS A REAL ETH_CALL, never a constant. The page builds a withdrawal through sweep.fromOrder in
+// check-page.mjs; this check owns the chain seam and its refusals.
 await check('the chain read is a real eth_call, never the "0x" stub', async () => {
   const page = await read("recovery.js");
   assert.ok(!/evmCall:\s*(?:async\s*)?\([^)]*\)\s*=>\s*["']0x["']/.test(page), "evmCall answers a constant");
@@ -1270,18 +1248,8 @@ await check("a log search takes an address list and forwards it unchanged", asyn
 });
 
 await check("the page's escrow-state read sends no escrow addresses", async () => {
-  const page = await read("recovery.js");
-  assert.match(
-    page,
-    /readEscrowEventsByTopic\(\{[\s\S]*?evmLogs: \(request\) => evmLogs\(net\.id, request\)/,
-    "the escrow-state read still sends the visitor's escrow list",
-  );
-  assert.doesNotMatch(page, /evmLogsByTopic|escrows: networkRows/, "the address-stripping wrapper is still wired");
-  assert.match(
-    page,
-    /fromBlock: \(\(\) => \{[\s\S]*?networkRows\.reduce\(/,
-    "the escrow-state read still starts at the earliest factory, not the earliest found order",
-  );
+  const { checkFindSwaps } = await import("./check-page.mjs");
+  return checkFindSwaps();
 });
 
 await check("the SDK's topic-only escrow events decode through the page's log reader", async () => {
@@ -1821,49 +1789,15 @@ await check("the keys leave the tab once the transfer is sent", async () => {
 // A RETRY MUST READ THE CHAIN AGAIN. A saved balance is a snapshot: a locked output can mature and a failed signature
 // leaves a closed wallet behind the page's adapter. Every spending decision refreshes; a closed adapter is rebuilt.
 await check("a withdrawal refreshes its balance and reopens a closed wallet", async () => {
-  const page = await read("recovery.js");
-  const withdraw = bodyOf(page, "withdraw");
-  assert.match(withdraw, /await refreshBalance\(\)/, "withdraw decides on a saved balance");
-  assert.ok(
-    !/if \(!adapter\)[\s\S]{0,200}syncWallet\(\)/.test(withdraw),
-    "withdraw still syncs only when there is no adapter",
-  );
-  const refresh = bodyOf(page, "refreshBalance");
-  assert.match(refresh, /adapter\.sync\(\)/, "refreshBalance does not sync the open wallet");
-  assert.match(refresh, /wallet\.getBalance\(\)/, "refreshBalance does not re-read the total");
-  assert.match(refresh, /closeWallet\(\)[\s\S]*syncWallet\(\)/, "a closed wallet is not rebuilt");
+  const { checkOpenAndSync } = await import("./check-send.mjs");
+  return checkOpenAndSync();
 });
 
 // AN OPEN THAT A NEWER ROW REPLACED MUST NOT WRITE ITS CONTENTS OR PLAN UNDER THE NEW ROW. The delayed stagenet
 // `get_info` is the measured case.
-await check("an open swap has one context and drops a superseded continuation", async () => {
-  const open = bodyOf(await read("recovery.js"), "openSwap");
-  assert.match(open, /const stillCurrent = \(\) => current === row/, "openSwap has no row identity");
-  assert.equal(
-    (open.match(/if \(!stillCurrent\(\)\) return false/g) || []).length >= 3,
-    true,
-    "openSwap writes after an await without checking the row",
-  );
-  assert.ok(
-    (open.match(/catch \(e\) \{\s*if \(!stillCurrent\(\)\) return false;/g) || []).length >= 2,
-    "an open's error branch can write under a later row",
-  );
-});
-
-// A PLAN IS NOT WRITTEN UNDER A LATER ROW. The delayed plan of A must be held locally and assigned only when A is
-// still the selected swap; otherwise the screen is B's and the plan is A's.
-await check("a superseded plan is not assigned to the newly opened swap", async () => {
-  const open = bodyOf(await read("recovery.js"), "openSwap");
-  assert.match(open, /const planned = await core\.sweep\.plan\(/, "the plan is assigned before the context check");
-  assert.match(
-    open,
-    /if \(!stillCurrent\(\)\) return false;\s*\n\s*plan = planned;/,
-    "the plan is assigned before the context check",
-  );
-  assert.ok(
-    !/^\s*plan = await core\.sweep\.plan/m.test(open),
-    "the global plan is overwritten by a stale continuation",
-  );
+await check("an open swap keeps one context and ignores a superseded plan", async () => {
+  const { checkSwapRace } = await import("./check-page.mjs");
+  return checkSwapRace();
 });
 
 // THE LOCALE DICTIONARY AND THE STYLESHEET ARE CACHEABLE URLS. A versioned entry module is not enough: the
@@ -1882,21 +1816,6 @@ await check("the locale import and the stylesheet carry the release URL", async 
 await check("a lost relay answer is reported as unknown, not as not sent", async () => {
   const { checkLostRelay } = await import("./check-send.mjs");
   return checkLostRelay();
-});
-
-// THE FACADE CACHES THE KEYED ADAPTER. Closing the adapter alone is not enough: the SDK must be disconnected and, when
-// the key is dropped, the facades themselves must go.
-await check("dropping the key disconnects the SDK wallet and clears the facades", async () => {
-  const page = await read("recovery.js");
-  assert.match(bodyOf(page, "closeWallet"), /core\.wallet\.disconnect\(\)/, "closeWallet leaves the facade connected");
-  assert.match(bodyOf(page, "dropKeys"), /facades\.clear\(\)/, "dropKeys keeps a facade with the keyed adapter");
-});
-
-// A SPLIT SWEEP HAS MORE THAN ONE TRANSACTION. The completion panel must list every id, not only the first.
-await check("the completion panel lists every transaction of a split sweep", async () => {
-  const page = await read("recovery.js");
-  assert.match(page, /showDone\(hashes\)/, "sendTx shows only one transaction");
-  assert.match(bodyOf(page, "showDone"), /list\.map\(\(id\)/, "showDone does not draw every transaction");
 });
 
 // CACHING AND THE LOCAL SERVER. The nginx example must not keep unversioned page modules for a year; `bun run serve`
@@ -1933,22 +1852,6 @@ await check("the nginx example revalidates page modules, and every server uses o
   assert.ok(!/^\.github$/m.test(ignore), ".dockerignore hides the workflows the Docker check reads");
 });
 
-// THE FOUND ORDER ALREADY CARRIES ITS BLOCK TIME. Reading it again is a second chain call per row, and a null must
-// stay unknown instead of becoming 1970.
-await check("the search reuses the block time returned by findSwaps", async () => {
-  const page = await read("recovery.js");
-  assert.match(
-    page,
-    /const blockTime = swap\.blockTime === null \|\| swap\.blockTime === undefined \? NaN : Number\(swap\.blockTime\)/,
-    "the search does not read the order's blockTime",
-  );
-  assert.match(
-    page,
-    /Number\.isFinite\(blockTime\) && blockTime >= 0[\s\S]{0,120}await evmBlockTime/,
-    "the search still reads the block time first",
-  );
-});
-
 // NOTHING LEAVES BEFORE "CONFIRM AND SEND": the search, the opening of a swap and the withdraw button read, build and
 // sign; only the send button's step relays. The markup is checked here; the flow itself runs in check-send.mjs.
 await check("nothing is sent before the confirmation", async () => {
@@ -1961,21 +1864,13 @@ await check("nothing is sent before the confirmation", async () => {
     /<button id="send" [^>]*data-i18n="page\.btn\.send"/,
     "the send button is not in the confirmation",
   );
-  const { checkBeforeConfirm, checkOpenAndSync } = await import("./check-send.mjs");
-  return (await checkOpenAndSync()) + "; " + (await checkBeforeConfirm());
+  const { checkBeforeConfirm } = await import("./check-send.mjs");
+  return checkBeforeConfirm();
 });
 
 // A NODE MUST NOT SET THE WITHDRAWAL FEE. The SDK applies a ceiling too, but the page names the amount it will
 // sign, and both refusals have words a person can act on.
 await check("the withdrawal names its fee ceiling and has words for both fee refusals", async () => {
-  const page = await read("recovery.js");
-  assert.match(page, /const SWEEP_FEE_LIMIT_ATOMIC = 10_000_000_000n/, "the page names no fee ceiling");
-  assert.match(page, /maxFeeAtomic: SWEEP_FEE_LIMIT_ATOMIC/, "sweep.sign is not given the ceiling");
-  assert.match(
-    bodyOf(page, "buildTx"),
-    /return "sdk\." \+ e\.code/,
-    "a fee refusal is hidden behind the generic sign error",
-  );
   for (const code of ["sweep-fee-too-high", "sweep-fee-unknown"]) {
     assert.ok(code in en.sdk, `no words for ${code}`);
     assert.ok(en.sdk[code], `empty words for ${code}`);

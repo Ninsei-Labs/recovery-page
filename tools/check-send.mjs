@@ -20,6 +20,7 @@ function element(tag = "div") {
     style: {},
     dataset: {},
     value: "",
+    files: [],
     textContent: "",
     hidden: false,
     disabled: false,
@@ -70,7 +71,7 @@ function element(tag = "div") {
   return node;
 }
 
-async function pageBundle() {
+async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } = {}) {
   const source = await readFile(new URL("../recovery.js", import.meta.url), "utf8");
   const exports = [
     "sendTx",
@@ -82,6 +83,12 @@ async function pageBundle() {
     "findKeySwaps",
     "facadeFor",
     "facades",
+    "onKeyFileChosen",
+    "startNode",
+    "recheck",
+    "closeSwap",
+    "refreshBalance",
+    "showDone",
   ];
   const built = await build({
     stdin: {
@@ -106,11 +113,21 @@ async function pageBundle() {
         `  if ("dest" in values) destInput.value = values.dest;\n` +
         `  if ("height" in values) heightInput.value = String(values.height);\n` +
         `}\n` +
+        `\nexport function __doneLinks() {\n` +
+        `  const out = [];\n` +
+        `  const walk = (node) => {\n` +
+        `    if (!node) return;\n` +
+        `    if (node.href) out.push(node.href);\n` +
+        `    for (const child of node.children || []) walk(child);\n` +
+        `  };\n` +
+        `  walk(doneInfoEl);\n` +
+        `  return out;\n` +
+        `}\n` +
         `\nexport function __state() {\n` +
         `  return { signedToken, lastTx, key, search, contents, plan, current, adapter, wallet, network, settlement, balance,\n` +
-        `    confirmHidden: confirmEl.hidden, doneHidden: doneEl.hidden, withdrawDisabled: withdrawBtn.disabled,\n` +
-        `    withdrawText: withdrawErrorEl.textContent, keyText: keyErrorEl.textContent, facades: facades.size,\n` +
-        `    signed: window.__sweepFlow.signed, steps: window.__sweepFlow.steps.slice() };\n` +
+        `    nodeNetwork, confirmHidden: confirmEl.hidden, doneHidden: doneEl.hidden, withdrawDisabled: withdrawBtn.disabled,\n` +
+        `    withdrawText: withdrawErrorEl.textContent, keyText: keyErrorEl.textContent, openErrorText: openErrorEl.textContent, keyPassHidden: keyPassField.hidden,\n` +
+        `    facades: facades.size, signed: window.__sweepFlow.signed, steps: window.__sweepFlow.steps.slice() };\n` +
         `}\n`,
       resolveDir: ROOT,
       sourcefile: "recovery.js",
@@ -151,16 +168,29 @@ async function pageBundle() {
     msFromOrderSeconds,
     formatXmr: (value) => String(value),
     memoryAdapter: () => ({}),
+    ...extraSdk,
   };
   const context = {
     rowSdk,
     document,
     window,
     navigator: {},
+    self: { isSecureContext: true },
+    location: { search: "", origin: "https://example.invalid", href: "https://example.invalid/" },
+    sessionStorage: {
+      getItem() {
+        return null;
+      },
+      setItem() {},
+      removeItem() {},
+    },
     performance: { now: () => 0 },
     setInterval: () => 0,
     clearInterval: () => {},
     setTimeout: () => 0,
+    fetch: (...args) => globalThis.fetch(...args),
+    AbortSignal: globalThis.AbortSignal,
+    ...extraContext,
   };
   runInNewContext(built.outputFiles[0].text, context);
   const page = context.sendPage;
@@ -169,9 +199,10 @@ async function pageBundle() {
 }
 
 function fakeCore({ relay = async () => ({ txids: [] }) } = {}) {
-  const calls = { relay: 0, sign: 0, destination: 0, disconnect: 0 };
-  return {
+  const calls = { relay: 0, sign: 0, destination: 0, disconnect: 0, fromOrder: 0, plan: 0, wallet: 0 };
+  const core = {
     calls,
+    lastSign: null,
     wallet: {
       use() {},
       async connect() {},
@@ -184,8 +215,9 @@ function fakeCore({ relay = async () => ({ txids: [] }) } = {}) {
         calls.relay += 1;
         return relay(request);
       },
-      async sign() {
+      async sign(request) {
         calls.sign += 1;
+        core.lastSign = request;
         return { token: "signed-token", amount: 5000n, fee: null, receive: null };
       },
       async destination() {
@@ -196,19 +228,23 @@ function fakeCore({ relay = async () => ({ txids: [] }) } = {}) {
         return { unlocked: 10n, total: 10n, passes: 1, lockedPass: false, scanComplete: true };
       },
       async plan() {
+        calls.plan += 1;
         return { address: "address", restoreHeight: 1, missing: [], revealedHalf: true };
       },
       async fromOrder() {
+        calls.fromOrder += 1;
         return { contents: { kind: "file" }, address: "address" };
       },
       async keys() {
         return { privateSpendKey: "spend", privateViewKey: "view", address: "address" };
       },
       wallet() {
+        calls.wallet += 1;
         return { driver: () => wallet };
       },
     },
   };
+  return core;
 }
 
 const wallet = {
@@ -252,6 +288,8 @@ export async function checkOpenAndSync() {
   });
   assert.equal(await opened.page.openSwap(row), true);
   assert.equal(openCore.calls.relay, 0, "opening a swap must not relay");
+  assert.equal(openCore.calls.fromOrder, 1, "opening a swap builds it through sweep.fromOrder");
+  assert.equal(openCore.calls.plan, 1, "opening a swap builds its plan through the SDK");
   assert.equal(opened.page.__state().plan.revealedHalf, true);
 
   const synced = await pageBundle();
@@ -279,11 +317,48 @@ export async function checkOpenAndSync() {
   assert.equal(await synced.page.syncWallet(), true);
   assert.equal(syncCore.calls.relay, 0, "syncing the wallet must not relay");
   assert.ok(synced.page.__state().balance, "the sync records the balance");
-  return "openSwap and syncWallet run without a relay";
+
+  // A CLOSED OR INCOMPLETE WALLET IS REBUILT, NOT READ FROM THE OLD ADAPTER.
+  const refreshed = await pageBundle();
+  const refreshCore = fakeCore();
+  let rebuilt = 0;
+  refreshCore.sweep.wallet = () => {
+    rebuilt += 1;
+    return {
+      driver: () => wallet,
+      async addListener() {},
+      async removeListener() {},
+      async unlockedBalance() {
+        return 10n;
+      },
+    };
+  };
+  refreshed.page.facades.set("31337/testnet", refreshCore);
+  refreshed.page.__seed({
+    settlement: "31337",
+    network: "testnet",
+    nodeNetwork: "testnet",
+    contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+    dest: address,
+    adapter: {
+      async sync() {},
+      async unlockedBalance() {
+        return 10n;
+      },
+      async close() {},
+    },
+    wallet,
+    balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: false, scanIncompleteReason: "behind-node" },
+  });
+  assert.equal(await refreshed.page.refreshBalance(), true);
+  assert.equal(rebuilt, 1, "an incomplete balance reopens the wallet");
+  assert.equal(refreshCore.calls.relay, 0, "refreshing the balance must not relay");
+  return "openSwap and syncWallet run without a relay; an incomplete balance reopens the wallet";
 }
 
 export async function checkSend() {
-  const { page } = await pageBundle();
+  const { page, elements } = await pageBundle();
   const core = fakeCore();
   page.facades.set("31337/testnet", core);
 
@@ -315,9 +390,14 @@ export async function checkSend() {
   assert.equal(after.contents, null, "the swap payload is dropped");
   assert.equal(after.adapter, null, "the wallet adapter is dropped");
   assert.equal(after.facades, 0, "the facade is dropped");
+  assert.equal(core.calls.disconnect, 1, "the SDK wallet is disconnected when the key is dropped");
   assert.equal(after.withdrawDisabled, true, "the withdraw button stays disabled after the send");
   assert.equal(after.doneHidden, false, "the sent view stays");
   assert.equal(after.confirmHidden, true, "the confirmation is closed");
+  const links = page.__doneLinks();
+  assert.equal(links.length, 2, "both transactions are listed");
+  assert.equal(links[0], "https://testnet.xmrchain.net/tx/tx-a");
+  assert.equal(links[1], "https://testnet.xmrchain.net/tx/tx-b");
   assert.ok(after.steps.includes("log.sent"), "a successful relay is logged");
   assert.ok(after.steps.includes("log.forgotten"), "the keys are dropped after the relay");
   return "one relay, keys and payload dropped, sent view kept";
@@ -357,6 +437,7 @@ export async function checkBeforeConfirm() {
   const { page } = await pageBundle();
   const core = fakeCore();
   page.facades.set("31337/testnet", core);
+  let syncCalls = 0;
   page.__seed({
     settlement: "31337",
     network: "testnet",
@@ -365,7 +446,9 @@ export async function checkBeforeConfirm() {
     plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
     current: row,
     adapter: {
-      async sync() {},
+      async sync() {
+        syncCalls += 1;
+      },
       async unlockedBalance() {
         return 10n;
       },
@@ -380,12 +463,15 @@ export async function checkBeforeConfirm() {
   assert.equal(await page.buildTx(), true);
   assert.equal(core.calls.sign, 1);
   assert.equal(core.calls.relay, 0, "buildTx must not relay");
+  assert.equal(core.lastSign.maxFeeAtomic, 10_000_000_000n, "buildTx must name the fee ceiling");
+  assert.equal(syncCalls, 0, "buildTx must not re-read the balance before confirming");
   assert.equal(page.__state().signedToken, "signed-token");
 
   // THE SAME PAGE, A FRESH STATE: WITHDRAW SIGNS AND SHOWS THE CONFIRMATION, STILL WITHOUT A RELAY.
   const second = await pageBundle();
   const core2 = fakeCore();
   second.page.facades.set("31337/testnet", core2);
+  let syncCalls2 = 0;
   second.page.__seed({
     settlement: "31337",
     network: "testnet",
@@ -394,7 +480,9 @@ export async function checkBeforeConfirm() {
     plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
     current: row,
     adapter: {
-      async sync() {},
+      async sync() {
+        syncCalls2 += 1;
+      },
       async unlockedBalance() {
         return 10n;
       },
@@ -407,6 +495,7 @@ export async function checkBeforeConfirm() {
   assert.equal(await second.page.withdraw(), true);
   assert.equal(core2.calls.sign, 1);
   assert.equal(core2.calls.relay, 0, "withdraw must not relay");
+  assert.equal(syncCalls2, 1, "withdraw refreshes the balance before signing");
   assert.equal(second.page.__state().confirmHidden, false, "withdraw opens the confirmation");
 
   // THE SEND BUTTON'S HANDLER REFUSES A MISSING SESSION, AND THAT REFUSAL DOES NOT REACH THE RELAY.
@@ -417,6 +506,27 @@ export async function checkBeforeConfirm() {
   assert.equal(await third.page.sendTx(), false);
   assert.equal(core3.calls.relay, 0, "sendTx must not relay without a signed session");
   assert.equal(third.page.__state().withdrawText, "flow.err.send");
+
+  // A FEE REFUSAL NAMES THE FEE, NOT THE GENERIC SIGN ERROR.
+  for (const code of ["sweep-fee-too-high", "sweep-fee-unknown"]) {
+    const fee = await pageBundle();
+    const feeCore = fakeCore();
+    feeCore.sweep.sign = async () => {
+      throw { code, params: {} };
+    };
+    fee.page.facades.set("31337/testnet", feeCore);
+    fee.page.__seed({
+      settlement: "31337",
+      network: "testnet",
+      nodeNetwork: "testnet",
+      contents: { kind: "file" },
+      plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+      current: row,
+      wallet,
+      dest: address,
+    });
+    assert.equal(await fee.page.buildTx(), "sdk." + code, `${code} must reach the step`);
+  }
 
   // THE SEND BUTTON'S OWN HANDLER REACHES THE RELAY: the markup check above and this call together prove the
   // confirmation control is wired to the one function that can send.
@@ -447,3 +557,5 @@ if (import.meta.main) {
   console.log("ok    " + (await checkLostRelay()));
   console.log("ok    " + (await checkBeforeConfirm()));
 }
+
+export { pageBundle, fakeCore, element, address, row, wallet };
