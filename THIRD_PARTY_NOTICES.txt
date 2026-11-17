@@ -1398,7 +1398,7 @@ Source: jsonjoy-com/codegen
    limitations under the License.
 
 ====================================================================================================
-@jsonjoy.com/fs-core 4.80.0
+@jsonjoy.com/fs-core 4.80.1
 License: Apache-2.0
 Source: streamich/memfs
 
@@ -1606,7 +1606,7 @@ Source: streamich/memfs
    limitations under the License.
 
 ====================================================================================================
-@jsonjoy.com/fs-fsa 4.80.0
+@jsonjoy.com/fs-fsa 4.80.1
 License: Apache-2.0
 Source: streamich/memfs
 
@@ -1814,7 +1814,7 @@ Source: streamich/memfs
    limitations under the License.
 
 ====================================================================================================
-@jsonjoy.com/fs-node 4.80.0
+@jsonjoy.com/fs-node 4.80.1
 License: Apache-2.0
 Source: streamich/memfs
 
@@ -2022,7 +2022,7 @@ Source: streamich/memfs
    limitations under the License.
 
 ====================================================================================================
-@jsonjoy.com/fs-node-builtins 4.80.0
+@jsonjoy.com/fs-node-builtins 4.80.1
 License: Apache-2.0
 Source: streamich/memfs
 
@@ -2230,7 +2230,7 @@ Source: streamich/memfs
    limitations under the License.
 
 ====================================================================================================
-@jsonjoy.com/fs-node-to-fsa 4.80.0
+@jsonjoy.com/fs-node-to-fsa 4.80.1
 License: Apache-2.0
 Source: streamich/memfs
 
@@ -2438,7 +2438,7 @@ Source: streamich/memfs
    limitations under the License.
 
 ====================================================================================================
-@jsonjoy.com/fs-node-utils 4.80.0
+@jsonjoy.com/fs-node-utils 4.80.1
 License: Apache-2.0
 Source: streamich/memfs
 
@@ -2646,7 +2646,7 @@ Source: streamich/memfs
    limitations under the License.
 
 ====================================================================================================
-@jsonjoy.com/fs-print 4.80.0
+@jsonjoy.com/fs-print 4.80.1
 License: Apache-2.0
 Source: streamich/memfs
 
@@ -2854,7 +2854,7 @@ Source: streamich/memfs
    limitations under the License.
 
 ====================================================================================================
-@jsonjoy.com/fs-snapshot 4.80.0
+@jsonjoy.com/fs-snapshot 4.80.1
 License: Apache-2.0
 Source: streamich/memfs
 
@@ -4109,7 +4109,7 @@ Source: jsonjoy-com/util
    limitations under the License.
 
 ====================================================================================================
-@ninsei-labs/sdk 0.60.0
+@ninsei-labs/sdk 0.61.0
 License: (MIT AND LGPL-3.0-only)
 Source: git+https://github.com/Ninsei-Labs/sdk.git
 
@@ -6347,7 +6347,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ====================================================================================================
-follow-redirects 1.16.1
+follow-redirects 1.16.2
 License: MIT
 Source: git+ssh://git@github.com/follow-redirects/follow-redirects.git
 
@@ -7260,7 +7260,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ====================================================================================================
-memfs 4.80.0
+memfs 4.80.1
 License: Apache-2.0
 Source: https://github.com/streamich/memfs.git
 
