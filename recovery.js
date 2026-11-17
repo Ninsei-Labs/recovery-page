@@ -797,7 +797,11 @@ function formatCoin(net, value) {
     const scale = 10n ** BigInt(decimals);
     const whole = units / scale;
     const fraction = (units % scale).toString().padStart(decimals, "0").slice(0, 6);
-    return t("swap.amount", { amount: n(Number(`${whole}.${fraction}`), { maximumFractionDigits: 6 }), symbol });
+    // A NUMBER CANNOT HOLD A LARGE ORDER'S WHOLE UNITS EXACTLY. Keep the BigInt decimal string when the atomic
+    // amount is beyond Number's safe integer; only a display path needs the fallback, the signed amount stays BigInt.
+    const exact = `${whole}.${fraction}`.replace(/\.?0+$/, "");
+    const amount = units <= BigInt(Number.MAX_SAFE_INTEGER) ? n(Number(exact), { maximumFractionDigits: 6 }) : exact;
+    return t("swap.amount", { amount, symbol });
   } catch {
     return t("swap.amount.unknown");
   }
@@ -1358,8 +1362,24 @@ async function refreshBalance() {
       if (previous && previous.scanComplete === false) {
         scanIncompleteReason = previous.scanIncompleteReason || "scan-incomplete";
       } else if (Number.isFinite(walletHeight) && Number.isFinite(nodeHeight)) {
-        scanComplete = walletHeight >= nodeHeight;
-        scanIncompleteReason = scanComplete ? null : "behind-node";
+        // A MATCHING HEIGHT IS NOT ENOUGH: a node that stopped advancing claims the same short tip as the wallet.
+        // The plain sync used to upgrade that short chain to a complete scan; keep the same corroboration the full
+        // restore uses, so a stale tip leaves the balance incomplete rather than "unseen" or "nothing".
+        let tipTrusted = false;
+        if (walletHeight >= nodeHeight) {
+          const tipHeight = tipHeaderHeight(nodeHeight);
+          if (tipHeight !== null) {
+            try {
+              const tipTime = await moneroHeaderTime(nodeUrl(), tipHeight);
+              const orderTime = current && Number.isFinite(Number(current.time)) ? Number(current.time) : null;
+              tipTrusted = tipIsTrusted({ tipTime, orderTime });
+            } catch {
+              // A node that cannot name its tip's time cannot prove the chain holds the swap.
+            }
+          }
+        }
+        scanComplete = walletHeight >= nodeHeight && tipTrusted;
+        scanIncompleteReason = scanComplete ? null : walletHeight >= nodeHeight ? "tip-unconfirmed" : "behind-node";
       }
     } catch {
       /* no heights: the scan stays incomplete, never assumed complete */

@@ -47,7 +47,7 @@ export async function checkRows() {
   const built = await build({
     stdin: {
       // Appended exports expose existing bindings only in this in-memory test bundle.
-      contents: source + "\nmod = globalThis.rowSdk;\nexport { swapRow };\n",
+      contents: source + "\nmod = globalThis.rowSdk;\nexport { swapRow, formatCoin };\n",
       resolveDir: ROOT,
       sourcefile: "recovery.js",
     },
@@ -62,7 +62,8 @@ export async function checkRows() {
           b.onResolve({ filter: /locales\/index\.js$/ }, () => ({ path: "locale", namespace: "row-test" }));
           b.onLoad({ filter: /.*/, namespace: "row-test" }, () => ({
             // Startup waits for language loading; leave that promise pending so it cannot fetch wallets or nodes.
-            contents: "export const t = key => key, n = String, d = String, init = () => new Promise(() => {});",
+            contents:
+              "export const t = (key, params) => key + (params && params.amount !== undefined ? ':' + params.amount : ''), n = String, d = String, init = () => new Promise(() => {});",
           }));
         },
       },
@@ -140,6 +141,8 @@ export async function checkRows() {
     checkRow(row, "unknown", "unknown");
   }
   for (const found of [null, {}, { side: "provider" }]) assert.equal(sideOf(found), null);
+  const hugeAmount = page.formatCoin({ native: { decimals: 18, symbol: "ETH" } }, "123456789012345678901234567890");
+  assert.ok(hugeAmount.includes("123456789012.345678"), "a large amount must not be rounded through Number");
   for (const value of [undefined, null, "", -1, NaN, Infinity, 1_700_000_400_000]) {
     assert.equal(deadlineOf({ ...swap, t1: value }, msFromOrderSeconds), null, "missing or invalid t1 stays unknown");
     const row = { swap: { ...swap, t1: value }, side: "buy", status: open, net };

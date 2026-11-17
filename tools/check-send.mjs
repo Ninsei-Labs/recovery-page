@@ -261,6 +261,17 @@ const wallet = {
     return 100;
   },
 };
+const tipFetch =
+  (timestamp = Math.floor(Date.now() / 1000)) =>
+  async (_url, init) => {
+    const request = JSON.parse(init.body);
+    assert.equal(request.method, "get_block_header_by_height");
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ result: { block_header: { height: request.params.height, timestamp } } }),
+    };
+  };
 
 const address = "1".repeat(95);
 const row = {
@@ -268,7 +279,7 @@ const row = {
   net: { id: "testnet", monero: "testnet", chainId: 31337, name: "Test", native: { decimals: 18, symbol: "ETH" } },
   side: "buy",
   status: { isFunded: true, isClaimed: true, isRefunded: false, isReady: false },
-  time: 1_999_999_000,
+  time: 1_700_000_000,
 };
 
 export async function checkOpenAndSync() {
@@ -354,7 +365,40 @@ export async function checkOpenAndSync() {
   assert.equal(await refreshed.page.refreshBalance(), true);
   assert.equal(rebuilt, 1, "an incomplete balance reopens the wallet");
   assert.equal(refreshCore.calls.relay, 0, "refreshing the balance must not relay");
-  return "openSwap and syncWallet run without a relay; an incomplete balance reopens the wallet";
+
+  // A PLAIN SYNC MUST NOT UPGRADE A COMPLETE SCAN WHEN THE NODE'S TIP IS STALE. The node can stop advancing
+  // while the wallet reaches the same height; the balance is then a view of a short chain, not of the swap's chain.
+  const stale = await pageBundle({
+    context: {
+      fetch: tipFetch(Math.floor(Date.now() / 1000) - 3 * 60 * 60),
+    },
+  });
+  stale.page.facades.set("31337/testnet", fakeCore());
+  stale.page.__seed({
+    settlement: "31337",
+    network: "testnet",
+    nodeNetwork: "testnet",
+    current: { ...row, time: Math.floor(Date.now() / 1000) - 24 * 60 * 60 },
+    contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+    dest: address,
+    adapter: {
+      async sync() {},
+      async unlockedBalance() {
+        return 10n;
+      },
+      async close() {},
+    },
+    wallet,
+    balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: true },
+  });
+  assert.equal(await stale.page.refreshBalance(), true);
+  assert.equal(
+    stale.page.__state().balance.scanComplete,
+    false,
+    "a stale node tip must leave the refreshed scan incomplete",
+  );
+  return "openSwap and syncWallet run without a relay; an incomplete balance reopens the wallet; a stale tip stays incomplete";
 }
 
 export async function checkSend() {
@@ -468,7 +512,7 @@ export async function checkBeforeConfirm() {
   assert.equal(page.__state().signedToken, "signed-token");
 
   // THE SAME PAGE, A FRESH STATE: WITHDRAW SIGNS AND SHOWS THE CONFIRMATION, STILL WITHOUT A RELAY.
-  const second = await pageBundle();
+  const second = await pageBundle({ context: { fetch: tipFetch() } });
   const core2 = fakeCore();
   second.page.facades.set("31337/testnet", core2);
   let syncCalls2 = 0;

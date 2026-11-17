@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.4.2",
-  "commit": "6280e426d5a25383fb0e99790845b5ae35f86a4c",
-  "builtAt": "2026-11-17T13:30:33.735Z",
+  "commit": "31e707fa7f11e806de08c395ccb384f4ccfa6e45",
+  "builtAt": "2026-11-17T13:47:46.206Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -37,7 +37,7 @@
     {
       "file": "index.html",
       "bytes": 13716,
-      "sha256": "51c8d7a83360729e6c348b2a412b9257ecefe59745cd272e8bf1ed8b7bf832fd"
+      "sha256": "947f3ba135d32d45a40f3ba0e070ff1c733ccc939d395fdd76c49dd1849a73d5"
     },
     {
       "file": "recovery.css",
@@ -146,8 +146,8 @@
     },
     {
       "file": "recovery.js",
-      "bytes": 89122,
-      "sha256": "71374b324e1846f16cbc207f4ee4dac4ae120af91a83e85e7dbbca02edb17253"
+      "bytes": 90460,
+      "sha256": "631d923ad36a23009ff5625a1196d9baf3ad88321f5b15181dbb75196bcf616c"
     },
     {
       "file": "diagnostics.js",
