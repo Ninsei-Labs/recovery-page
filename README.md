@@ -77,7 +77,7 @@ other host (see Hosting). A node behind an HTTPS proxy is enough; `deploy/xmr-pr
 
 ## Build
 
-Bun 1.4.4 or newer. There is no Node step: the build is esbuild plus file operations, and Bun runs both
+Bun 1.4.5 or newer. There is no Node step: the build is esbuild plus file operations, and Bun runs both
 the build and the checks.
 
 ```

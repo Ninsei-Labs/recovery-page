@@ -85,7 +85,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: "1.4.4"
+          bun-version: "1.4.5"
 
       # THE VERSION IS THE TAG, AND THE TWO MUST AGREE. The run fails before building when package.json carries a
       # different version, as the SDK release does; the archive and build.json therefore name the tag the release is
@@ -248,7 +248,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: "1.4.4"
+          bun-version: "1.4.5"
 
       # WRANGLER IS A DEPLOY TOOL, NOT PAGE CODE. It has its own exact lock so the deploy does not resolve a
       # dependency tree from the registry with the Cloudflare token in the environment. This step runs without the

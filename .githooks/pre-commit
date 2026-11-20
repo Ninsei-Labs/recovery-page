@@ -4,8 +4,8 @@
 set -eu
 
 version="$(bun --version 2>/dev/null || true)"
-if [ "$version" != "1.4.4" ]; then
-  echo "pre-commit: Bun 1.4.4 is required; found '${version:-none}'" >&2
+if [ "$version" != "1.4.5" ]; then
+  echo "pre-commit: Bun 1.4.5 is required; found '${version:-none}'" >&2
   exit 1
 fi
 

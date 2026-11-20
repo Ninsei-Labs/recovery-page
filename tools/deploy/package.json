@@ -3,9 +3,9 @@
   "private": true,
   "description": "The pinned Cloudflare Pages deploy tool for the recovery page. It is not part of dist/.",
   "license": "MIT",
-  "packageManager": "bun@1.4.4",
+  "packageManager": "bun@1.4.5",
   "engines": {
-    "bun": ">=1.4.4"
+    "bun": ">=1.4.5"
   },
   "dependencies": {
     "wrangler": "4.160.1"
