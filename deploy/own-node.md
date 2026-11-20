@@ -21,12 +21,12 @@ makes (mining, peers, `/stop_daemon` and the rest of the admin surface), so the 
 Do not replace it with a list of allowed paths. The wallet's paths are not the ones the RPC documentation
 leads with: a scan on stagenet called these, and nothing else:
 
-| Path | Used for |
-| --- | --- |
-| `/json_rpc` | node info, chain height, fee estimate |
-| `/gethashes.bin` | the chain's block hashes up to the start block, most of a scan's time |
-| `/getblocks.bin` | block bodies from the start block on |
-| `/get_transaction_pool_hashes.bin` | transactions not yet in a block |
+| Path                               | Used for                                                              |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| `/json_rpc`                        | node info, chain height, fee estimate                                 |
+| `/gethashes.bin`                   | the chain's block hashes up to the start block, most of a scan's time |
+| `/getblocks.bin`                   | block bodies from the start block on                                  |
+| `/get_transaction_pool_hashes.bin` | transactions not yet in a block                                       |
 
 The transfer adds paths of its own (outputs for the ring, the broadcast). A list that missed one would
 pass the scan and fail at the send, with the money already found.
