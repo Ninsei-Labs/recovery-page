@@ -15,7 +15,7 @@
 # passes the security headers through untouched. The page needs no cross-origin isolation: no COEP
 # and no SharedArrayBuffer.
 
-FROM oven/bun:1.4.4-slim AS build
+FROM oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643 AS build
 WORKDIR /src
 
 # THE IMAGE HAS NO .git, SO THE COMMIT COMES FROM THE BUILD. CI passes the checked-out commit; a local image with
@@ -30,7 +30,7 @@ COPY . .
 # Build and then the repository's own checks: a broken page fails the image, not a visitor.
 RUN BUILD_COMMIT="$BUILD_COMMIT" bun build/build.mjs && bun tools/check.mjs
 
-FROM oven/bun:1.4.4-slim AS runtime
+FROM oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643 AS runtime
 
 # LABELS ARE PART OF THE ARTEFACT. Docker inherits every label of the base image, and Bun's image names
 # Bun's version, commit and build date. Override all of them here or a checker reading the image would
