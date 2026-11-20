@@ -2379,6 +2379,15 @@ await check("the actions that still ran on Node 20 are current and pinned by com
   }
 });
 
+// THE BROWSER CHECK OF THE POLICY RUNS IN CI: it needs a browser, so it is not part of `bun run test`, which the
+// pre-commit hook and the container build run.
+await check("the build workflow checks the page's policy in a browser", async () => {
+  const workflow = await read(".github/workflows/ci.yml");
+  assert.match(workflow, /run: bun run test:browser/, "ci.yml does not run the browser check");
+  const manifest = JSON.parse(await read("package.json"));
+  assert.equal(manifest.scripts["test:browser"], "bun tools/check-browser.mjs");
+});
+
 await check("the workflows run Bun and never npm, npx or node", async () => {
   const dir = join(ROOT, ".github", "workflows");
   const files = (await readdir(dir)).filter((f) => f.endsWith(".yml"));

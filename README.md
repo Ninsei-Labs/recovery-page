@@ -95,6 +95,12 @@ only when someone changes it.
 
 `bun run serve` serves `dist/` with the page's headers, for looking at a change locally.
 
+`bun run test:browser` opens the built page in Chrome (`CHROME_BIN`, or `google-chrome` or `chromium` on PATH),
+served the same way and again by a host that sends no headers, where only the meta tag holds the policy: each time
+the page must start under its policy, and the policy must refuse every host the page does not list while letting
+the listed ones through. CI runs it after the build; it is not part of `bun run test`, which needs
+no browser.
+
 ## Formatting and the pre-commit hook
 
 The tree uses Bun's built-in formatter, configured in `bunfig.toml`. Install the tracked hook once per clone:
