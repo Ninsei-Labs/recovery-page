@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.4.3",
-  "commit": "c0b065fc3eed18363122eab3f9622fa37b0f3288",
-  "builtAt": "2026-11-17T14:13:18.241Z",
+  "commit": "88190196e3ed669e182bbef28bf52bed5018ccee",
+  "builtAt": "2026-11-20T15:15:19.972Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -26,8 +26,8 @@
     },
     {
       "file": "locales/en/index.js",
-      "bytes": 33107,
-      "sha256": "1bf765925394ec5c0a8864b680f00d3428fc181dc774572f93072a4e61185362"
+      "bytes": 32090,
+      "sha256": "b1c9ccb6af22548034d30bbb7c2dd9ccfbbcf021999b1dd873a4bbbf56f06dcb"
     },
     {
       "file": "locales/index.js",
@@ -36,18 +36,18 @@
     },
     {
       "file": "index.html",
-      "bytes": 13716,
-      "sha256": "9a4d3eb9f16dae72eaf4a27b7997d973e99212c9b8549e915e8845e7f151497d"
+      "bytes": 13633,
+      "sha256": "02c32d9d3de8c81f5333e70135846a6bd3b45a5b11eaca12748dcddb33af420f"
     },
     {
       "file": "recovery.css",
-      "bytes": 34000,
-      "sha256": "f7bc7c025d58423433b0816265a75c96aa6e270b2c23c9eaf210a8ae5fdca280"
+      "bytes": 33640,
+      "sha256": "1a01b98a92531c6709ea28ee72a0062cb58ce947f7f475c4fedf2fe8b8240890"
     },
     {
       "file": "diagnostics.html",
-      "bytes": 2779,
-      "sha256": "d3c7362d5820efb0b3b42bdf94d30c5cadd148523f9f32fb3efc4b0c5cfce299"
+      "bytes": 3733,
+      "sha256": "aa852187768802b3045fd016e75db72c0cbcf23ba1f6d823af931b62cb7daf70"
     },
     {
       "file": "favicon.svg",
@@ -66,8 +66,8 @@
     },
     {
       "file": "lib/node.js",
-      "bytes": 14795,
-      "sha256": "436534952a100c798d0f9acb540b1b5c5f85370e7c39f536e6fc4a66247e1f3d"
+      "bytes": 12029,
+      "sha256": "b9c462187e43a9ec0e248520ae6625b833df9b719321c166c7241e7075e39fb8"
     },
     {
       "file": "lib/rows.js",
@@ -141,18 +141,18 @@
     },
     {
       "file": "_headers",
-      "bytes": 660,
-      "sha256": "5adc227d630deb355871e36a38cb6a494c73df6ca9608fc9ddb9e82a2cc6954d"
+      "bytes": 910,
+      "sha256": "fe442d079a39d3a1f01144d7f82bfabb230f87db86540208fca0457ee686888a"
     },
     {
       "file": "recovery.js",
-      "bytes": 91674,
-      "sha256": "4840047a04247cba089cc6cb656d973a954bd9ff81324f0ae7c6a39664a61bc4"
+      "bytes": 88591,
+      "sha256": "2801d54309a73b3e4aa0f529125f424974128f8635b15f6dce5ebfd612ebf9e3"
     },
     {
       "file": "diagnostics.js",
-      "bytes": 19853,
-      "sha256": "d1076febe97f6bff5cb84d19f6e2ab04e60875c83664f00c3a0b25dda3df54f1"
+      "bytes": 19895,
+      "sha256": "4ce882cdcf5575a7a92aeec62053f6e23fc6f8a97fc7ed4a21ca2959975b9f21"
     }
   ]
 }

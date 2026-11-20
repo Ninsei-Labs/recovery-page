@@ -16,6 +16,7 @@
   "scripts": {
     "build": "bun build/build.mjs",
     "test": "bun build/build.mjs && bun tools/check.mjs && bun tools/check-bounded-search.mjs",
+    "test:browser": "bun tools/check-browser.mjs",
     "test:licenses": "bun test tools/licenses.test.mjs",
     "check:licenses": "bun tools/check-licenses.mjs",
     "notices": "bun tools/third-party-notices.mjs",

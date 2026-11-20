@@ -10,7 +10,8 @@
 //
 // THE MOCK NODE IS A SMOKE AID, NOT A NODE: it answers `get_info` so the page's preflight reaches its
 // last step, and refuses every other path. The wallet's sync cannot run against it, and the page will
-// say so - which is the honest outcome of a mock.
+// say so - which is the honest outcome of a mock. The page uses only the nodes it lists: to point it at
+// the mock, add this server's origin to NODES in lib/node.js while you look, and do not commit that.
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";

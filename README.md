@@ -13,7 +13,7 @@ its file keeps that name and its first line, `NINSEI RECOVERY KEY`, which is wha
 The per-swap recovery file of earlier builds is no longer read.
 
 This repository is the reference implementation. An operator can serve it from their own host and
-point it at their own Monero node, with no dependency on us.
+list their own Monero node in it, with no dependency on us.
 
 ## Why the page exists
 
@@ -63,14 +63,17 @@ Two conditions apply in a browser:
    send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, the page
    reports it in the diagnostics and nothing changes. A CORS-passing answer also passes `require-corp`.
 
-The page lists public community nodes that pass CORS in a browser. It opens on the first listed node
+The page lists public community nodes that pass CORS in a browser, and uses no other node: the page
+holds the twelve words, so no link and no field can point it elsewhere. It opens on the first listed node
 without probing any node; when a search begins or a person chooses a row, that node is asked for
 `get_info`, and a row shows its state and round trip once checked. Those requests tell a listed node
-only that a visitor asked for its height. A person can pick another row or enter their own node, a link
-can name one (`?node=https://node.example`), and a person's choice is remembered for the tab. Once a
-wallet exists the choice is locked until the wallet is forgotten. A node of your own behind an HTTPS
-proxy is enough; `deploy/xmr-proxy.conf` has the block and `deploy/own-node.md` walks through the setup,
-including a public fallback and the exact headers.
+only that a visitor asked for its height. A person can pick another row, and that choice is remembered
+for the tab. Once a wallet exists the choice is locked until the wallet is forgotten.
+
+To use a node of your own, serve your own copy of the page with that node in `NODES` in `lib/node.js`,
+and build it: the page's policy is built from that list, so the browser lets the page reach your node and no
+other host (see Hosting). A node behind an HTTPS proxy is enough; `deploy/xmr-proxy.conf` has the block and
+`deploy/own-node.md` walks through the setup, including a public fallback and the exact headers.
 
 ## Build
 
@@ -92,6 +95,12 @@ only when someone changes it.
 
 `bun run serve` serves `dist/` with the page's headers, for looking at a change locally.
 
+`bun run test:browser` opens the built page in Chrome (`CHROME_BIN`, or `google-chrome` or `chromium` on PATH),
+served the same way and again by a host that sends no headers, where only the meta tag holds the policy: each time
+the page must start under its policy, and the policy must refuse every host the page does not list while letting
+the listed ones through. CI runs it after the build; it is not part of `bun run test`, which needs
+no browser.
+
 ## Formatting and the pre-commit hook
 
 The tree uses Bun's built-in formatter, configured in `bunfig.toml`. Install the tracked hook once per clone:
@@ -109,10 +118,21 @@ stages the rebuilt page. `bun run fmt` formats the whole tree and `bun run fmt:c
 | -------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Your nginx**       | yes     | `deploy/nginx.conf`. Best option: nothing between the page and the browser.                                                                                                |
 | **Cloudflare Pages** | yes     | Upload `dist/`; `_headers` in the same folder sets the CSP and caching.                                                                                                    |
-| **GitHub Pages**     | no      | The page works, without the CSP header. A host that sets headers is better.                                                                                                |
-| **IPFS**             | no      | Works the same way, without the CSP header. Content addressing is a real gain for a page that handles keys: a CID cannot be edited. Pin the directory and publish the CID. |
+| **GitHub Pages**     | no      | The page works, with its policy from the meta tag in each page. A host that sets headers is better.                                                                        |
+| **IPFS**             | no      | Works the same way, under its meta-tag CSP. Content addressing is a real gain for a page that handles keys: a CID cannot be edited. Pin the directory and publish the CID. |
 
 A page served from a subdirectory works too: every path in the page is relative.
+
+**The policy names every host the page calls.** Its `connect-src` is this origin, the listed Monero nodes
+(`lib/node.js`) and the settlement RPCs (`lib/settlement.js`), built from those two lists by
+`deploy/http-policy.mjs`. The build writes it into `dist/_headers` and the Bun servers send it. Nginx cannot
+read a module: after a change to either list, copy the `Content-Security-Policy` line from the built
+`dist/_headers` into `deploy/nginx.conf`; `bun run test` fails until the two agree.
+
+The build also writes the policy into both pages as a `<meta http-equiv="Content-Security-Policy">` tag, so a
+host that sends no headers still enforces `connect-src` in the page. A meta tag cannot carry `frame-ancestors`,
+and it does not reach the wallet's worker, which takes its policy from its own response: a host that sends the
+header is still the better one.
 
 **The page is a folder, not one file.** The wallet's worker and the two bundles are separate files of
 the same origin.
@@ -190,10 +210,15 @@ archive itself against the published `.sha256`.
   not answer makes the list say it is incomplete, and a start block the chain does not give is asked for.
 - **Verify what you serve.** `dist/build.json` lists a SHA-256 for every file, and a release archive
   should be checked against it. On IPFS the CID is the check.
+- **The page reaches only the hosts it lists.** Its `connect-src` names this origin, the listed nodes and the
+  settlement RPCs, and nothing else, so even a script injected into the page cannot send the words to another
+  host. A host that sends no header (GitHub Pages, IPFS gateways) keeps it in the page through the meta tag the
+  build writes; there only the wallet's worker and the frame rule go without it.
 - **A compromised host is a compromised page.** This page handles spend keys, so serve it from a host
   you control, or from IPFS with a pinned CID, and do not add third-party scripts to it.
 - **Node trust.** A node sees which blocks a wallet scans and which transaction it relays. It cannot
-  spend the funds and it never sees the key. If that is not acceptable, run the node yourself.
+  spend the funds and it never sees the key. If that is not acceptable, run the node yourself and serve a
+  copy of the page that lists it.
 
 ## Adding a language
 

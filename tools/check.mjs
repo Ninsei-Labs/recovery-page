@@ -67,8 +67,18 @@ const LIB = (await readdir(join(ROOT, "lib")))
   .map((name) => `lib/${name}`);
 
 // --- 1. the node address ----------------------------------------------------------------
-const { parseNodeUrl, NODES, DEFAULT_NODE, STAGENET_NODE, nodeVerdict, medianHeight, pingNode, networkFromNode } =
-  await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
+const {
+  NODES,
+  DEFAULT_NODE,
+  STAGENET_NODE,
+  isListedNode,
+  nodeUrl,
+  setNodeUrl,
+  nodeVerdict,
+  medianHeight,
+  pingNode,
+  networkFromNode,
+} = await import(pathToFileURL(join(ROOT, "lib", "node.js")).href);
 
 // A FAKE MONEROD, shaped as monerod answers (examples, not a recorded chain): get_info's `height` is the number of
 // blocks, so the top block is one lower; a header past the top is refused with monerod's own error; the genesis
@@ -108,49 +118,46 @@ const seeded = (seed) => () => {
   return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
 };
 
-await check("an empty address is refused with its own reason", () => {
-  assert.deepEqual(parseNodeUrl(""), { ok: false, why: "empty", url: null });
-  assert.deepEqual(parseNodeUrl("   "), { ok: false, why: "empty", url: null });
-});
-
-await check("a plain https address is accepted and loses a trailing slash", () => {
-  assert.equal(parseNodeUrl("https://node.example/").url, "https://node.example");
-  assert.equal(parseNodeUrl("https://node.example/xmr/").url, "https://node.example/xmr");
-});
-
-await check("http is accepted only on loopback; a remote node needs https", () => {
-  assert.equal(parseNodeUrl("http://127.0.0.1:38081").url, "http://127.0.0.1:38081");
-  assert.equal(parseNodeUrl("http://localhost:38081").url, "http://localhost:38081");
-  assert.equal(parseNodeUrl("http://node.example:38081").why, "insecure");
-  assert.equal(parseNodeUrl("https://node.example:38081").url, "https://node.example:38081");
-});
-
-await check("another scheme is refused by name", () => {
-  assert.equal(parseNodeUrl("ftp://node.example").why, "scheme");
-  assert.equal(parseNodeUrl("node.example").why, "shape");
-});
-
-await check("credentials in the address are refused, never stored", () => {
-  assert.equal(parseNodeUrl("https://user:pass@node.example").why, "credentials");
-});
-
-await check("a query or a fragment is refused: the page appends its own paths", () => {
-  assert.equal(parseNodeUrl("https://node.example/?x=1").why, "shape");
-  assert.equal(parseNodeUrl("https://node.example/#top").why, "shape");
-});
-
-await check("every listed node is https and written the way the parser gives it back", () => {
+await check("every listed node is an https address, listed once, without a trailing slash", () => {
   assert.ok(NODES.length >= 3, `only ${NODES.length} nodes listed`);
   assert.equal(new Set(NODES).size, NODES.length, "a node is listed twice");
   assert.equal(DEFAULT_NODE, NODES[0], "the default is not the first listed node");
   for (const url of NODES) {
-    assert.match(url, /^https:\/\//, `${url} is not https`);
-    const parsed = parseNodeUrl(url);
-    assert.ok(parsed.ok, `${url} is refused: ${parsed.why}`);
-    // A link or a stored choice is matched to its row by the parsed form.
-    assert.equal(parsed.url, url, `${url} parses to ${parsed.url}`);
+    const parsed = new URL(url);
+    assert.equal(parsed.protocol, "https:", `${url} is not https`);
+    // A stored choice is matched to its row exactly, so the list holds each address in one spelling.
+    assert.ok(!parsed.username && !parsed.password && !parsed.search && !parsed.hash, `${url} is not a plain address`);
+    assert.ok(!url.endsWith("/"), `${url} ends with a slash`);
   }
   return `${NODES.length} nodes`;
+});
+
+// ONLY A LISTED NODE IS EVER USED. A choice outside the list changes nothing, whatever its form: another host, a
+// loopback proxy, a listed node spelt another way. Each listed node can be chosen.
+await check("the node can be set to a listed node only", () => {
+  const before = nodeUrl();
+  const unlisted = [
+    "https://example.test",
+    "https://node.example:18081",
+    "http://127.0.0.1:18081",
+    "http://localhost:38081",
+    `${DEFAULT_NODE}/`,
+    DEFAULT_NODE.toUpperCase(),
+    `${STAGENET_NODE}/json_rpc`,
+    "",
+    null,
+  ];
+  for (const url of unlisted) {
+    assert.equal(setNodeUrl(url, { remember: false }), false, `${url} was accepted`);
+    assert.equal(nodeUrl(), before, `${url} changed the node`);
+    assert.equal(isListedNode(url), false, `${url} counts as listed`);
+  }
+  for (const url of NODES) {
+    assert.equal(setNodeUrl(url, { remember: false }), true, `${url} was refused`);
+    assert.equal(nodeUrl(), url);
+  }
+  setNodeUrl(before, { remember: false });
+  return `${unlisted.length} unlisted refused, ${NODES.length} listed taken`;
 });
 
 const answer = (fields) => ({
@@ -339,30 +346,32 @@ await check("every literal t() key in the page exists", async () => {
   assert.deepEqual(missing, []);
 });
 
-await check("the node labels the module can return all exist", () => {
-  for (const key of ["node.label.listed", "node.label.same", "node.label.custom"]) {
-    if (!(key in strings)) throw new Error("missing " + key);
-  }
-});
-
 await check("every word a node row or the note under the list can show exists", async () => {
   const keys = new Set(VERDICTS.map((v) => "node.state." + v[4]));
   // The note keys are written as data ([key, params]), not as t() calls, so the literal check misses them.
   for (const m of (await read("recovery.js")).matchAll(/"(node\.(?:note|state)\.[a-z]+)"/g)) keys.add(m[1]);
-  for (const why of ["empty", "shape", "scheme", "credentials", "insecure"]) keys.add("node.why." + why);
   keys.add("node.ms");
   const missing = [...keys].filter((key) => !(key in strings));
   assert.deepEqual(missing, []);
   return `${keys.size} keys`;
 });
 
-await check("the node list has no check button, and its rows are radios of one group", async () => {
+await check("the node list has no check button and no field, and its rows are radios of one group", async () => {
   const html = await read("index.html");
   const page = await read("recovery.js");
   assert.ok(!/nodeCheck/.test(html) && !/nodeCheck/.test(page), "a node check button is still on the page");
   assert.match(html, /<fieldset id="nodeList"/, "no fieldset for the node list");
-  assert.match(html, /<input type="radio" name="node"/, "the own node row has no radio");
   assert.match(page, /h\("input", \{ type: "radio", name: "node"/, "the listed rows are not radios of the same group");
+  // No page takes a node address as text: the diagnostics choose among the listed nodes too.
+  for (const file of ["index.html", "diagnostics.html"]) {
+    const markup = withoutComments(await read(file));
+    assert.ok(!/<input[^>]*\bid="node"/.test(markup), `${file} has a node field`);
+  }
+  assert.match(
+    withoutComments(await read("diagnostics.html")),
+    /<select id="node">/,
+    "the diagnostics have no node list",
+  );
 });
 
 // --- 2b. the recovery key, the swaps it finds, the state of their money --------------------------
@@ -392,6 +401,11 @@ const bodyOf = (text, name) => {
 await check("the page probes only the chosen node, and not when it opens", async () => {
   const { checkNodeProbe } = await import("./check-page.mjs");
   return checkNodeProbe();
+});
+
+await check("a link or a value kept for the tab never gives the page a node outside the list", async () => {
+  const { checkListedNodeOnly } = await import("./check-page.mjs");
+  return checkListedNodeOnly();
 });
 
 // THE PASSWORD FIELD FOLLOWS THE SDK'S READING OF THE KEY FILE, so the page keeps no rule of its own that could
@@ -1834,8 +1848,6 @@ await check("the nginx example revalidates page modules, and every server uses o
   for (const [name, value] of Object.entries(SECURITY_HEADERS))
     assert.ok(nginx.includes(name) && nginx.includes(value), `nginx misses ${name}`);
   assert.ok(nginx.includes(CSP), "nginx CSP differs from the shared policy");
-  assert.ok(!CSP.includes("connect-src 'self' http: https:"), "the CSP still allows every http and https host");
-  assert.match(CSP, /connect-src 'self' https: http:\/\/localhost:\*/, "the CSP does not allow a local http node");
   assert.equal(cacheControl("/assets/vendors/sdk/sdk-browser.js"), "public, max-age=31536000, immutable");
   assert.equal(cacheControl("/monero.worker.js"), "public, max-age=3600");
   assert.equal(cacheControl("/recovery.js"), "no-cache");
@@ -1851,11 +1863,96 @@ await check("the nginx example revalidates page modules, and every server uses o
     /COPY deploy\/http-policy\.mjs/,
     "the container does not receive the policy module",
   );
+  assert.match(
+    await read("Dockerfile"),
+    /COPY lib\/node\.js lib\/settlement\.js \.\/lib\//,
+    "the container does not receive the lists the policy is built from",
+  );
   const serve = await read("serve.bun.mjs");
   assert.match(serve, /process\.env\.ROOT \|\| "dist"/, "serve does not default to dist");
   const ignore = await read(".dockerignore");
   assert.ok(!/^\.github$/m.test(ignore), ".dockerignore hides the workflows the Docker check reads");
 });
+
+// THE POLICY NAMES THE HOSTS THE PAGE CALLS AND NO OTHER. The page holds the twelve words; its own fetch rules do not
+// bind a script injected into it, so connect-src is what keeps the words from another host. Every listed node and
+// every settlement RPC must be allowed (a node missing from the policy fails in the browser, not here), and nothing
+// else: no scheme on its own, no wildcard, no loopback, no host off the lists. Each place that sets the policy is read
+// as a host receives it, the meta tag in each built page included: a host that sends no headers has only that one.
+await check("connect-src allows this origin, every listed node and settlement RPC, and nothing broader", async () => {
+  const { CSP } = await import(pathToFileURL(join(ROOT, "deploy", "http-policy.mjs")).href);
+  const metaOf = async (page) =>
+    (/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(await readFile(join(DIST, page), "utf8")) ||
+      [])[1];
+  const called = [...NODES, ...Object.values(SETTLEMENT).flatMap((chain) => chain.rpcs)];
+  assert.ok(NODES.length >= 3 && called.length > NODES.length, `${called.length} hosts called`);
+  const nginx = await read("deploy/nginx.conf");
+  const headers = await readFile(join(DIST, "_headers"), "utf8");
+  const policies = {
+    "deploy/http-policy.mjs": CSP,
+    "deploy/nginx.conf": (/add_header Content-Security-Policy "([^"]*)"/.exec(nginx) || [])[1],
+    "dist/_headers": (/^\s*Content-Security-Policy: (.*)$/m.exec(headers) || [])[1],
+    "dist/index.html": await metaOf("index.html"),
+    "dist/diagnostics.html": await metaOf("diagnostics.html"),
+  };
+  const origins = new Set(["'self'", ...called.map((url) => new URL(url).origin)]);
+  for (const [where, policy] of Object.entries(policies)) {
+    assert.ok(policy, `${where} sets no CSP`);
+    const directive = policy
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("connect-src "));
+    assert.ok(directive, `${where} has no connect-src`);
+    const sources = directive.split(/\s+/).slice(1);
+    for (const url of called) assert.ok(sources.includes(new URL(url).origin), `${where} does not allow ${url}`);
+    for (const source of sources) {
+      assert.ok(!/^[a-z][a-z0-9+.-]*:$/i.test(source), `${where} allows every ${source} host`);
+      assert.ok(!source.includes("*"), `${where} allows a wildcard: ${source}`);
+      assert.ok(!/localhost|\/\/127\.|\[::1\]/i.test(source), `${where} allows loopback: ${source}`);
+      assert.ok(origins.has(source), `${where} allows ${source}, which the page does not call`);
+    }
+    assert.equal(new Set(sources).size, sources.length, `${where} names a source twice`);
+  }
+  return `${origins.size - 1} hosts and the page's own origin, in ${Object.keys(policies).length} places`;
+});
+
+// THE META TAG IS THE HEADER'S POLICY, less what a meta tag cannot carry. A browser ignores frame-ancestors there, so
+// the tag leaves it out rather than pretend; every other directive reads the same. The tag stands before every link
+// and script, since a meta policy governs only what follows it.
+await check(
+  "each page carries the header's policy as a meta tag, before what it governs, without frame-ancestors",
+  async () => {
+    const { CSP } = await import(pathToFileURL(join(ROOT, "deploy", "http-policy.mjs")).href);
+    const directives = (policy) =>
+      new Map(
+        policy
+          .split(";")
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .map((part) => [part.split(/\s+/)[0], part]),
+      );
+    const header = directives(CSP);
+    assert.ok(header.has("frame-ancestors"), "the header policy has no frame-ancestors");
+    for (const page of ["index.html", "diagnostics.html"]) {
+      const html = withoutComments(await readFile(join(DIST, page), "utf8"));
+      const tags = [...html.matchAll(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/g)];
+      assert.equal(tags.length, 1, `${page} has ${tags.length} policy meta tags`);
+      const meta = directives(tags[0][1]);
+      assert.ok(!meta.has("frame-ancestors"), `${page} puts frame-ancestors in a meta tag`);
+      for (const [name, directive] of header) {
+        if (name === "frame-ancestors") continue;
+        assert.equal(meta.get(name), directive, `${page}: ${name} differs from the header`);
+      }
+      assert.equal(meta.size, header.size - 1, `${page} has a directive the header does not`);
+      const at = tags[0].index;
+      for (const tag of ["<link", "<script", "<style"]) {
+        const first = html.indexOf(tag);
+        assert.ok(first < 0 || at < first, `${page}: the policy comes after its first ${tag}`);
+      }
+    }
+    return "index.html and diagnostics.html";
+  },
+);
 
 // NOTHING LEAVES BEFORE "CONFIRM AND SEND": the search, the opening of a swap and the withdraw button read, build and
 // sign; only the send button's step relays. The markup is checked here; the flow itself runs in check-send.mjs.
@@ -1983,7 +2080,7 @@ await check("the page stores nothing: no key, no word, no password in any storag
       if (/setItem|open\(/.test(m[0])) writes.push(`${file}: ${m[0].trim()}`);
     }
   }
-  assert.deepEqual(writes, ["lib/node.js: sessionStorage.setItem(NODE_STORAGE_KEY, parsed.url)"]);
+  assert.deepEqual(writes, ["lib/node.js: sessionStorage.setItem(NODE_STORAGE_KEY, url)"]);
 });
 
 // THE WORDS STAY IN ONE VARIABLE: no log line, no window state and no field holds them after the search. A log line
@@ -2280,6 +2377,15 @@ await check("the actions that still ran on Node 20 are current and pinned by com
     assert.doesNotMatch(workflows, new RegExp(`${action}@v\\d`), `${action} still names a tag`);
     assert.match(workflows, new RegExp(`${action}@[0-9a-f]{40}\\s+#\\s+v\\d+`), `${action} is not pinned by commit`);
   }
+});
+
+// THE BROWSER CHECK OF THE POLICY RUNS IN CI: it needs a browser, so it is not part of `bun run test`, which the
+// pre-commit hook and the container build run.
+await check("the build workflow checks the page's policy in a browser", async () => {
+  const workflow = await read(".github/workflows/ci.yml");
+  assert.match(workflow, /run: bun run test:browser/, "ci.yml does not run the browser check");
+  const manifest = JSON.parse(await read("package.json"));
+  assert.equal(manifest.scripts["test:browser"], "bun tools/check-browser.mjs");
 });
 
 await check("the workflows run Bun and never npm, npx or node", async () => {

@@ -25,7 +25,7 @@ import { createRequire } from "node:module";
 import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { cloudflareHeaders } from "../deploy/http-policy.mjs";
+import { META_CSP, cloudflareHeaders } from "../deploy/http-policy.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -248,6 +248,8 @@ for (const rel of PAGE_COPY) {
     // markup with the old rules; the versioned URL is a new resource.
     .split('href="./recovery.css"')
     .join(`href="./recovery.css?v=${pkg.version}"`);
+  // THE PAGE CARRIES ITS OWN POLICY, from the same module as the headers, for a host that sends none.
+  if (rel.endsWith(".html")) text = text.replaceAll("__CSP_META__", META_CSP);
   // THE FOOTER NAMES THE BUILD THE VISITOR IS RUNNING. The values come from the same package and checkout as
   // `build.json`, so the page and its manifest cannot disagree.
   if (rel === "index.html") {

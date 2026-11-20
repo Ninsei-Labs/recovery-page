@@ -470,7 +470,7 @@ input[type="file"]:hover::file-selector-button {
   border-color: var(--accent);
 }
 
-/* THE NODE LIST: one row per node with its live state, then the person's own. A real radio carries the
+/* THE NODE LIST: one row per listed node with its live state. A real radio carries the
    choice and the keyboard; the selected row wears the accent. The dot is the state (grey and pulsing while
    the page asks, lime when good, red when not), the small text says why, the number is the faster of two
    round trips. Small and calm: no glow, the words carry the detail. */
@@ -546,9 +546,6 @@ input[type="file"]:hover::file-selector-button {
   color: var(--text);
   overflow-wrap: anywhere;
 }
-.node-own .node-name {
-  font: 500 var(--t15)/1.35 var(--sans);
-}
 .node-why {
   font: 400 var(--m11)/1.4 var(--mono);
   letter-spacing: 0.02em;
@@ -611,12 +608,6 @@ input[type="file"]:hover::file-selector-button {
   50% {
     opacity: 0.25;
   }
-}
-/* The own row's field sits under its name, in line with the text above it. */
-.node-own > input[type="text"] {
-  width: calc(100% - 52px);
-  height: 40px;
-  margin: 0 12px 12px 40px;
 }
 /* LOCKED: a wallet holds the node. The rows go quiet; the chosen one stays readable. */
 .nodes:disabled .node {
@@ -1320,10 +1311,6 @@ button.small {
   .node-text {
     flex-direction: column;
     align-items: flex-start;
-  }
-  .node-own > input[type="text"] {
-    width: calc(100% - 24px);
-    margin-left: 12px;
   }
 }
 @media (max-width: 400px) {

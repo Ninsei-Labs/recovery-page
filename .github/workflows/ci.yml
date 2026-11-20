@@ -51,6 +51,12 @@ jobs:
           if [ -n "$commit" ]; then export BUILD_COMMIT="$commit"; fi
           bun run test
 
+      # THE POLICY IN A BROWSER. The runner's Chrome opens the built page as serve.bun.mjs serves it and as a host
+      # without headers serves it, and the page asks hosts it does not list: the policy, from the header or from the
+      # page's meta tag, must refuse each before a request leaves (tools/check-browser.mjs).
+      - name: Check the policy in a browser
+        run: bun run test:browser
+
       # THE COMMITTED ARTEFACT MUST BE THE ONE THE SOURCES BUILD. The build rewrites build.json's commit and time on
       # every run, so that file is excluded; every other byte in dist/ must match the checked-in copy.
       - name: The committed dist matches the build

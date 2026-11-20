@@ -11,7 +11,8 @@ You need:
 - a DNS name of its own such as `xmr.example.com` and a TLS certificate for it;
 - nginx on that host, or any proxy that can send the headers below.
 
-The page itself may live anywhere. Only this name goes into the page's "Your own node" field.
+The page itself may live anywhere. Your copy of the page lists this name in `NODES` in `lib/node.js`:
+the page uses no node it does not list.
 
 ## What the proxy forwards
 
@@ -21,12 +22,12 @@ makes (mining, peers, `/stop_daemon` and the rest of the admin surface), so the 
 Do not replace it with a list of allowed paths. The wallet's paths are not the ones the RPC documentation
 leads with: a scan on stagenet called these, and nothing else:
 
-| Path | Used for |
-| --- | --- |
-| `/json_rpc` | node info, chain height, fee estimate |
-| `/gethashes.bin` | the chain's block hashes up to the start block, most of a scan's time |
-| `/getblocks.bin` | block bodies from the start block on |
-| `/get_transaction_pool_hashes.bin` | transactions not yet in a block |
+| Path                               | Used for                                                              |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| `/json_rpc`                        | node info, chain height, fee estimate                                 |
+| `/gethashes.bin`                   | the chain's block hashes up to the start block, most of a scan's time |
+| `/getblocks.bin`                   | block bodies from the start block on                                  |
+| `/get_transaction_pool_hashes.bin` | transactions not yet in a block                                       |
 
 The transfer adds paths of its own (outputs for the ring, the broadcast). A list that missed one would
 pass the scan and fail at the send, with the money already found.
@@ -151,7 +152,7 @@ Notes that matter in practice:
 - If the page and this proxy share one server block, remember that `add_header` in a location replaces
   the headers set at server level. Repeat anything the page needs in both places.
 
-## Check it before you put it in the field
+## Check it before you list it
 
 ```sh
 # preflight: expect 204 and the three Access-Control headers
@@ -171,10 +172,12 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
   -H 'content-type: application/octet-stream' --data-binary ''
 ```
 
-Then open the page and enter `https://xmr.example.com` under "Your own node", or open it with
-`?node=https://xmr.example.com`. The row turns green when the node answers on mainnet, synchronized and
-close to the listed nodes' height. A page served over HTTPS cannot use an `http://` node: the browser
-blocks that call as mixed content.
+Then add `"https://xmr.example.com"` to `NODES` in `lib/node.js` of your copy (first, to make it the
+default), run `bun run build`, and serve the new `dist/`. The build writes the page's policy with your node
+in it (`dist/_headers`, and the Bun servers send the same); for nginx, copy that policy line into the server
+block. Its row turns green when the node answers on
+mainnet, synchronized and close to the other listed nodes' height. A page served over HTTPS cannot use an
+`http://` node: the browser blocks that call as mixed content.
 
 ## Keep the node private
 
