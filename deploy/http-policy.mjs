@@ -1,8 +1,9 @@
 // THE PAGE'S HTTP POLICY, IN ONE PLACE.
 //
-// The two Bun servers, the generated Cloudflare `_headers` file, and the nginx example all describe the same
-// page. Keeping the CSP and cache rules here means a change reaches the runtime servers without a second edit;
-// the nginx block is checked against these values by the repository's tests because nginx cannot import this module.
+// The two Bun servers, the generated Cloudflare `_headers` file, the nginx example and the policy the build writes into
+// both pages all describe the same page. Keeping the CSP and cache rules here means a change reaches the runtime
+// servers without a second edit; the nginx block is checked against these values by the repository's tests because
+// nginx cannot import this module.
 //
 // NO COEP. monero-ts 0.11 no longer needs SharedArrayBuffer, so the page is not cross-origin isolated. COOP stays:
 // another site must not hold a handle to a tab that holds spend keys.
@@ -18,7 +19,7 @@ export const CONNECT_SRC = Object.freeze([
   ...new Set([...NODES, ...Object.values(SETTLEMENT).flatMap((chain) => chain.rpcs)].map((url) => new URL(url).origin)),
 ]);
 
-export const CSP = [
+const DIRECTIVES = Object.freeze([
   "default-src 'self'",
   "script-src 'self' 'wasm-unsafe-eval'",
   "worker-src 'self' blob:",
@@ -28,7 +29,14 @@ export const CSP = [
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",
-].join("; ");
+]);
+
+export const CSP = DIRECTIVES.join("; ");
+
+// THE SAME POLICY AS A <meta> TAG, which the build writes into both pages: a host that sends no headers (GitHub Pages,
+// an IPFS gateway) still enforces connect-src. A browser ignores frame-ancestors in a meta tag, so it is left out
+// there; only a header keeps the page out of another site's frame.
+export const META_CSP = DIRECTIVES.filter((directive) => !directive.startsWith("frame-ancestors ")).join("; ");
 
 export const SECURITY_HEADERS = Object.freeze({
   "Cross-Origin-Opener-Policy": "same-origin",

@@ -1878,9 +1878,12 @@ await check("the nginx example revalidates page modules, and every server uses o
 // bind a script injected into it, so connect-src is what keeps the words from another host. Every listed node and
 // every settlement RPC must be allowed (a node missing from the policy fails in the browser, not here), and nothing
 // else: no scheme on its own, no wildcard, no loopback, no host off the lists. Each place that sets the policy is read
-// as a host receives it.
+// as a host receives it, the meta tag in each built page included: a host that sends no headers has only that one.
 await check("connect-src allows this origin, every listed node and settlement RPC, and nothing broader", async () => {
   const { CSP } = await import(pathToFileURL(join(ROOT, "deploy", "http-policy.mjs")).href);
+  const metaOf = async (page) =>
+    (/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(await readFile(join(DIST, page), "utf8")) ||
+      [])[1];
   const called = [...NODES, ...Object.values(SETTLEMENT).flatMap((chain) => chain.rpcs)];
   assert.ok(NODES.length >= 3 && called.length > NODES.length, `${called.length} hosts called`);
   const nginx = await read("deploy/nginx.conf");
@@ -1889,6 +1892,8 @@ await check("connect-src allows this origin, every listed node and settlement RP
     "deploy/http-policy.mjs": CSP,
     "deploy/nginx.conf": (/add_header Content-Security-Policy "([^"]*)"/.exec(nginx) || [])[1],
     "dist/_headers": (/^\s*Content-Security-Policy: (.*)$/m.exec(headers) || [])[1],
+    "dist/index.html": await metaOf("index.html"),
+    "dist/diagnostics.html": await metaOf("diagnostics.html"),
   };
   const origins = new Set(["'self'", ...called.map((url) => new URL(url).origin)]);
   for (const [where, policy] of Object.entries(policies)) {
@@ -1910,6 +1915,44 @@ await check("connect-src allows this origin, every listed node and settlement RP
   }
   return `${origins.size - 1} hosts and the page's own origin, in ${Object.keys(policies).length} places`;
 });
+
+// THE META TAG IS THE HEADER'S POLICY, less what a meta tag cannot carry. A browser ignores frame-ancestors there, so
+// the tag leaves it out rather than pretend; every other directive reads the same. The tag stands before every link
+// and script, since a meta policy governs only what follows it.
+await check(
+  "each page carries the header's policy as a meta tag, before what it governs, without frame-ancestors",
+  async () => {
+    const { CSP } = await import(pathToFileURL(join(ROOT, "deploy", "http-policy.mjs")).href);
+    const directives = (policy) =>
+      new Map(
+        policy
+          .split(";")
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .map((part) => [part.split(/\s+/)[0], part]),
+      );
+    const header = directives(CSP);
+    assert.ok(header.has("frame-ancestors"), "the header policy has no frame-ancestors");
+    for (const page of ["index.html", "diagnostics.html"]) {
+      const html = withoutComments(await readFile(join(DIST, page), "utf8"));
+      const tags = [...html.matchAll(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/g)];
+      assert.equal(tags.length, 1, `${page} has ${tags.length} policy meta tags`);
+      const meta = directives(tags[0][1]);
+      assert.ok(!meta.has("frame-ancestors"), `${page} puts frame-ancestors in a meta tag`);
+      for (const [name, directive] of header) {
+        if (name === "frame-ancestors") continue;
+        assert.equal(meta.get(name), directive, `${page}: ${name} differs from the header`);
+      }
+      assert.equal(meta.size, header.size - 1, `${page} has a directive the header does not`);
+      const at = tags[0].index;
+      for (const tag of ["<link", "<script", "<style"]) {
+        const first = html.indexOf(tag);
+        assert.ok(first < 0 || at < first, `${page}: the policy comes after its first ${tag}`);
+      }
+    }
+    return "index.html and diagnostics.html";
+  },
+);
 
 // NOTHING LEAVES BEFORE "CONFIRM AND SEND": the search, the opening of a swap and the withdraw button read, build and
 // sign; only the send button's step relays. The markup is checked here; the flow itself runs in check-send.mjs.

@@ -2,6 +2,9 @@
 <html lang="en" data-i18n-title="page.title">
   <head>
     <meta charset="utf-8" />
+    <!-- THE PAGE'S POLICY, written here by the build from deploy/http-policy.mjs, before anything it governs: a host that
+         sends no headers still enforces it. The header, where a host sends it, is the same policy with frame-ancestors. -->
+    <meta http-equiv="Content-Security-Policy" content="__CSP_META__" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#07070e" />
     <title>Ninsei recovery</title>

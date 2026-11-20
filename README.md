@@ -112,8 +112,8 @@ stages the rebuilt page. `bun run fmt` formats the whole tree and `bun run fmt:c
 | -------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Your nginx**       | yes     | `deploy/nginx.conf`. Best option: nothing between the page and the browser.                                                                                                |
 | **Cloudflare Pages** | yes     | Upload `dist/`; `_headers` in the same folder sets the CSP and caching.                                                                                                    |
-| **GitHub Pages**     | no      | The page works, without the CSP header. A host that sets headers is better.                                                                                                |
-| **IPFS**             | no      | Works the same way, without the CSP header. Content addressing is a real gain for a page that handles keys: a CID cannot be edited. Pin the directory and publish the CID. |
+| **GitHub Pages**     | no      | The page works, with its policy from the meta tag in each page. A host that sets headers is better.                                                                        |
+| **IPFS**             | no      | Works the same way, under its meta-tag CSP. Content addressing is a real gain for a page that handles keys: a CID cannot be edited. Pin the directory and publish the CID. |
 
 A page served from a subdirectory works too: every path in the page is relative.
 
@@ -122,6 +122,11 @@ A page served from a subdirectory works too: every path in the page is relative.
 `deploy/http-policy.mjs`. The build writes it into `dist/_headers` and the Bun servers send it. Nginx cannot
 read a module: after a change to either list, copy the `Content-Security-Policy` line from the built
 `dist/_headers` into `deploy/nginx.conf`; `bun run test` fails until the two agree.
+
+The build also writes the policy into both pages as a `<meta http-equiv="Content-Security-Policy">` tag, so a
+host that sends no headers still enforces `connect-src` in the page. A meta tag cannot carry `frame-ancestors`,
+and it does not reach the wallet's worker, which takes its policy from its own response: a host that sends the
+header is still the better one.
 
 **The page is a folder, not one file.** The wallet's worker and the two bundles are separate files of
 the same origin.
@@ -201,8 +206,8 @@ archive itself against the published `.sha256`.
   should be checked against it. On IPFS the CID is the check.
 - **The page reaches only the hosts it lists.** Its `connect-src` names this origin, the listed nodes and the
   settlement RPCs, and nothing else, so even a script injected into the page cannot send the words to another
-  host. A host that sends no header (GitHub Pages, IPFS gateways) loses that barrier; the page itself still uses
-  only the listed nodes.
+  host. A host that sends no header (GitHub Pages, IPFS gateways) keeps it in the page through the meta tag the
+  build writes; there only the wallet's worker and the frame rule go without it.
 - **A compromised host is a compromised page.** This page handles spend keys, so serve it from a host
   you control, or from IPFS with a pinned CID, and do not add third-party scripts to it.
 - **Node trust.** A node sees which blocks a wallet scans and which transaction it relays. It cannot

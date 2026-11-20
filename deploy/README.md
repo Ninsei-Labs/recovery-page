@@ -44,8 +44,9 @@ the nodes and RPCs the page calls, not the page's own host.
 
 ## 3. GitHub Pages
 
-Pages cannot set response headers, so the page runs without its CSP header. It works; a host that
-sets headers is better.
+Pages cannot set response headers, so the page enforces its policy from the meta tag the build writes
+into each page: `connect-src` holds in the page. The tag cannot keep the page out of frames and does not
+reach the wallet's worker; a host that sets headers is better.
 
 1. Publish `dist/` to the `gh-pages` branch, or use a workflow with `actions/upload-pages-artifact`.
 2. Enable Pages for that branch, and enforce HTTPS.
@@ -63,7 +64,7 @@ Pin the resulting directory CID and publish it. A CID cannot be edited, which is
 this page can make about itself: the bytes that handle a spend key are the bytes that were reviewed.
 
 - Gateways differ in what they allow. Use one that serves the page over HTTPS; like GitHub Pages, it
-  sends no CSP header.
+  sends no CSP header, and the page's meta tag carries its policy.
 - Publish the CID through DNSLink if you want a stable name.
 - Keep the CID for the exact build next to its `build.json` hashes.
 
