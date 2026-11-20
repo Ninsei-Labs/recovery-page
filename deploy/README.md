@@ -11,8 +11,8 @@ The result is plain files. There is no server-side code, no database, no key on 
 of the four ways below.
 
 Before anything else, decide about the node. If you run `monerod`, put `deploy/xmr-proxy.conf` in front
-of it; the page needs CORS and the wallet's binary paths. If you would rather not run a node, leave the
-choice to the page: it lists public community nodes and picks the fastest one that answers well. The page
+of it; the page needs CORS and the wallet's binary paths. If you would rather not run a node, the page
+lists public community nodes and opens on the first listed node; a person can pick another row. The page
 still works, but it depends on those nodes being up and allowing this page's origin. The page uses no node
 it does not list: a node of your own goes into `NODES` in `lib/node.js` before the build. For a proxy of
 your own, with or without a public fallback, see `own-node.md` in this directory.
