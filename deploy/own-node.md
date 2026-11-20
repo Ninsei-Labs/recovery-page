@@ -173,7 +173,9 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
 ```
 
 Then add `"https://xmr.example.com"` to `NODES` in `lib/node.js` of your copy (first, to make it the
-default), run `bun run build`, and serve the new `dist/`. Its row turns green when the node answers on
+default), run `bun run build`, and serve the new `dist/`. The build writes the page's policy with your node
+in it (`dist/_headers`, and the Bun servers send the same); for nginx, copy that policy line into the server
+block. Its row turns green when the node answers on
 mainnet, synchronized and close to the other listed nodes' height. A page served over HTTPS cannot use an
 `http://` node: the browser blocks that call as mixed content.
 

@@ -1848,8 +1848,6 @@ await check("the nginx example revalidates page modules, and every server uses o
   for (const [name, value] of Object.entries(SECURITY_HEADERS))
     assert.ok(nginx.includes(name) && nginx.includes(value), `nginx misses ${name}`);
   assert.ok(nginx.includes(CSP), "nginx CSP differs from the shared policy");
-  assert.ok(!CSP.includes("connect-src 'self' http: https:"), "the CSP still allows every http and https host");
-  assert.match(CSP, /connect-src 'self' https: http:\/\/localhost:\*/, "the CSP does not allow a local http node");
   assert.equal(cacheControl("/assets/vendors/sdk/sdk-browser.js"), "public, max-age=31536000, immutable");
   assert.equal(cacheControl("/monero.worker.js"), "public, max-age=3600");
   assert.equal(cacheControl("/recovery.js"), "no-cache");
@@ -1865,10 +1863,52 @@ await check("the nginx example revalidates page modules, and every server uses o
     /COPY deploy\/http-policy\.mjs/,
     "the container does not receive the policy module",
   );
+  assert.match(
+    await read("Dockerfile"),
+    /COPY lib\/node\.js lib\/settlement\.js \.\/lib\//,
+    "the container does not receive the lists the policy is built from",
+  );
   const serve = await read("serve.bun.mjs");
   assert.match(serve, /process\.env\.ROOT \|\| "dist"/, "serve does not default to dist");
   const ignore = await read(".dockerignore");
   assert.ok(!/^\.github$/m.test(ignore), ".dockerignore hides the workflows the Docker check reads");
+});
+
+// THE POLICY NAMES THE HOSTS THE PAGE CALLS AND NO OTHER. The page holds the twelve words; its own fetch rules do not
+// bind a script injected into it, so connect-src is what keeps the words from another host. Every listed node and
+// every settlement RPC must be allowed (a node missing from the policy fails in the browser, not here), and nothing
+// else: no scheme on its own, no wildcard, no loopback, no host off the lists. Each place that sets the policy is read
+// as a host receives it.
+await check("connect-src allows this origin, every listed node and settlement RPC, and nothing broader", async () => {
+  const { CSP } = await import(pathToFileURL(join(ROOT, "deploy", "http-policy.mjs")).href);
+  const called = [...NODES, ...Object.values(SETTLEMENT).flatMap((chain) => chain.rpcs)];
+  assert.ok(NODES.length >= 3 && called.length > NODES.length, `${called.length} hosts called`);
+  const nginx = await read("deploy/nginx.conf");
+  const headers = await readFile(join(DIST, "_headers"), "utf8");
+  const policies = {
+    "deploy/http-policy.mjs": CSP,
+    "deploy/nginx.conf": (/add_header Content-Security-Policy "([^"]*)"/.exec(nginx) || [])[1],
+    "dist/_headers": (/^\s*Content-Security-Policy: (.*)$/m.exec(headers) || [])[1],
+  };
+  const origins = new Set(["'self'", ...called.map((url) => new URL(url).origin)]);
+  for (const [where, policy] of Object.entries(policies)) {
+    assert.ok(policy, `${where} sets no CSP`);
+    const directive = policy
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("connect-src "));
+    assert.ok(directive, `${where} has no connect-src`);
+    const sources = directive.split(/\s+/).slice(1);
+    for (const url of called) assert.ok(sources.includes(new URL(url).origin), `${where} does not allow ${url}`);
+    for (const source of sources) {
+      assert.ok(!/^[a-z][a-z0-9+.-]*:$/i.test(source), `${where} allows every ${source} host`);
+      assert.ok(!source.includes("*"), `${where} allows a wildcard: ${source}`);
+      assert.ok(!/localhost|\/\/127\.|\[::1\]/i.test(source), `${where} allows loopback: ${source}`);
+      assert.ok(origins.has(source), `${where} allows ${source}, which the page does not call`);
+    }
+    assert.equal(new Set(sources).size, sources.length, `${where} names a source twice`);
+  }
+  return `${origins.size - 1} hosts and the page's own origin, in ${Object.keys(policies).length} places`;
 });
 
 // NOTHING LEAVES BEFORE "CONFIRM AND SEND": the search, the opening of a swap and the withdraw button read, build and

@@ -71,7 +71,8 @@ only that a visitor asked for its height. A person can pick another row, and tha
 for the tab. Once a wallet exists the choice is locked until the wallet is forgotten.
 
 To use a node of your own, serve your own copy of the page with that node in `NODES` in `lib/node.js`,
-and build it. A node behind an HTTPS proxy is enough; `deploy/xmr-proxy.conf` has the block and
+and build it: the page's policy is built from that list, so the browser lets the page reach your node and no
+other host (see Hosting). A node behind an HTTPS proxy is enough; `deploy/xmr-proxy.conf` has the block and
 `deploy/own-node.md` walks through the setup, including a public fallback and the exact headers.
 
 ## Build
@@ -115,6 +116,12 @@ stages the rebuilt page. `bun run fmt` formats the whole tree and `bun run fmt:c
 | **IPFS**             | no      | Works the same way, without the CSP header. Content addressing is a real gain for a page that handles keys: a CID cannot be edited. Pin the directory and publish the CID. |
 
 A page served from a subdirectory works too: every path in the page is relative.
+
+**The policy names every host the page calls.** Its `connect-src` is this origin, the listed Monero nodes
+(`lib/node.js`) and the settlement RPCs (`lib/settlement.js`), built from those two lists by
+`deploy/http-policy.mjs`. The build writes it into `dist/_headers` and the Bun servers send it. Nginx cannot
+read a module: after a change to either list, copy the `Content-Security-Policy` line from the built
+`dist/_headers` into `deploy/nginx.conf`; `bun run test` fails until the two agree.
 
 **The page is a folder, not one file.** The wallet's worker and the two bundles are separate files of
 the same origin.
@@ -192,10 +199,15 @@ archive itself against the published `.sha256`.
   not answer makes the list say it is incomplete, and a start block the chain does not give is asked for.
 - **Verify what you serve.** `dist/build.json` lists a SHA-256 for every file, and a release archive
   should be checked against it. On IPFS the CID is the check.
+- **The page reaches only the hosts it lists.** Its `connect-src` names this origin, the listed nodes and the
+  settlement RPCs, and nothing else, so even a script injected into the page cannot send the words to another
+  host. A host that sends no header (GitHub Pages, IPFS gateways) loses that barrier; the page itself still uses
+  only the listed nodes.
 - **A compromised host is a compromised page.** This page handles spend keys, so serve it from a host
   you control, or from IPFS with a pinned CID, and do not add third-party scripts to it.
 - **Node trust.** A node sees which blocks a wallet scans and which transaction it relays. It cannot
-  spend the funds and it never sees the key. If that is not acceptable, run the node yourself.
+  spend the funds and it never sees the key. If that is not acceptable, run the node yourself and serve a
+  copy of the page that lists it.
 
 ## Adding a language
 
