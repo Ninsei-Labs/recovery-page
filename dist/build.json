@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.4.3",
-  "commit": "06ef1006340ca4c0ededf7ee19276ad74fc27fa0",
-  "builtAt": "2026-11-20T15:06:00.682Z",
+  "commit": "bfdfe148585ec48d2e7c2c662e01d98f609b7054",
+  "builtAt": "2026-11-20T15:06:09.544Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -26,8 +26,8 @@
     },
     {
       "file": "locales/en/index.js",
-      "bytes": 33107,
-      "sha256": "1bf765925394ec5c0a8864b680f00d3428fc181dc774572f93072a4e61185362"
+      "bytes": 32090,
+      "sha256": "b1c9ccb6af22548034d30bbb7c2dd9ccfbbcf021999b1dd873a4bbbf56f06dcb"
     },
     {
       "file": "locales/index.js",
@@ -36,18 +36,18 @@
     },
     {
       "file": "index.html",
-      "bytes": 13716,
-      "sha256": "a3af5aee515e51396fbc5f6ed80cbdfe2e17dd597922b27b99427b6fab968bed"
+      "bytes": 12815,
+      "sha256": "36864dfcc448aabdb287a880927fd694533a2f728c603c53f3189e2a687bf751"
     },
     {
       "file": "recovery.css",
-      "bytes": 34000,
-      "sha256": "f7bc7c025d58423433b0816265a75c96aa6e270b2c23c9eaf210a8ae5fdca280"
+      "bytes": 33640,
+      "sha256": "1a01b98a92531c6709ea28ee72a0062cb58ce947f7f475c4fedf2fe8b8240890"
     },
     {
       "file": "diagnostics.html",
-      "bytes": 3085,
-      "sha256": "bf0d26f8118fdd39a17fbdbfc203238619f3b63fba7acf1f3e2760b73e2af4f6"
+      "bytes": 2915,
+      "sha256": "c01801375e1b2323ddf8b4375df5265143d3cb8e7f3de87539f5140eb45539a5"
     },
     {
       "file": "favicon.svg",
@@ -66,8 +66,8 @@
     },
     {
       "file": "lib/node.js",
-      "bytes": 14795,
-      "sha256": "436534952a100c798d0f9acb540b1b5c5f85370e7c39f536e6fc4a66247e1f3d"
+      "bytes": 12029,
+      "sha256": "b9c462187e43a9ec0e248520ae6625b833df9b719321c166c7241e7075e39fb8"
     },
     {
       "file": "lib/rows.js",
@@ -146,13 +146,13 @@
     },
     {
       "file": "recovery.js",
-      "bytes": 91674,
-      "sha256": "4840047a04247cba089cc6cb656d973a954bd9ff81324f0ae7c6a39664a61bc4"
+      "bytes": 88591,
+      "sha256": "2801d54309a73b3e4aa0f529125f424974128f8635b15f6dce5ebfd612ebf9e3"
     },
     {
       "file": "diagnostics.js",
-      "bytes": 19853,
-      "sha256": "d1076febe97f6bff5cb84d19f6e2ab04e60875c83664f00c3a0b25dda3df54f1"
+      "bytes": 19895,
+      "sha256": "4ce882cdcf5575a7a92aeec62053f6e23fc6f8a97fc7ed4a21ca2959975b9f21"
     }
   ]
 }

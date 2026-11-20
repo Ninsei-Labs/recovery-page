@@ -12,10 +12,9 @@
 // seed inside and never shown) and sends no transactions.
 
 import { t, n, bindValues, init as initLocale } from "./locales/index.js?v=0.4.3";
-import { nodeUrl, nodeLabelKey, nodeLabelParams, setNodeUrl, networkFromNode } from "./lib/node.js?v=0.4.3";
+import { NODES, nodeUrl, setNodeUrl, networkFromNode } from "./lib/node.js?v=0.4.3";
 
-// The node address comes from the shared module: the field on the page, the `?node=` link, this tab's value or
-// the default. nodeInfo is what the node answered on the first successful call: height and network. The wallet
+// The node comes from the shared module: one of the listed nodes, as this tab chose it or the default. nodeInfo is what the node answered on the first successful call: height and network. The wallet
 // is built for that network, otherwise the probe asks a stagenet node for another chain's ranges and that
 // looks like a broken withdrawal.
 let nodeInfo = null;
@@ -35,18 +34,19 @@ const out = document.getElementById("out");
 const stateEl = document.getElementById("state");
 const rerunBtn = document.getElementById("rerun");
 const scanBtn = document.getElementById("scan");
-const nodeInput = document.getElementById("node");
+const nodeSelect = document.getElementById("node");
 
-if (nodeInput) {
-  nodeInput.value = nodeUrl();
-  nodeInput.addEventListener("change", () => {
-    const parsed = setNodeUrl(nodeInput.value);
-    if (!parsed.ok) {
-      nodeInput.value = nodeUrl();
-      out.textContent = String(t("log.node.bad", { why: t("node.why." + parsed.why) }));
-      return;
-    }
-    location.reload();
+// THE LISTED NODES ONLY: the report runs against one of them, chosen here for this tab.
+if (nodeSelect) {
+  for (const url of NODES) {
+    const option = document.createElement("option");
+    option.value = url;
+    option.textContent = url;
+    nodeSelect.append(option);
+  }
+  nodeSelect.value = nodeUrl();
+  nodeSelect.addEventListener("change", () => {
+    if (setNodeUrl(nodeSelect.value)) location.reload();
   });
 }
 
@@ -223,7 +223,7 @@ async function quickCheck() {
     return () =>
       t("diag.detail.node", {
         status: r.status,
-        node: t(nodeLabelKey(), nodeLabelParams()),
+        node: t("node.label.listed", { url: nodeUrl() }),
         height: n(info.height),
         sync: info.synchronized,
         nettype: info.nettype,

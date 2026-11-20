@@ -34,6 +34,54 @@ export async function checkNodeProbe() {
   return `${probes.length} probes of the chosen node only`;
 }
 
+// THE PAGE USES A LISTED NODE, WHATEVER THE LINK OR THE TAB HOLDS. A link names nothing (`?node=` is not read), a
+// value kept by an earlier build that is not on the list is ignored, and only a listed node this tab chose is taken.
+// Which node the page uses is read from what it asks: the tab-return check probes the chosen node.
+export async function checkListedNodeOnly() {
+  const cases = [
+    { name: "a link to another host", search: "?node=https://example.test", kept: null, uses: DEFAULT_NODE },
+    {
+      name: "a link to a listed node",
+      search: `?node=${encodeURIComponent(NODES[2])}`,
+      kept: null,
+      uses: DEFAULT_NODE,
+    },
+    { name: "a loopback link", search: "?node=http://127.0.0.1:18081", kept: null, uses: DEFAULT_NODE },
+    { name: "another host kept for the tab", search: "", kept: "https://kept.example.test", uses: DEFAULT_NODE },
+    { name: "a listed node kept for the tab", search: "", kept: NODES[1], uses: NODES[1] },
+    { name: "a link beside a listed node kept", search: "?node=https://example.test", kept: NODES[1], uses: NODES[1] },
+  ];
+  for (const { name, search, kept, uses } of cases) {
+    const probes = [];
+    const sdk = {
+      probeMoneroNode: async ({ url }) => {
+        probes.push(url);
+        return { ok: true, network: "mainnet", synchronized: true, height: 100, ms: 1 };
+      },
+    };
+    const stored = new Map(kept ? [["ninsei.recovery.node", kept]] : []);
+    const { page } = await pageBundle({
+      rowSdk: sdk,
+      context: {
+        // The web's URL classes, as a browser has them: without them a reader of `?node=` would fail quietly.
+        URL,
+        URLSearchParams,
+        location: { search, origin: "https://example.invalid", href: "https://example.invalid/" + search },
+        sessionStorage: {
+          getItem: (key) => (stored.has(key) ? stored.get(key) : null),
+          setItem: (key, value) => stored.set(key, value),
+          removeItem: (key) => stored.delete(key),
+        },
+      },
+    });
+    await page.startNode();
+    await page.recheck();
+    assert.ok(probes.length > 0, `${name}: the page asked no node`);
+    assert.deepEqual([...new Set(probes)], [uses], `${name}: the page asked ${[...new Set(probes)].join(", ")}`);
+  }
+  return `${cases.length} links and kept values, a listed node used each time`;
+}
+
 export async function checkKeyFile() {
   const calls = [];
   const sdk = {
@@ -257,6 +305,7 @@ export async function checkSwapRace() {
 
 if (import.meta.main) {
   console.log("ok    " + (await checkNodeProbe()));
+  console.log("ok    " + (await checkListedNodeOnly()));
   console.log("ok    " + (await checkKeyFile()));
   console.log("ok    " + (await checkFindSwaps()));
   console.log("ok    " + (await checkSwapRace()));

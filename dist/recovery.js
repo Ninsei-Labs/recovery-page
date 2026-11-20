@@ -23,11 +23,7 @@ import {
   STAGENET_NODE,
   nodeUrl,
   nodeSource,
-  nodeLabelKey,
-  nodeLabelParams,
   setNodeUrl,
-  clearNodeUrl,
-  parseNodeUrl,
   nodeHost,
   nodeNetwork as nodeNetworkOf,
   pingNode,
@@ -531,7 +527,7 @@ async function checkNode(isCurrent) {
       height: n(probe.height),
       sync: probe.synchronized,
       nettype: probe.nettype,
-      node: t(nodeLabelKey(), nodeLabelParams()),
+      node: t("node.label.listed", { url: nodeUrl() }),
     }),
   );
   setCheck("node", "ok");
@@ -1898,20 +1894,13 @@ async function dropKeys() {
   log(t("log.forgotten"), "ok");
 }
 
-// --- 0c. Node: a checked list, the page's pick or the person's own ---
+// --- 0c. Node: a checked list of the listed nodes, the page's pick or the person's choice among them ---
 // The choice can change BEFORE the wallet exists; afterwards it would be a different wallet, so it cannot.
 //
 // WHAT THE CHECK SENDS: each listed node is asked for `get_info`, which tells it only that a visitor asked for
 // its height. The recovery file, the password and the keys never leave the tab.
 const nodeList = $("nodeList");
-const nodeInput = $("node");
 const nodeNote = $("nodeNote");
-const ownRow = nodeList.querySelector(".node-own");
-const ownRadio = ownRow.querySelector('input[type="radio"]');
-// The badge reuses the label style the node line already has: no new stylesheet rule, and the page's CSP
-// permits the stylesheet it already loads.
-const nodeOwnBadge = h("span", { class: "node-label", hidden: "" });
-ownRow.querySelector(".node-name").after(nodeOwnBadge);
 const nodePanel = $("nodePanel");
 const nodeCurrentEl = $("nodeCurrent");
 const nodeChangeBtn = $("nodeChange");
@@ -1938,11 +1927,9 @@ function drawCurrent() {
 // A HIDDEN TAB IS ASKED AGAIN when it comes back after this long: a node that answered an hour ago may not now.
 const RECHECK_AFTER_MS = 60_000;
 
-// ONE ENTRY PER ROW: the listed nodes in list order, then the person's own. `answer` is the faster of two
-// probeMoneroNode results, null while the page is asking; `ask` numbers the requests, so an answer to an
-// older one (another address in the own field, an earlier round) is dropped.
+// ONE ENTRY PER ROW: the listed nodes in list order. `answer` is the faster of two probeMoneroNode results, null
+// while the page is asking; `ask` numbers the requests, so an answer to an older round is dropped.
 const listed = NODES.map((url) => ({ url, network: nodeNetworkOf(url), answer: null, ask: 0, el: null, radio: null }));
-const own = { url: null, network: null, answer: null, ask: 0, refused: null, el: ownRow };
 let note = null; // [key, params] of the line under the list
 
 function nodeLocked() {
@@ -1950,17 +1937,12 @@ function nodeLocked() {
 }
 
 function rowFor(url) {
-  return listed.find((row) => row.url === url) || (url && own.url === url ? own : null);
-}
-
-function networkOfRow(row) {
-  return row === own ? (own.answer && own.answer.ok ? own.answer.network : "mainnet") : row.network;
+  return listed.find((row) => row.url === url) || null;
 }
 
 function verdictOf(row) {
-  if (row === own && !own.url) return own.refused ? { state: "bad", why: null } : { state: "idle", why: null };
-  const network = networkOfRow(row);
-  const peers = [...listed, own].filter((peer) => networkOfRow(peer) === network);
+  const network = row.network;
+  const peers = listed.filter((peer) => peer.network === network);
   return nodeVerdict(
     row.answer,
     medianHeight(
@@ -1998,18 +1980,17 @@ function buildRows() {
         ]),
       ]),
     ]);
-    nodeList.insertBefore(row.el, ownRow);
+    nodeList.append(row.el);
   }
 }
 
 // A ROW IS DRAWN FROM ITS ANSWER, so a language change or a new answer elsewhere (a new median) redraws it.
 function drawRows() {
-  for (const row of [...listed, own]) {
+  for (const row of listed) {
     const verdict = verdictOf(row);
     row.el.dataset.state = verdict.state;
     let why = "";
-    if (row === own && own.refused) why = t("node.why." + own.refused);
-    else if (verdict.why) {
+    if (verdict.why) {
       const p = verdict.params;
       why = t("node.state." + verdict.why, {
         ...p,
@@ -2021,9 +2002,6 @@ function drawRows() {
     row.el.querySelector(".node-ms").textContent =
       row.answer && row.answer.ok ? t("node.ms", { ms: n(row.answer.ms) }) : "";
   }
-  const ownNetwork = own.answer && own.answer.ok ? own.answer.network : null;
-  nodeOwnBadge.hidden = !ownNetwork;
-  nodeOwnBadge.textContent = ownNetwork ? "· " + t("node.badge." + ownNetwork) : "";
   drawCurrent();
 }
 
@@ -2040,11 +2018,9 @@ function updateNodeLock() {
   drawNote();
 }
 
-// THE RADIOS SHOW THE MODULE'S CHOICE; the own row is checked when the choice is the person's own address,
-// or when the person chose the own row and its field is empty or refused.
-function markChoice(url, ownChosen = false) {
+// THE RADIOS SHOW THE MODULE'S CHOICE.
+function markChoice(url) {
   for (const row of listed) row.radio.checked = row.url === url;
-  ownRadio.checked = ownChosen || Boolean(url && own.url === url && !NODES.includes(url));
 }
 
 async function pingRows(rows) {
@@ -2084,51 +2060,6 @@ function chooseListed(url) {
   checkEnvironment();
 }
 
-// THE OWN ROW: chosen by its radio or by a change in its field. The field goes through the one parser; a
-// refusal is said in its own words and leaves no node chosen, never the previous one in disguise.
-function chooseOwn() {
-  if (nodeLocked()) {
-    markChoice(nodeUrl());
-    drawNote();
-    return;
-  }
-  const parsed = parseNodeUrl(nodeInput.value);
-  if (parsed.ok && NODES.includes(parsed.url)) {
-    nodeInput.value = "";
-    own.url = null;
-    own.refused = null;
-    chooseListed(parsed.url);
-    return;
-  }
-  if (!parsed.ok) {
-    own.url = null;
-    own.answer = null;
-    own.ask += 1;
-    own.refused = parsed.why === "empty" ? null : parsed.why;
-    if (own.refused) log(t("log.node.bad", { why: t("node.why." + parsed.why) }), "bad");
-    clearNodeUrl();
-    markChoice(null, true);
-    note = parsed.why === "empty" ? ["node.note.own"] : null;
-  } else {
-    nodeInput.value = parsed.url;
-    const changed = own.url !== parsed.url;
-    own.url = parsed.url;
-    own.refused = null;
-    setNodeUrl(parsed.url);
-    markChoice(parsed.url, true);
-    note = null;
-    if (changed || !own.answer) pingRows([own]);
-  }
-  drawRows();
-  drawNote();
-  checkEnvironment();
-}
-
-ownRadio.addEventListener("change", () => {
-  if (ownRadio.checked) chooseOwn();
-});
-nodeInput.addEventListener("change", chooseOwn);
-
 // A TAB BACK FROM A LONG ABSENCE asks again, and only while no wallet holds the choice. The page's own pick
 // moves only when its node is no longer good; the person's choice never moves.
 let hiddenAt = null;
@@ -2146,26 +2077,20 @@ async function recheck() {
   const before = stateOf(nodeUrl());
   // ONLY THE CHOSEN NODE IS ASKED AGAIN. Probing every listed node on a tab return tells three unrelated operators
   // the visitor is back, and the choice itself does not need their answers.
-  const row = own.url === nodeUrl() ? own : listed.find((entry) => entry.url === nodeUrl());
+  const row = rowFor(nodeUrl());
   if (row) await pingRows([row]);
   if (nodeLocked()) return;
   if (stateOf(nodeUrl()) !== before) checkEnvironment();
 }
 
-// THE FIRST CHOICE: a link or this tab's earlier choice is taken at once; otherwise the default listed node is used
-// WITHOUT probing the others. The chosen node is checked by the preflight, and the list is there for a person who
-// wants a different one.
+// THE FIRST CHOICE: this tab's earlier choice is taken at once; otherwise the default listed node is used WITHOUT
+// probing the others. The chosen node is checked by the preflight, and the list is there for a person who wants a
+// different one.
 async function startNode() {
   buildRows();
-  const source = nodeSource();
-  if (source === "link" || source === "tab") {
-    const url = nodeUrl();
-    if (!NODES.includes(url)) {
-      own.url = url;
-      nodeInput.value = url;
-    }
-    markChoice(url);
-    note = source === "link" ? ["node.note.link", { host: nodeHost(url) }] : null;
+  if (nodeSource() === "tab") {
+    markChoice(nodeUrl());
+    note = null;
     drawRows();
     drawNote();
     await runPreflight({ probeNode: false });

@@ -47,9 +47,9 @@
           ><span data-i18n="check.help.tail"></span>
         </p>
 
-        <!-- THE NODE IS THE VISITOR'S CHOICE, folded into one line under the checks, so it stays in place while the steps grow: the page picks the fastest good public node, and
-           "Change" opens the list with each node's live state and a field for a node of one's own. The listed rows
-           are drawn by recovery.js from lib/node.js, so the list lives in one place; real radio inputs carry the
+        <!-- THE NODE IS ONE OF THE LISTED NODES, folded into one line under the checks, so it stays in place while the steps grow: the page starts on the first listed node, and
+           "Change" opens the list with each node's live state. The rows are drawn by recovery.js from lib/node.js,
+           so the list lives in one place and the page's policy allows no other node; real radio inputs carry the
            choice and the keyboard. -->
         <section class="node-line" id="stepNode">
           <div class="node-current" id="nodeLine" data-state="checking">
@@ -59,30 +59,9 @@
             <button id="nodeChange" type="button" class="link" aria-controls="nodePanel" aria-expanded="false"></button>
           </div>
           <div id="nodePanel" class="node-panel" hidden>
-            <fieldset id="nodeList" class="nodes" aria-labelledby="nodeHead">
-              <div class="node node-own" data-state="idle">
-                <label class="node-pick">
-                  <input type="radio" name="node" value="own" />
-                  <span class="node-text">
-                    <span class="node-name" id="nodeOwnName" data-i18n="page.node.own"></span>
-                    <span class="node-why"></span>
-                  </span>
-                  <span class="node-signal"
-                    ><span class="node-dot" aria-hidden="true"></span><span class="node-ms"></span
-                  ></span>
-                </label>
-                <input
-                  id="node"
-                  type="text"
-                  spellcheck="false"
-                  autocomplete="off"
-                  aria-labelledby="nodeOwnName"
-                  data-i18n-placeholder="page.node.placeholder"
-                />
-              </div>
-            </fieldset>
+            <fieldset id="nodeList" class="nodes" aria-labelledby="nodeHead"></fieldset>
             <p id="nodeNote" class="hint node-note" aria-live="polite"></p>
-            <p class="hint" data-i18n="page.node.own.hint"></p>
+            <p class="hint" data-i18n="page.node.hint"></p>
           </div>
         </section>
 

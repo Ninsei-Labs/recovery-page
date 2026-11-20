@@ -13,7 +13,7 @@ its file keeps that name and its first line, `NINSEI RECOVERY KEY`, which is wha
 The per-swap recovery file of earlier builds is no longer read.
 
 This repository is the reference implementation. An operator can serve it from their own host and
-point it at their own Monero node, with no dependency on us.
+list their own Monero node in it, with no dependency on us.
 
 ## Why the page exists
 
@@ -63,14 +63,16 @@ Two conditions apply in a browser:
    send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, the page
    reports it in the diagnostics and nothing changes. A CORS-passing answer also passes `require-corp`.
 
-The page lists public community nodes that pass CORS in a browser. It opens on the first listed node
+The page lists public community nodes that pass CORS in a browser, and uses no other node: the page
+holds the twelve words, so no link and no field can point it elsewhere. It opens on the first listed node
 without probing any node; when a search begins or a person chooses a row, that node is asked for
 `get_info`, and a row shows its state and round trip once checked. Those requests tell a listed node
-only that a visitor asked for its height. A person can pick another row or enter their own node, a link
-can name one (`?node=https://node.example`), and a person's choice is remembered for the tab. Once a
-wallet exists the choice is locked until the wallet is forgotten. A node of your own behind an HTTPS
-proxy is enough; `deploy/xmr-proxy.conf` has the block and `deploy/own-node.md` walks through the setup,
-including a public fallback and the exact headers.
+only that a visitor asked for its height. A person can pick another row, and that choice is remembered
+for the tab. Once a wallet exists the choice is locked until the wallet is forgotten.
+
+To use a node of your own, serve your own copy of the page with that node in `NODES` in `lib/node.js`,
+and build it. A node behind an HTTPS proxy is enough; `deploy/xmr-proxy.conf` has the block and
+`deploy/own-node.md` walks through the setup, including a public fallback and the exact headers.
 
 ## Build
 

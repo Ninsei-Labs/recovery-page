@@ -403,13 +403,9 @@ export default {
     "page.node.change": "Change",
     "page.node.hide": "Hide",
     "node.current.none": "none chosen",
-    "page.node.label": "Node address",
-    "page.node.placeholder": "https://node.example",
+    "page.node.label": "Listed node",
     "page.node.hint":
-      "A node of your own is enough: the page asks it for the wallet paths and sends the signed transaction to it. The node must allow this page's origin in CORS.",
-    "page.node.own": "Your own node",
-    "page.node.own.hint":
-      "The page asks each node only for its height. Your own node must allow requests from this page (CORS).",
+      "The page asks each node only for its height and talks to no node outside this list. To use a node of your own, serve your own copy of this page with that node listed.",
     "node.ms": "{ms} ms",
     "node.badge.mainnet": "mainnet",
     "node.badge.stagenet": "stagenet",
@@ -424,22 +420,10 @@ export default {
     "node.state.behind": "{blocks} blocks behind",
     "node.state.ahead": "{blocks} blocks ahead of the others",
     "node.state.unchecked": "not checked",
-    "node.note.default":
-      "Using the default node: {host}. Pick another node or enter your own before opening a swap if you prefer",
-    "node.note.link":
-      "The link chose {host}. A link from someone else chose this node; check it before entering your key",
-    "node.note.own": "Enter your node's address in the field",
+    "node.note.default": "Using the default node: {host}. Pick another listed node before opening a swap if you prefer",
     "preflight.fail.noNode": "no node is chosen",
     "node.label.listed": "the listed node {url}",
-    "node.label.same": "this page's own origin ({url})",
-    "node.label.custom": "the node at {url}",
-    "node.why.empty": "the address is empty",
-    "node.why.shape": "the address is not a plain http(s) address (no path query, no fragment)",
-    "node.why.scheme": "only http and https are accepted",
-    "node.why.insecure": "a plain http address is allowed only for localhost; use https for a remote node",
-    "node.why.credentials": "an address with a user name or password is refused: nothing secret belongs in it",
     "log.node.locked": "the wallet is already open: to use another node, reload the page and open the file again",
-    "log.node.bad": "the node address was not accepted: {why}",
   },
 
   // CORE REFUSAL PHRASES BY CODE (SdkError.code), copied from sweep/lib/codes.js; the check compares both.

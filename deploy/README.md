@@ -13,8 +13,9 @@ of the four ways below.
 Before anything else, decide about the node. If you run `monerod`, put `deploy/xmr-proxy.conf` in front
 of it; the page needs CORS and the wallet's binary paths. If you would rather not run a node, leave the
 choice to the page: it lists public community nodes and picks the fastest one that answers well. The page
-still works, but it depends on those nodes being up and allowing this page's origin. For a proxy of your own, with or without a public
-fallback, see `own-node.md` in this directory.
+still works, but it depends on those nodes being up and allowing this page's origin. The page uses no node
+it does not list: a node of your own goes into `NODES` in `lib/node.js` before the build. For a proxy of
+your own, with or without a public fallback, see `own-node.md` in this directory.
 
 ## 1. nginx (recommended)
 
@@ -81,4 +82,3 @@ this page can make about itself: the bytes that handle a spend key are the bytes
   `assets/fonts/`, with their licences.
 - Do not serve it over plain HTTP (except on `localhost`): workers and the browser's crypto require a
   secure context.
-- Do not paste a node address with credentials into the field; the page refuses it on purpose.
