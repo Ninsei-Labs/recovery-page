@@ -143,8 +143,11 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
         setup(plugin) {
           plugin.onResolve({ filter: /locales\/index\.js$/ }, () => ({ path: "locale", namespace: "send-test" }));
           plugin.onLoad({ filter: /.*/, namespace: "send-test" }, () => ({
-            // Startup waits for language loading; leave that promise pending so it cannot start preflight.
-            contents: "export const t = key => key, n = String, d = String, init = () => new Promise(() => {});",
+            // Startup waits for language loading; leave that promise pending so it cannot start preflight. A text is
+            // its key, or what the context's `pageText(key, params)` makes of it when a check needs the parameters.
+            contents:
+              "export const t = (key, params) => (typeof pageText === 'function' ? pageText(key, params) : key)," +
+              " n = String, d = String, init = () => new Promise(() => {});",
           }));
         },
       },
