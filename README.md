@@ -39,6 +39,11 @@ The SDK's withdrawal (`sweep.plan`, `keys`, `sign`, `relay`) takes a per-swap pa
 `sweep.fromOrder` for that payload: the SDK takes the key and the found order, checks the points, builds the joint
 address and returns the file the withdrawal accepts. The page keeps no payload rule of its own.
 
+`sign` also needs the verified unspent key images of the outputs it may spend. The page reads them from the same
+wallet pass (`getOutputs({ isSpent: false })`, without locked or frozen outputs), and rereads that set immediately
+before `relay`; the SDK refuses a signature or a send whose inputs are not exactly that set. The `restore` and the
+`sign` use the same wallet adapter, because the scan verdict belongs to that adapter.
+
 That is also why the page must be hostable anywhere. A recovery page that only works while our domain
 answers is not a recovery page.
 

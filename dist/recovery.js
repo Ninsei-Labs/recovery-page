@@ -47,7 +47,7 @@ import { sideOf, deadlineOf, swapStateOf, ethRecipient } from "./lib/rows.js?v=0
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=9838c591";
 const WORKER = "./monero.worker.js?v=a118abf5";
-const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=ff86687e";
+const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=40669d21";
 // THIS PAGE TALKS TO NO SERVICE. The SDK's service routes (a height the app remembers, the revealed half's
 // fallback, the "withdrawn" mark) get this fetch, which answers "unavailable" without a request: the height comes
 // from the chain or the person, the half from the chain, and a withdrawal needs nobody told. So only the Monero
@@ -149,6 +149,7 @@ let nodeNetwork = null; // Monero network the chosen node answered with (checkNo
 let settlement = null; // settlement network of the current swap, one lib/settlement.js knows
 let balance = null; // { total, unlocked, txs } after a sync, null before one
 let signedToken = null; // signing token (sweep.sign -> sweep.relay)
+let sweepKeyImages = null; // the wallet's unspent set, checked again before relay
 let lastTx = null; // signed transfer data for the confirmation
 // ETH SETTLEMENT: the injected provider, its adapter, the action material from sweep.fromOrder, and the receipt wait.
 let ethProvider = null;
@@ -1665,6 +1666,25 @@ async function syncWallet() {
   return true;
 }
 
+// THE UNSPENT SET THE PACKAGE MUST SEE. `sweep.sign` compares the signed inputs with this exact list, so it is read
+// from the same wallet and the same pass: unspent, unlocked and not frozen outputs are what `sweepUnlocked` may
+// select. A missing or malformed key image is a refusal, never a reason to sign without the guard.
+async function unspentKeyImages() {
+  const outputs = await wallet.getOutputs({ isSpent: false });
+  const images = [];
+  for (const output of outputs) {
+    if (typeof output.getIsLocked === "function" && output.getIsLocked()) continue;
+    if (typeof output.getIsFrozen === "function" && output.getIsFrozen()) continue;
+    const keyImage = typeof output.getKeyImage === "function" ? output.getKeyImage() : null;
+    const hex = keyImage && (typeof keyImage.getHex === "function" ? keyImage.getHex() : keyImage.hex);
+    if (typeof hex !== "string" || !/^[0-9a-f]{64}$/.test(hex.replace(/^0x/i, "").toLowerCase())) {
+      throw new Error("unspent output without a key image");
+    }
+    images.push(hex.replace(/^0x/i, "").toLowerCase());
+  }
+  return images;
+}
+
 // BUILD AND SIGN, NOT SEND. Returns true, or the key of the plain line that says why not.
 async function buildTx() {
   const dest = destInput.value.trim();
@@ -1687,18 +1707,16 @@ async function buildTx() {
   // An empty balance stops with `insufficient-funds` BEFORE signing, on the SAME wallet scanned above.
   let signed;
   try {
+    sweepKeyImages = await unspentKeyImages();
     signed = await core.sweep.sign({
       file: { contents },
       passphrase: "",
       to: dest,
+      keyImages: sweepKeyImages,
       maxFeeAtomic: SWEEP_FEE_LIMIT_ATOMIC,
-      connectWallet: async () =>
-        mod.moneroWallet({
-          createWallet: async () => wallet,
-          serverUri: nodeUrl(),
-          password: "ninsei-sweep-session",
-          fields: {},
-        }),
+      // THE SAME ADAPTER THE RESTORE USED. A second adapter for the same wallet would not carry the scan verdict,
+      // and 0.62 refuses to sign without a completed restore on this exact adapter.
+      wallet: adapter,
     });
   } catch (e) {
     const words = sdkWords(e);
@@ -1766,10 +1784,20 @@ async function sendTx() {
     return say(withdrawErrorEl, "flow.err.send");
   }
   showProgress("flow.progress.send");
+  let freshImages;
+  try {
+    // THE RELAY CHECK READS THE SET AGAIN. The signed bytes cannot change, but the wallet's view can: a fresh list
+    // that differs from the signed inputs keeps the session open and sends nothing.
+    freshImages = await unspentKeyImages();
+  } catch (e) {
+    hideProgress();
+    log(t("log.send.unknown", { words: sdkWords(e) }), "bad");
+    return say(withdrawErrorEl, "flow.err.send");
+  }
   let out;
   try {
     // SENDING IS THE CORE'S (sweep.relay). Its "withdrawn" mark for a service meets `noService` and goes nowhere.
-    out = await (await facadeFor(settlement, network)).sweep.relay({ token: signedToken });
+    out = await (await facadeFor(settlement, network)).sweep.relay({ token: signedToken, keyImages: freshImages });
   } catch (e) {
     hideProgress();
     // THE NODE MAY HAVE ACCEPTED THE TRANSACTION AND LOST ONLY THE REPLY. A definite "not sent" would be false, and a
@@ -1820,6 +1848,7 @@ async function closeWallet() {
   }
   adapter = null;
   wallet = null;
+  sweepKeyImages = null;
   if (core) {
     try {
       await core.wallet.disconnect();

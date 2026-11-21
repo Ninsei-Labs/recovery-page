@@ -252,6 +252,16 @@ const wallet = {
   async getBalance() {
     return 10n;
   },
+  async getOutputs(query) {
+    assert.equal(query.isSpent, false, "the page asks for unspent outputs");
+    return [
+      {
+        getIsLocked: () => false,
+        getIsFrozen: () => false,
+        getKeyImage: () => ({ getHex: () => "ab".repeat(32) }),
+      },
+    ];
+  },
   async getTxs() {
     return [];
   },
@@ -431,6 +441,11 @@ export async function checkSend() {
   core.sweep.relay = async (request) => {
     core.calls.relay += 1;
     assert.equal(request.token, "token");
+    assert.equal(
+      JSON.stringify(request.keyImages),
+      JSON.stringify(["ab".repeat(32)]),
+      "the relay gets a fresh unspent set",
+    );
     return { txids: ["tx-a", "tx-b"] };
   };
   assert.equal(await page.sendTx(), true);
@@ -517,6 +532,13 @@ export async function checkBeforeConfirm() {
   assert.equal(core.calls.sign, 1);
   assert.equal(core.calls.relay, 0, "buildTx must not relay");
   assert.equal(core.lastSign.maxFeeAtomic, 10_000_000_000n, "buildTx must name the fee ceiling");
+  assert.equal(
+    JSON.stringify(core.lastSign.keyImages),
+    JSON.stringify(["ab".repeat(32)]),
+    "buildTx must pass the unspent key images",
+  );
+  assert.equal(core.lastSign.wallet, page.__state().adapter, "buildTx must reuse the restored adapter");
+  assert.ok(!("connectWallet" in core.lastSign), "buildTx must not replace the restored adapter");
   assert.equal(syncCalls, 0, "buildTx must not re-read the balance before confirming");
   assert.equal(page.__state().signedToken, "signed-token");
 
