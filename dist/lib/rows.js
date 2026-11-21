@@ -1,6 +1,6 @@
 // THE ROW RULES: what a found order means for the person, and which settlement recipient a claim/refund signs.
 // The page keeps the DOM and the flow; these decisions live here so a table test can run them without a browser.
-import { swapState } from "./withdrawal.js?v=0.4.3";
+import { swapState } from "./withdrawal.js?v=0.4.4";
 
 // THE PERSON'S SIDE OF A FOUND ORDER, for display. The SDK's sweep.fromOrder reads the same field and refuses
 // anything else; this function only names the row before the withdrawal is opened.
