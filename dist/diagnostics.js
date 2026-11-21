@@ -26,7 +26,7 @@ function requireNetwork(info) {
   return net;
 }
 
-const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=9838c591";
+const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=f7dc8fd1";
 const WORKER = "./monero.worker.js?v=a118abf5";
 const SCAN_LOOKBACK = 3000;
 
