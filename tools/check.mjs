@@ -1269,6 +1269,13 @@ await check("the page's escrow-state read sends no escrow addresses", async () =
   return checkFindSwaps();
 });
 
+// A NETWORK THAT DID NOT ANSWER COMPLETELY IS NOT "NO SWAPS": it is named and retried, and the swaps found elsewhere
+// stay. The page is run over two networks with the fake SDK; check-page.mjs says what each step must show.
+await check('an unread network is named and retried, the rows found stay, and "no swaps" waits for all', async () => {
+  const { checkKeySearchRetry } = await import("./check-page.mjs");
+  return checkKeySearchRetry();
+});
+
 await check("the SDK's topic-only escrow events decode through the page's log reader", async () => {
   const { readEscrowEventsByTopic, ESCROW_EVENT_TOPICS } = await import("@ninsei-labs/sdk/recovery");
   const escrow = "0x" + "c".repeat(40);
