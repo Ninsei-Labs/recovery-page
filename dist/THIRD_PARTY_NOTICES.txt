@@ -6,7 +6,7 @@ ship are reproduced here. The project's own licence is in LICENSE.
 Packages replaced by a browser stub at build time are not shipped and are not listed: child_process, net, perf_hooks, socks-proxy-agent, tls, worker_threads, ws.
 
 ====================================================================================================
-@babel/runtime 7.29.10
+@babel/runtime 7.29.14
 License: MIT
 Source: https://github.com/babel/babel.git
 
@@ -5262,7 +5262,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ====================================================================================================
-axios 1.20.0
+axios 1.21.1
 License: MIT
 Source: https://github.com/axios/axios.git
 
@@ -5743,7 +5743,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 
 ====================================================================================================
-create-ecdh 4.0.4
+create-ecdh 4.0.5
 License: MIT
 Source: https://github.com/crypto-browserify/createECDH.git
 
@@ -6347,7 +6347,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ====================================================================================================
-follow-redirects 1.16.2
+follow-redirects 1.16.3
 License: MIT
 Source: git+ssh://git@github.com/follow-redirects/follow-redirects.git
 
@@ -6841,7 +6841,7 @@ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 
 ====================================================================================================
-ip-address 10.7.4
+ip-address 10.7.6
 License: MIT
 Source: https://github.com/beaugunderson/ip-address.git
 
@@ -8030,7 +8030,7 @@ Source: https://github.com/mathiasbynens/punycode.js.git
 No licence file was included by the package; the declared licence is MIT.
 
 ====================================================================================================
-qs 6.16.1
+qs 6.17.1
 License: BSD-3-Clause
 Source: https://github.com/ljharb/qs.git
 
@@ -9236,7 +9236,7 @@ Source: streamich/tree-dump
    limitations under the License.
 
 ====================================================================================================
-tslib 2.8.1
+tslib 2.9.1
 License: 0BSD
 Source: https://github.com/Microsoft/tslib.git
 

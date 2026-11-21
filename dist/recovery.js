@@ -45,9 +45,9 @@ import {
 import { sideOf, deadlineOf, swapStateOf, ethRecipient } from "./lib/rows.js?v=0.4.3";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
-const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=9838c591";
+const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=f7dc8fd1";
 const WORKER = "./monero.worker.js?v=a118abf5";
-const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=40669d21";
+const SDK_BUNDLE = "./assets/vendors/sdk/sdk-browser.js?v=27418dba";
 // THIS PAGE TALKS TO NO SERVICE. The SDK's service routes (a height the app remembers, the revealed half's
 // fallback, the "withdrawn" mark) get this fetch, which answers "unavailable" without a request: the height comes
 // from the chain or the person, the half from the chain, and a withdrawal needs nobody told. So only the Monero

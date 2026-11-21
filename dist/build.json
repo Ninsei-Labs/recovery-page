@@ -1,8 +1,8 @@
 {
   "name": "@ninsei-labs/recovery-page",
   "version": "0.4.3",
-  "commit": "fc712d5273f9fd0db4f95291083320c59bb0fc2b",
-  "builtAt": "2026-11-21T01:46:46.019Z",
+  "commit": "84d11150550257423f35490fac99ec93b8177eb5",
+  "builtAt": "2026-11-21T09:27:28.600Z",
   "files": [
     {
       "file": "monero.worker.js",
@@ -11,13 +11,13 @@
     },
     {
       "file": "assets/vendors/monero/monero-ts-browser.js",
-      "bytes": 3996488,
-      "sha256": "9838c5914428da87514229dfff2411c583d1d7c9f34a296ba9fb9305aec06b7a"
+      "bytes": 4030168,
+      "sha256": "f7dc8fd14c4a0d6c7035ef0a17e98bb348a54dd0866a45a1e09acf3db6dd1f06"
     },
     {
       "file": "assets/vendors/sdk/sdk-browser.js",
-      "bytes": 1276286,
-      "sha256": "40669d21709e5d2804b856f4de44a4a9195cb7bdf4e047a18ef0eb92039b7fcc"
+      "bytes": 1301448,
+      "sha256": "27418dba349d5b803134bb9dfbb2dd1e0c7444bbf2e767d867a6ec13b6c31698"
     },
     {
       "file": "locales/available.js",
@@ -37,7 +37,7 @@
     {
       "file": "index.html",
       "bytes": 13633,
-      "sha256": "f0b78b787cec1d9148e525f0a764479c8e96af6833372b59d818ae8a6cef4ee1"
+      "sha256": "6e4cfe84cb3fb19d3f8e867722201ac5d9c9243f74b0ed8b6b2b7771753e7d2d"
     },
     {
       "file": "recovery.css",
@@ -62,7 +62,7 @@
     {
       "file": "THIRD_PARTY_NOTICES.txt",
       "bytes": 491840,
-      "sha256": "f5c2d0e72b9a1293448b4f0ccd12bf7d3545ca5b6e4700b32b7775ef3a3b8296"
+      "sha256": "39385b5b3b315f835474a11ca99676315dcd9fd9b29255e164e771b72ea3a7af"
     },
     {
       "file": "lib/node.js",
@@ -147,12 +147,12 @@
     {
       "file": "recovery.js",
       "bytes": 90333,
-      "sha256": "72361c99b021ad88bfb57cb746325c2a01b565349e3d65150de39e864c40c407"
+      "sha256": "625b752f871be5f0068f97753674e4d46e834d2ce5f79fab010579614a563ce3"
     },
     {
       "file": "diagnostics.js",
       "bytes": 19895,
-      "sha256": "4ce882cdcf5575a7a92aeec62053f6e23fc6f8a97fc7ed4a21ca2959975b9f21"
+      "sha256": "4490f97967617b69b608c3a9eb7c30c239aa1f046243fd687c14b42b7c564b0a"
     }
   ]
 }
