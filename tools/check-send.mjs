@@ -169,6 +169,7 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
     msFromOrderSeconds,
     formatXmr: (value) => String(value),
     memoryAdapter: () => ({}),
+    decodeAddressKeys: () => ({ spendPub: "spend-pub" }),
     ...extraSdk,
   };
   const context = {
@@ -200,10 +201,21 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
 }
 
 function fakeCore({ relay = async () => ({ txids: [] }) } = {}) {
-  const calls = { relay: 0, sign: 0, destination: 0, disconnect: 0, fromOrder: 0, plan: 0, wallet: 0 };
+  const calls = {
+    relay: 0,
+    sign: 0,
+    destination: 0,
+    disconnect: 0,
+    fromOrder: 0,
+    plan: 0,
+    wallet: 0,
+    readRecovery: 0,
+    keyImages: 0,
+  };
   const core = {
     calls,
     lastSign: null,
+    lastRead: null,
     wallet: {
       use() {},
       async connect() {},
@@ -211,7 +223,41 @@ function fakeCore({ relay = async () => ({ txids: [] }) } = {}) {
         calls.disconnect += 1;
       },
     },
+    swaps: {
+      async readRecovery(request) {
+        calls.readRecovery += 1;
+        core.lastRead = request;
+        return {
+          complete: true,
+          spends: [],
+          transfers: [
+            {
+              pool: false,
+              locked: false,
+              confirmations: 1,
+              outputs: [
+                {
+                  index: 0,
+                  key: "cd".repeat(32),
+                  amountAtomic: "1",
+                  amountVerified: true,
+                  derivation: "ef".repeat(32),
+                },
+              ],
+            },
+          ],
+        };
+      },
+    },
     sweep: {
+      async keyImages(request) {
+        calls.keyImages += 1;
+        assert.ok(
+          request.keys && request.arrival && request.arrival.outputs.length,
+          "key images come from the page read",
+        );
+        return ["ab".repeat(32)];
+      },
       async relay(request) {
         calls.relay += 1;
         return relay(request);
@@ -219,6 +265,11 @@ function fakeCore({ relay = async () => ({ txids: [] }) } = {}) {
       async sign(request) {
         calls.sign += 1;
         core.lastSign = request;
+        if (!Array.isArray(request.keyImages) || !request.keyImages.length) {
+          const error = new Error("the signed set has no key images");
+          error.code = "bad-input";
+          throw error;
+        }
         return { token: "signed-token", amount: 5000n, fee: null, receive: null };
       },
       async destination() {
@@ -433,6 +484,7 @@ export async function checkSend() {
     key: { mnemonic: "words", fingerprint: "fp" },
     search: { rows: [], failed: [], done: true, searching: false, sources: [] },
     contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
     lastTx: { amount: 5000n, fee: null, receive: null, dest: address },
     adapter: { async close() {} },
     wallet,
@@ -451,6 +503,8 @@ export async function checkSend() {
   assert.equal(await page.sendTx(), true);
   const after = page.__state();
   assert.equal(core.calls.relay, 1, "the relay is called once");
+  assert.equal(core.calls.readRecovery, 1, "the relay uses one fresh page read of the node");
+  assert.equal(core.calls.keyImages, 1, "the page derives the images from its own read, not the wallet");
   assert.equal(after.signedToken, null, "the consumed session is dropped");
   assert.equal(after.lastTx, null, "the signed transaction is dropped");
   assert.equal(after.key, null, "the recovery key is dropped");
@@ -485,6 +539,7 @@ export async function checkLostRelay() {
     network: "testnet",
     key: { mnemonic: "words", fingerprint: "fp" },
     contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
     lastTx: { amount: 5000n, fee: null, receive: null, dest: address },
     adapter: { async close() {} },
     wallet,
@@ -530,6 +585,8 @@ export async function checkBeforeConfirm() {
   // SIGNING BUILDS THE CONFIRMATION; IT DOES NOT RELAY.
   assert.equal(await page.buildTx(), true);
   assert.equal(core.calls.sign, 1);
+  assert.equal(core.calls.readRecovery, 1, "signing reads the page's own node");
+  assert.equal(core.calls.keyImages, 1, "signing derives key images from the verified page read");
   assert.equal(core.calls.relay, 0, "buildTx must not relay");
   assert.equal(core.lastSign.maxFeeAtomic, 10_000_000_000n, "buildTx must name the fee ceiling");
   assert.equal(
@@ -603,6 +660,59 @@ export async function checkBeforeConfirm() {
     assert.equal(await fee.page.buildTx(), "sdk." + code, `${code} must reach the step`);
   }
 
+  // AN INCOMPLETE NODE READ IS NOT A SET TO SIGN. A page that cannot see the whole range stops before the wallet.
+  const incomplete = await pageBundle();
+  const incompleteCore = fakeCore();
+  incompleteCore.swaps.readRecovery = async () => ({ complete: false, transfers: [], spends: [] });
+  incomplete.page.facades.set("31337/testnet", incompleteCore);
+  incomplete.page.__seed({
+    settlement: "31337",
+    network: "testnet",
+    nodeNetwork: "testnet",
+    contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+    current: row,
+    adapter: { async close() {} },
+    wallet,
+    balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: true },
+    dest: address,
+  });
+  assert.equal(await incomplete.page.buildTx(), "flow.err.sign", "an incomplete node read must not sign");
+  assert.equal(incompleteCore.calls.sign, 0, "the wallet is not asked to sign without a complete page read");
+
+  // A SPENT OUTPUT IS REMOVED FROM THE PAGE SET, SO THE WALLET CANNOT SIGN IT EITHER.
+  const spent = await pageBundle();
+  const spentCore = fakeCore();
+  spentCore.swaps.readRecovery = async () => ({
+    complete: true,
+    spends: [{ keyImage: "ab".repeat(32) }],
+    transfers: [
+      {
+        pool: false,
+        locked: false,
+        confirmations: 1,
+        outputs: [
+          { index: 0, key: "cd".repeat(32), amountAtomic: "1", amountVerified: true, derivation: "ef".repeat(32) },
+        ],
+      },
+    ],
+  });
+  spent.page.facades.set("31337/testnet", spentCore);
+  spent.page.__seed({
+    settlement: "31337",
+    network: "testnet",
+    nodeNetwork: "testnet",
+    contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+    current: row,
+    adapter: { async close() {} },
+    wallet,
+    balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: true },
+    dest: address,
+  });
+  assert.equal(await spent.page.buildTx(), "flow.err.sign", "a spent output must not reach the signature");
+  assert.deepEqual(spentCore.lastSign.keyImages, [], "the page removes the spent output from the set");
+
   // THE SEND BUTTON'S OWN HANDLER REACHES THE RELAY: the markup check above and this call together prove the
   // confirmation control is wired to the one function that can send.
   const button = await pageBundle();
@@ -615,6 +725,7 @@ export async function checkBeforeConfirm() {
     key: { mnemonic: "words", fingerprint: "fp" },
     search: { rows: [], failed: [], done: true, searching: false, sources: [] },
     contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
     lastTx: { amount: 5000n, fee: null, receive: null, dest: address },
     adapter: { async close() {} },
     wallet,
