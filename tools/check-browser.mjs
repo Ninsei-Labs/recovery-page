@@ -82,6 +82,26 @@ function within(promise, ms, what) {
   return Promise.race([promise, late]).finally(() => clearTimeout(timer));
 }
 
+// A KILLED BROWSER MUST RELEASE ITS PROFILE BEFORE WINDOWS CAN REMOVE IT. The exit event is the release point; a
+// process that ignores the first signal is killed again and the cleanup waits for that exit too.
+function waitForExit(child, ms = 3000) {
+  return new Promise((resolve) => {
+    if (!child || child.exitCode !== null) return resolve();
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* already gone */
+      }
+      resolve();
+    }, ms);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 // THE DEVTOOLS PROTOCOL: numbered commands with their answers, each within its limit, and events for whoever listens.
 function devtools(url) {
   const socket = new WebSocket(url);
@@ -342,8 +362,9 @@ try {
   }
   cdp?.close();
   browser?.kill("SIGKILL");
+  await waitForExit(browser);
   server.kill();
   bare.stop(true);
-  await rm(profile, { recursive: true, force: true });
+  await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 process.exit(failed ? 1 : 0);

@@ -149,7 +149,8 @@ let nodeNetwork = null; // Monero network the chosen node answered with (checkNo
 let settlement = null; // settlement network of the current swap, one lib/settlement.js knows
 let balance = null; // { total, unlocked, txs } after a sync, null before one
 let signedToken = null; // signing token (sweep.sign -> sweep.relay)
-let sweepKeyImages = null; // the wallet's unspent set, checked again before relay
+let sweepKeyImages = null; // the page-read set passed to sign and checked again before relay
+let nodeReadCheckpoint = null; // the page's own node read, resumed before a second observation
 let lastTx = null; // signed transfer data for the confirmation
 // ETH SETTLEMENT: the injected provider, its adapter, the action material from sweep.fromOrder, and the receipt wait.
 let ethProvider = null;
@@ -1685,6 +1686,60 @@ async function unspentKeyImages() {
   return images;
 }
 
+// THE PAGE'S OWN READ DECIDES WHICH OUTPUTS MAY BE SPENT. The signing wallet chooses the inputs; its own output list
+// cannot prove that the set it chose is the set the page's node sees. This read carries the view key, derives the key
+// images from the verified funding outputs, and keeps the wallet only as the unspent filter. The SDK receives that
+// page-read set at `sweep.sign` and again at `sweep.relay`, where a spent or changed output stops the send.
+//
+// The checkpoint is the caller-owned one from the SDK's one-read path. It is bound to the address, network and start
+// height, so a second read after signing resumes instead of walking the same blocks again.
+async function pageKeyImages(core) {
+  const walletImages = await unspentKeyImages();
+  const keys = await core.sweep.keys({ file: { contents }, passphrase: "" });
+  const addressKeys = mod.decodeAddressKeys(plan.address);
+  const fromHeight = Number(plan.restoreHeight);
+  if (!Number.isSafeInteger(fromHeight) || fromHeight < 0) throw new Error("the swap has no scan height");
+  const read = await core.swaps.readRecovery({
+    node: nodeUrl(),
+    address: plan.address,
+    viewSecret: keys.privateViewKey,
+    spendPub: addressKeys.spendPub,
+    fromHeight,
+    network,
+    // A node read that cannot see the whole range cannot prove an unspent set.
+    keyImages: walletImages,
+    // THE PAGE'S OWN TRANSPORT. The facade is built with `noService` so its other routes cannot call a host; this
+    // read is the one place where the chosen node is asked directly.
+    fetch: globalThis.fetch,
+    checkpoint: {
+      read: () => nodeReadCheckpoint,
+      save: (record) => {
+        nodeReadCheckpoint = record;
+      },
+      discard: () => {
+        nodeReadCheckpoint = null;
+      },
+    },
+  });
+  if (!read || read.complete !== true) throw new Error("the node read is incomplete");
+  const spent = new Set((read.spends || []).map((spend) => String(spend.keyImage || "").toLowerCase()));
+  const outputs = [];
+  for (const transfer of read.transfers || []) {
+    if (transfer.pool || transfer.locked || (transfer.unlock && transfer.unlock.locked)) continue;
+    if (Number(transfer.confirmations) < 1) continue;
+    for (const output of transfer.outputs || []) {
+      if (output.amountVerified !== true || output.amountAtomic === null || output.amountAtomic === undefined) continue;
+      outputs.push(output);
+    }
+  }
+  const fromNode = await core.sweep.keyImages({ keys, arrival: { outputs } });
+  const available = new Set(walletImages);
+  return fromNode
+    .map((entry) => (typeof entry === "string" ? entry : entry.keyImage))
+    .map((image) => String(image).replace(/^0x/i, "").toLowerCase())
+    .filter((image) => available.has(image) && !spent.has(image));
+}
+
 // BUILD AND SIGN, NOT SEND. Returns true, or the key of the plain line that says why not.
 async function buildTx() {
   const dest = destInput.value.trim();
@@ -1707,7 +1762,7 @@ async function buildTx() {
   // An empty balance stops with `insufficient-funds` BEFORE signing, on the SAME wallet scanned above.
   let signed;
   try {
-    sweepKeyImages = await unspentKeyImages();
+    sweepKeyImages = await pageKeyImages(core);
     signed = await core.sweep.sign({
       file: { contents },
       passphrase: "",
@@ -1785,10 +1840,11 @@ async function sendTx() {
   }
   showProgress("flow.progress.send");
   let freshImages;
+  const core = await facadeFor(settlement, network);
   try {
-    // THE RELAY CHECK READS THE SET AGAIN. The signed bytes cannot change, but the wallet's view can: a fresh list
-    // that differs from the signed inputs keeps the session open and sends nothing.
-    freshImages = await unspentKeyImages();
+    // THE RELAY CHECK READS THE NODE AGAIN. The signed bytes cannot change, but the page's view can: a fresh list
+    // that differs from the signed inputs keeps the session open and sends nothing. The checkpoint resumes the read.
+    freshImages = await pageKeyImages(core);
   } catch (e) {
     hideProgress();
     log(t("log.send.unknown", { words: sdkWords(e) }), "bad");
@@ -1797,7 +1853,7 @@ async function sendTx() {
   let out;
   try {
     // SENDING IS THE CORE'S (sweep.relay). Its "withdrawn" mark for a service meets `noService` and goes nowhere.
-    out = await (await facadeFor(settlement, network)).sweep.relay({ token: signedToken, keyImages: freshImages });
+    out = await core.sweep.relay({ token: signedToken, keyImages: freshImages });
   } catch (e) {
     hideProgress();
     // THE NODE MAY HAVE ACCEPTED THE TRANSACTION AND LOST ONLY THE REPLY. A definite "not sent" would be false, and a
@@ -1849,6 +1905,7 @@ async function closeWallet() {
   adapter = null;
   wallet = null;
   sweepKeyImages = null;
+  nodeReadCheckpoint = null;
   if (core) {
     try {
       await core.wallet.disconnect();
