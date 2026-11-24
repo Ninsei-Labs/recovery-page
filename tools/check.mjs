@@ -1735,6 +1735,11 @@ await check("the search clears its fields and keeps the words out of the log and
   return checkKeySecret();
 });
 
+await check("the node read starts at the typed height, shows progress and refuses a blank height", async () => {
+  const { checkNodeReadHeight } = await import("./check-send.mjs");
+  return checkNodeReadHeight();
+});
+
 // AN OPEN THAT A NEWER ROW REPLACED MUST NOT WRITE ITS CONTENTS OR PLAN UNDER THE NEW ROW. The delayed stagenet
 // `get_info` is the measured case.
 await check("an open swap keeps one context and ignores a superseded plan", async () => {
