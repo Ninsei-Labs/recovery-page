@@ -125,7 +125,7 @@ export default {
     "page.field.height": "Start from block",
     "page.placeholder.height": "Block height",
     "page.warn.height":
-      "The page could not find this swap's start block on the Monero chain. Enter the height of a Monero block from shortly before the swap, or the wallet will read the whole chain, which takes hours. A block explorer shows the height for a date.",
+      "The page could not find this swap's start block on the Monero chain. Enter the height of a Monero block from shortly before the swap. A blank height is refused; the page will not read the whole chain. A block explorer shows the height for a date.",
     "page.btn.withdraw": "Withdraw XMR",
     "page.confirm.h": "Check and confirm",
     "page.btn.send": "Confirm and send",
@@ -173,6 +173,9 @@ export default {
     "flow.err.networks": "The swap is on {swap} and the chosen node is on {node}. Choose a node of the same network",
     "flow.err.keys": "The keys do not open this swap's address. The technical log below says why",
     "flow.err.height": "The start block is above the node's latest block. Enter a lower block and try again",
+    "flow.err.height.blank":
+      "Enter the swap's start block. A blank height is refused; the page will not read the whole chain",
+    "flow.err.height.invalid": "Enter a whole block height above zero",
     "flow.err.walletBuild": "The wallet could not be built for this swap. The technical log below says why",
     "flow.err.wallet": "The wallet could not connect to the node. Choose another node and try again",
     "flow.err.sync": "The wallet could not read the chain. Try again, or choose another node",
@@ -282,6 +285,8 @@ export default {
     "log.height.found":
       "the swap starts at Monero block {height}: the last block before its order (settlement block {block}) minus 60",
     "log.height.failed": "the swap's start block could not be found on the Monero chain: {why}",
+    "log.height.blank": "the start block is blank; not scanning from the genesis block",
+    "log.height.invalid": "the start block is not a whole positive height; not scanning",
     "log.height.aboveTip": "the start block {height} is above the node's tip {tip}; not scanning",
     "log.dest.accepted": "the recipient address was accepted by the library ({network})",
     "log.keys.failed": "the spend keys were not assembled: {words}",

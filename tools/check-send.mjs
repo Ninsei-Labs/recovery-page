@@ -1306,6 +1306,82 @@ export async function checkKeySecret() {
   return "the search clears the fields and keeps the words out of the log and the window state";
 }
 
+export async function checkNodeReadHeight() {
+  const opened = await pageBundle();
+  const { page } = opened;
+  const core = fakeCore();
+  let progress = false;
+  core.swaps.readRecovery = async (request) => {
+    core.calls.readRecovery += 1;
+    core.lastRead = request;
+    progress = true;
+    request.onProgress?.({
+      phase: "blocks",
+      through: 12,
+      blocksVerified: 5,
+      blocksTotal: 10,
+      bytes: 0,
+      operator: "test",
+    });
+    return { complete: true, transfers: [], spends: [] };
+  };
+  core.sweep.keyImages = async () => ["ab".repeat(32)];
+  page.facades.set("31337/testnet", core);
+  page.__seed({
+    settlement: "31337",
+    network: "testnet",
+    key: { mnemonic: "words", fingerprint: "fp" },
+    contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+    height: 2,
+    current: row,
+    adapter: { async close() {} },
+    wallet,
+    balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: true },
+    dest: address,
+  });
+  const built = await page.buildTx();
+  assert.equal(built, true);
+  assert.equal(core.calls.readRecovery, 1, "signing reads the page's own node");
+  assert.equal(core.lastRead.fromHeight, 2, "the node read must use the height typed for the restore");
+  assert.equal(progress, true, "the node read must report its progress");
+  assert.equal(page.__text("progressHead"), "flow.progress.scan", "the progress line is the block read");
+  assert.equal(page.__text("progressSub"), "flow.progress.blocks", "the progress line names the block");
+
+  const blank = await pageBundle();
+  const blankCore = fakeCore();
+  blank.page.facades.set("31337/testnet", blankCore);
+  blank.page.__seed({
+    key: { mnemonic: "words", fingerprint: "fp" },
+    contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 0, missing: [], revealedHalf: true },
+    height: "",
+    current: row,
+    adapter: { async close() {} },
+    balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: true },
+    dest: address,
+  });
+  assert.equal(await blank.page.syncWallet(), "flow.err.height.blank", "a blank height must be refused");
+  assert.equal(blank.page.__state().wallet, null, "a blank height must not build a wallet");
+  assert.equal(blankCore.calls.wallet, 0, "a blank height must not reach the node");
+
+  const invalid = await pageBundle();
+  const invalidCore = fakeCore();
+  invalid.page.facades.set("31337/testnet", invalidCore);
+  invalid.page.__seed({
+    key: { mnemonic: "words", fingerprint: "fp" },
+    contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+    height: 12.5,
+    current: row,
+    adapter: { async close() {} },
+    dest: address,
+  });
+  assert.equal(await invalid.page.syncWallet(), "flow.err.height.invalid", "a fractional height must be named");
+  assert.equal(invalidCore.calls.wallet, 0, "an invalid height must not reach the node");
+  return "the node read starts at the typed height, shows its progress, and refuses a blank or invalid height";
+}
+
 if (import.meta.main) {
   console.log("ok    " + (await checkOpenAndSync()));
   console.log("ok    " + (await checkSend()));
@@ -1317,6 +1393,7 @@ if (import.meta.main) {
   console.log("ok    " + (await checkPreflight()));
   console.log("ok    " + (await checkNoService()));
   console.log("ok    " + (await checkKeySecret()));
+  console.log("ok    " + (await checkNodeReadHeight()));
 }
 
 export { pageBundle, fakeCore, element, address, row, wallet };
