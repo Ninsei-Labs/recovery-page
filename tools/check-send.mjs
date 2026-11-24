@@ -1349,6 +1349,8 @@ export async function checkNodeReadHeight() {
   assert.equal(page.__text("progressSub"), "flow.progress.blocks", "the progress line names the block");
 
   const blank = await pageBundle();
+  const blankCore = fakeCore();
+  blank.page.facades.set("31337/testnet", blankCore);
   blank.page.__seed({
     key: { mnemonic: "words", fingerprint: "fp" },
     contents: { kind: "file" },
@@ -1361,7 +1363,23 @@ export async function checkNodeReadHeight() {
   });
   assert.equal(await blank.page.syncWallet(), "flow.err.height.blank", "a blank height must be refused");
   assert.equal(blank.page.__state().wallet, null, "a blank height must not build a wallet");
-  return "the node read starts at the typed height, shows its progress, and refuses a blank height";
+  assert.equal(blankCore.calls.wallet, 0, "a blank height must not reach the node");
+
+  const invalid = await pageBundle();
+  const invalidCore = fakeCore();
+  invalid.page.facades.set("31337/testnet", invalidCore);
+  invalid.page.__seed({
+    key: { mnemonic: "words", fingerprint: "fp" },
+    contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+    height: 12.5,
+    current: row,
+    adapter: { async close() {} },
+    dest: address,
+  });
+  assert.equal(await invalid.page.syncWallet(), "flow.err.height.invalid", "a fractional height must be named");
+  assert.equal(invalidCore.calls.wallet, 0, "an invalid height must not reach the node");
+  return "the node read starts at the typed height, shows its progress, and refuses a blank or invalid height";
 }
 
 if (import.meta.main) {
