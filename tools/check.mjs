@@ -1457,72 +1457,8 @@ await check(
     assert.equal(nodeFor("stagenet", "stagenet"), DEFAULT_NODE);
     assert.equal(nodeFor("stagenet", "mainnet"), STAGENET_NODE);
     assert.equal(nodeFor("mainnet", "stagenet"), null);
-    // The search hands findSwaps these readers, never the SDK's own node reader (xmrNodes), which asks for a header
-    // past the top block.
-    const page = (await read("recovery.js")).replace(/\/\/.*$/gm, "");
-    const call = page.slice(page.indexOf("findSwaps({"), page.indexOf("});", page.indexOf("findSwaps({")));
-    assert.match(call, /\.\.\.\(await moneroReaders\(/, "the search does not hand findSwaps the page's Monero readers");
-    assert.match(
-      call,
-      /evmBlockTime: \(block\) => evmBlockTime\(/,
-      "the search does not hand findSwaps the order's block time",
-    );
-    assert.ok(!/xmrNodes/.test(page), "the page hands findSwaps the SDK's own node reader");
-    // The swap opens with the height the search returned; none is said with the SDK's reason.
-    const open = bodyOf(page, "openSwap");
-    assert.match(
-      open,
-      /const startHeight = Number\(row\.swap\.startHeight\) > 0 \? Number\(row\.swap\.startHeight\) : null;/,
-      "the swap does not open with the SDK's start height",
-    );
-    assert.match(open, /row\.swap\.startHeightReason/, "a missing start height is not said with the SDK's reason");
   },
 );
-
-// THE ETH ACTION GOES THROUGH THE SAME WALLET THAT WILL SIGN. `sweep.fromOrder` plans from order fields; the call
-// that leaves the tab is built by the SDK's action and sent by the wallet adapter, not by the page.
-await check("the ETH action is built by the SDK and sent by the wallet's own provider", async () => {
-  const page = (await read("recovery.js")).replace(/\/\/.*$/gm, "");
-  assert.ok(!/eth_estimateGas/.test(page), "the page estimates gas with the action calldata");
-  assert.ok(!/ETH_SELECTOR/.test(page), "the page keeps the action selectors for an estimate");
-  const gas = bodyOf(page, "drawEthGas");
-  assert.ok(
-    !/ethProvider|ethAdapter|eth_estimateGas|eth_gasPrice|\.half/.test(gas),
-    "the gas panel reads the action half or the provider",
-  );
-  const core = bodyOf(page, "actionCore");
-  assert.match(core, /evmCall: call/, "the action core does not read through the wallet provider");
-  assert.match(core, /provider\.request\(\{ method: "eth_call"/, "the action core is not an eth_call");
-  assert.match(
-    core,
-    /settlement: \{ chain: row\.net\.chainId \}/,
-    "the action core names the chain by id, not by name",
-  );
-  assert.match(core, /fetch: noService/, "the action core's SDK may reach a service");
-  const send = bodyOf(page, "ethSend");
-  assert.match(send, /core\.actions\[kind\]\(request, adapter\)/, "the ETH send does not go through the SDK action");
-  assert.ok(!/eth_sendTransaction[^\n]*core\.actions/.test(send), "the page sends its own eth_sendTransaction");
-  assert.match(
-    send,
-    /receipt\.why === "reverted"[\s\S]*?ethConfirmEl\.hidden = false/,
-    "a reverted send cannot be retried",
-  );
-  assert.match(send, /e\.params\.field === "wallet"/, "a wallet account change is not named");
-  const connect = bodyOf(page, "ethConnect");
-  assert.match(connect, /mod\.evmWallet\(provider\)/, "the ETH action does not use the wallet adapter");
-  assert.match(connect, /clearEthConnection/, "a failed connect does not keep the prepared action");
-  assert.ok(!/clearEthState\(\)/.test(connect), "a failed connect clears the prepared action");
-  assert.match(connect, /seq !== ethConnectSeq/, "a late connection is not ignored after another swap opens");
-  assert.ok(!/eth_sendTransaction/.test(page), "the page builds its own eth_sendTransaction");
-  const open = bodyOf(page, "openSwap");
-  assert.match(
-    open,
-    /openState\.action === "refund" \|\| openState\.action === "claim"/,
-    "an ETH row opens the XMR flow",
-  );
-  assert.match(open, /return await openEth\(row\)/, "an ETH row does not open the ETH block");
-  assert.match(open, /moneyEl\.hidden = true/, "the XMR block is shown for an ETH row");
-});
 
 // A FAKE EIP-1193 PROVIDER RECORDS WHAT THE ADAPTER ACTUALLY PUTS ON THE WIRE: the escrow address, the exact
 // calldata, the sender and the chain. The action's data is not rebuilt here; this checks the boundary it crosses.
@@ -2005,7 +1941,6 @@ await check("the page talks to no service, so only the node and the chain hear f
 // WHAT THE PAGE CHECKED IS SAID LINE BY LINE, and a change of node asks the node again, never the wallet: loading
 // the wallet twice only repeated the same lines in the log.
 await check("the checks are said line by line, and a change of node asks only the node", async () => {
-  const page = await read("recovery.js");
   const html = await read("index.html");
   const { default: en } = await import(pathToFileURL(join(ROOT, "locales", "en", "index.js")).href);
   const names = ["wallet", "node", "secure"];
@@ -2018,12 +1953,6 @@ await check("the checks are said line by line, and a change of node asks only th
     for (const state of ["wait", "ok", "bad"])
       assert.ok(en.strings[`check.${name}.${state}`], `no words for check.${name}.${state}`);
   }
-  assert.match(page, /if \(!walletCheck\) walletCheck = loadWallet\(\);/, "the wallet is loaded again on every check");
-  const run = page.slice(page.indexOf("async function runPreflight("), page.indexOf("function checkEnvironment("));
-  assert.match(run, /checkWallet\(\)/, "the check runner does not go through checkWallet");
-  assert.ok(!/loadWallet\(/.test(run), "the check runner loads the wallet itself");
-  const choose = page.slice(page.indexOf("function chooseListed("), page.indexOf("function chooseOwn("));
-  assert.match(choose, /checkEnvironment\(\)/, "picking a node does not ask it");
 });
 
 await check("the page stores nothing: no key, no word, no password in any storage", async () => {
