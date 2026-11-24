@@ -441,8 +441,9 @@ async function facadeFor(chainId, xmrNetwork) {
 // THE WALLET IN THIS TAB: the monero-ts bundle, the built SDK core and the worker file. Checked once: they do not
 // change when the person picks another node, and loading them again would only repeat the same lines.
 let walletCheck = null;
+let loadWalletImpl = loadWallet;
 function checkWallet() {
-  if (!walletCheck) walletCheck = loadWallet();
+  if (!walletCheck) walletCheck = loadWalletImpl();
   return walletCheck;
 }
 async function loadWallet() {
@@ -1377,9 +1378,7 @@ async function refreshBalance() {
     try {
       const walletHeight = Number(await wallet.getHeight());
       const nodeHeight = Number(await wallet.getDaemonHeight());
-      if (previous && previous.scanComplete === false) {
-        scanIncompleteReason = previous.scanIncompleteReason || "scan-incomplete";
-      } else if (Number.isFinite(walletHeight) && Number.isFinite(nodeHeight)) {
+      if (Number.isFinite(walletHeight) && Number.isFinite(nodeHeight)) {
         // A MATCHING HEIGHT IS NOT ENOUGH: a node that stopped advancing claims the same short tip as the wallet.
         // The plain sync used to upgrade that short chain to a complete scan; keep the same corroboration the full
         // restore uses, so a stale tip leaves the balance incomplete rather than "unseen" or "nothing".
