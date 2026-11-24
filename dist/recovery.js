@@ -1459,10 +1459,20 @@ const WALLET_STOPS = {
   "recovery-failed": "flow.err.keys",
 };
 
+// THE HEIGHT THE PERSON CHOSE: the field wins over the plan's finder value, so the restore and the node read
+// start at the same block. A blank field with no plan height is refused, never read as the genesis block.
+function selectedHeight() {
+  return Number(heightInput.value.trim() || 0) || Number(plan.restoreHeight) || 0;
+}
+
 // THE WALLET OF THE SWAP + SYNC. Returns true, or the key of the plain line that says why not; the detail is logged.
 async function syncWallet() {
   const dest = destInput.value.trim();
-  let height = Number(heightInput.value.trim() || 0) || Number(plan.restoreHeight) || 0;
+  let height = selectedHeight();
+  if (!Number.isSafeInteger(height) || height <= 0) {
+    log(t("log.height.blank"), "bad");
+    return "flow.err.height.blank";
+  }
   const core = await facadeFor(settlement, network);
 
   // ADDRESS IS A PACKAGE RULE (sweep.destination): shape and network; monero-ts is not a second judge.
@@ -1696,8 +1706,8 @@ async function pageKeyImages(core) {
   const walletImages = await unspentKeyImages();
   const keys = await core.sweep.keys({ file: { contents }, passphrase: "" });
   const addressKeys = mod.decodeAddressKeys(plan.address);
-  const fromHeight = Number(plan.restoreHeight);
-  if (!Number.isSafeInteger(fromHeight) || fromHeight < 0) throw new Error("the swap has no scan height");
+  const fromHeight = selectedHeight();
+  if (!Number.isSafeInteger(fromHeight) || fromHeight <= 0) throw new Error("the swap has no scan height");
   const read = await core.swaps.readRecovery({
     node: nodeUrl(),
     address: plan.address,
@@ -1710,6 +1720,16 @@ async function pageKeyImages(core) {
     // THE PAGE'S OWN TRANSPORT. The facade is built with `noService` so its other routes cannot call a host; this
     // read is the one place where the chosen node is asked directly.
     fetch: globalThis.fetch,
+    onProgress: (event) => {
+      const total = Number(event && event.blocksTotal);
+      const done = Number(event && event.blocksVerified);
+      const fraction = Number.isFinite(total) && total > 0 && Number.isFinite(done) ? Math.min(1, done / total) : null;
+      showProgress("flow.progress.scan", {
+        fraction,
+        sub:
+          Number.isFinite(total) && total > 0 ? () => t("flow.progress.blocks", { at: n(done), end: n(total) }) : null,
+      });
+    },
     checkpoint: {
       read: () => nodeReadCheckpoint,
       save: (record) => {
