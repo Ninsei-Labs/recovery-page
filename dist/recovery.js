@@ -1462,16 +1462,22 @@ const WALLET_STOPS = {
 // THE HEIGHT THE PERSON CHOSE: the field wins over the plan's finder value, so the restore and the node read
 // start at the same block. A blank field with no plan height is refused, never read as the genesis block.
 function selectedHeight() {
-  return Number(heightInput.value.trim() || 0) || Number(plan.restoreHeight) || 0;
+  const typed = heightInput.value.trim();
+  return typed ? Number(typed) : Number(plan.restoreHeight) || 0;
 }
 
 // THE WALLET OF THE SWAP + SYNC. Returns true, or the key of the plain line that says why not; the detail is logged.
 async function syncWallet() {
   const dest = destInput.value.trim();
+  const typed = heightInput.value.trim();
   let height = selectedHeight();
-  if (!Number.isSafeInteger(height) || height <= 0) {
+  if (!typed && height <= 0) {
     log(t("log.height.blank"), "bad");
     return "flow.err.height.blank";
+  }
+  if (!Number.isSafeInteger(height) || height <= 0) {
+    log(t("log.height.invalid"), "bad");
+    return "flow.err.height.invalid";
   }
   const core = await facadeFor(settlement, network);
 
