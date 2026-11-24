@@ -1705,6 +1705,36 @@ await check("a withdrawal refreshes its balance and reopens a closed wallet", as
   return checkOpenAndSync();
 });
 
+await check("the ETH action is sent by the SDK and only a receipt moves the row", async () => {
+  const { checkEthAction } = await import("./check-send.mjs");
+  return checkEthAction();
+});
+
+await check("a connection that answers after another swap opens is ignored", async () => {
+  const { checkEthRace } = await import("./check-send.mjs");
+  return checkEthRace();
+});
+
+await check("an ETH row opens the ETH block, not the XMR flow", async () => {
+  const { checkEthRouting } = await import("./check-send.mjs");
+  return checkEthRouting();
+});
+
+await check("the wallet is loaded once and a node change asks only the node", async () => {
+  const { checkPreflight } = await import("./check-send.mjs");
+  return checkPreflight();
+});
+
+await check("both facades refuse to reach a service", async () => {
+  const { checkNoService } = await import("./check-send.mjs");
+  return checkNoService();
+});
+
+await check("the search clears its fields and keeps the words out of the log and window state", async () => {
+  const { checkKeySecret } = await import("./check-send.mjs");
+  return checkKeySecret();
+});
+
 // AN OPEN THAT A NEWER ROW REPLACED MUST NOT WRITE ITS CONTENTS OR PLAN UNDER THE NEW ROW. The delayed stagenet
 // `get_info` is the measured case.
 await check("an open swap keeps one context and ignores a superseded plan", async () => {
@@ -1887,7 +1917,6 @@ await check(
     assert.ok(box.length > 0, "no height box before the transfer");
     assert.match(box, /data-i18n="page\.warn\.height"/, "no warning for a swap without a start block");
     assert.match(box, /<input\s+id="restoreHeight"/, "the height field is not beside the warning");
-    assert.match(page, /heightBox\.hidden = height > 0/, "the field and the warning do not follow the height");
   },
 );
 
@@ -1913,28 +1942,6 @@ await check("nothing folds the flow, and only the node list opens by itself, whe
     draw,
     /if \(checks\.node\.state === "bad" && !panelOpen\) setPanel\(true\);/,
     "the list does not open when the node fails",
-  );
-});
-
-// THE PAGE TALKS TO NO SERVICE: its promise is that only the Monero node and the settlement chain hear from the tab.
-// The SDK's service routes (height, the revealed half's fallback, the "withdrawn" mark) get a fetch that refuses
-// without a request.
-await check("the page talks to no service, so only the node and the chain hear from the tab", async () => {
-  const page = await read("recovery.js");
-  assert.ok(!/["']\.\/api["']|apiBase/.test(page), "the page names a service base");
-  const build = bodyOf(page, "facadeFor");
-  assert.match(build, /fetch: noService,/, "the SDK gets the browser's fetch for its service routes");
-  // THE ACTION FACADE IS A SECOND createNinsei ON PURPOSE: it reads through the wallet provider, never the public
-  // RPC. Both must use noService for the SDK's own service routes.
-  assert.equal([...page.matchAll(/createNinsei\(/g)].length, 2, "a facade is built outside facadeFor/actionCore");
-  assert.match(bodyOf(page, "actionCore"), /fetch: noService,/, "the action facade gets the browser's fetch");
-  const at = page.indexOf("const noService =");
-  const body = page.slice(at, page.indexOf("};", at) + 2);
-  assert.match(body, /throw new TypeError/, "noService does not refuse");
-  assert.ok(!/fetch\(/.test(body), "noService sends a request");
-  assert.ok(
-    !/sweep\.report|restoreHeight\(\{|reportRetry/.test(page),
-    "the page still asks a service for the height or reports the withdrawal",
   );
 });
 
@@ -1969,30 +1976,6 @@ await check("the page stores nothing: no key, no word, no password in any storag
     }
   }
   assert.deepEqual(writes, ["lib/node.js: sessionStorage.setItem(NODE_STORAGE_KEY, url)"]);
-});
-
-// THE WORDS STAY IN ONE VARIABLE: no log line, no window state and no field holds them after the search. A log line
-// is built from SDK codes and public chain data; the window state carries the fingerprint, never the key.
-await check("the 12 words never reach the log, the window state or a field after the search", async () => {
-  const page = await read("recovery.js");
-  const secret =
-    /mnemonic|keyWordsInput\.value|keyPassInput\.value|keyFileText|spendHalf|viewHalf|privateSpendKey|privateViewKey/;
-  const logs = [...page.matchAll(/\blog\((t\([^;]*)\);/g)].map((m) => m[1]);
-  assert.ok(logs.length > 20, `only ${logs.length} log lines found`);
-  for (const line of logs) assert.ok(!secret.test(line), `a log line names a secret: log(${line})`);
-  const states = [...page.matchAll(/window\.__sweepFlow(?:\.\w+)? = ([^;]*);/g)].map((m) => m[1]);
-  assert.ok(states.length > 5, `only ${states.length} window state writes found`);
-  for (const state of states)
-    assert.ok(!secret.test(state) && !/\bkey\b(?!\.fingerprint)/.test(state), `window state names a secret: ${state}`);
-  const find = bodyOf(page, "findKeySwaps");
-  assert.ok(
-    find.indexOf("clearKeyFields()") >= 0 && find.indexOf("clearKeyFields()") < find.indexOf("keyNetworks("),
-    "the words stay in the fields while the chain is searched",
-  );
-  assert.match(
-    bodyOf(page, "clearKeyFields"),
-    /keyWordsInput\.value = "";[\s\S]*keyFileText = null;[\s\S]*keyPassInput\.value = "";/,
-  );
 });
 
 // IT IS THE "NINSEI KEY", NEVER A SEED. A word "seed" on the page only says that the key is not one, and "recovery

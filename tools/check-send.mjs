@@ -231,7 +231,7 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
   return { page, elements, window };
 }
 
-function fakeCore({ relay = async () => ({ txids: [] }) } = {}) {
+function fakeCore({ relay = async () => ({ txids: [] }), planResult = null } = {}) {
   const calls = {
     relay: 0,
     sign: 0,
@@ -317,7 +317,7 @@ function fakeCore({ relay = async () => ({ txids: [] }) } = {}) {
       },
       async plan() {
         calls.plan += 1;
-        return { address: "address", restoreHeight: 1, missing: [], revealedHalf: true };
+        return planResult || { address: "address", restoreHeight: 1, missing: [], revealedHalf: true };
       },
       async fromOrder() {
         calls.fromOrder += 1;
@@ -400,6 +400,27 @@ export async function checkOpenAndSync() {
   assert.equal(openCore.calls.fromOrder, 1, "opening a swap builds it through sweep.fromOrder");
   assert.equal(openCore.calls.plan, 1, "opening a swap builds its plan through the SDK");
   assert.equal(opened.page.__state().plan.revealedHalf, true);
+  assert.equal(opened.elements.get("heightBox").hidden, true, "a known restore height hides the height field");
+  assert.equal(opened.elements.get("restoreHeight").value, "1", "the field carries the plan's restore height");
+
+  // A MISSING HEIGHT IS A NAMED STATE: the field is empty and the warning beside it is shown, never a zero scan.
+  const missingHeight = await pageBundle();
+  const missingCore = fakeCore({
+    planResult: { address: "address", restoreHeight: 0, missing: [], revealedHalf: true },
+  });
+  missingHeight.page.facades.set("testnet/testnet", missingCore);
+  missingHeight.page.__seed({
+    key: { mnemonic: "words", fingerprint: "fp" },
+    nodeNetwork: "testnet",
+    current: null,
+    plan: null,
+    contents: null,
+    balance: null,
+    dest: address,
+  });
+  assert.equal(await missingHeight.page.openSwap(row), true);
+  assert.equal(missingHeight.elements.get("heightBox").hidden, false, "a missing height shows the field and warning");
+  assert.equal(missingHeight.elements.get("restoreHeight").value, "", "a missing height is not written as zero");
 
   // THE SEARCH'S START HEIGHT REACHES THE OPEN: a known height is logged, a missing one is named with the SDK's
   // reason. The field is filled from the plan's restore height, not guessed from a zero.
@@ -1212,6 +1233,79 @@ export async function checkEthRouting() {
   return "an ETH row opens the ETH block, not the XMR flow";
 }
 
+export async function checkNoService() {
+  let options = null;
+  let created = 0;
+  const opened = await pageBundle({
+    rowSdk: {
+      createNinsei(seen) {
+        created += 1;
+        options = seen;
+        return { actions: {}, sweep: {} };
+      },
+    },
+  });
+  await opened.page.facadeFor(31337, "testnet");
+  assert.equal(created, 1, "the search facade is built once");
+  assert.equal(typeof options.fetch, "function", "the search facade gets a fetch");
+  await assert.rejects(options.fetch(), /no service/, "the search facade must not reach a service");
+
+  const action = opened.page.actionCore(row, { request() {} });
+  assert.ok(action, "the action facade is built");
+  assert.equal(created, 2, "the action facade is a second createNinsei");
+  await assert.rejects(options.fetch(), /no service/, "the action facade must not reach a service");
+  return "both facades get a fetch that refuses, so only the node and the chain hear from the tab";
+}
+
+export async function checkKeySecret() {
+  const mnemonic = "abandon ability able about above absent absorb abstract absurd abuse access accident";
+  const opened = await pageBundle({
+    context: {
+      pageText: (key, params) => key + (params ? " " + JSON.stringify(params) : ""),
+      fetch: async () => ({ ok: true, status: 200, json: async () => ({ result: "0x100" }) }),
+    },
+    rowSdk: {
+      CHAINS: [
+        {
+          id: "arbitrum-sepolia",
+          name: "Arbitrum Sepolia",
+          chainId: 421614,
+          escrow: { mode: "live", address: "0x" + "ab".repeat(20) },
+          native: { decimals: 18, symbol: "ETH" },
+        },
+      ],
+      importRecoveryKey(words) {
+        return { mnemonic: words, fingerprint: "fp" };
+      },
+      async findSwaps() {
+        throw new Error("search failed for " + mnemonic);
+      },
+      async probeMoneroNode() {
+        return { ok: true, network: "testnet", height: 100, synchronized: true, nettype: "testnet" };
+      },
+      async readEscrowEventsByTopic() {
+        return [];
+      },
+    },
+  });
+  opened.page.__seed({ key: null, search: null, current: null, nodeNetwork: "testnet" });
+  opened.elements.get("keyWords").value = mnemonic;
+  await opened.page.findKeySwaps();
+
+  assert.equal(opened.elements.get("keyWords").value, "", "the words stay in the field after the search");
+  assert.equal(opened.elements.get("keyPass").value, "", "the password stays in the field after the search");
+  assert.ok(
+    !JSON.stringify(opened.window.__sweepFlow, (_key, value) =>
+      typeof value === "bigint" ? String(value) : value,
+    ).includes(mnemonic),
+    "the words reach the window state",
+  );
+  const steps = opened.page.__state().steps.join("\n");
+  assert.ok(!steps.includes(mnemonic), "the words reach the log");
+  assert.ok(steps.includes("[redacted]"), "a secret in an error is not redacted");
+  return "the search clears the fields and keeps the words out of the log and the window state";
+}
+
 if (import.meta.main) {
   console.log("ok    " + (await checkOpenAndSync()));
   console.log("ok    " + (await checkSend()));
@@ -1221,6 +1315,8 @@ if (import.meta.main) {
   console.log("ok    " + (await checkEthRace()));
   console.log("ok    " + (await checkEthRouting()));
   console.log("ok    " + (await checkPreflight()));
+  console.log("ok    " + (await checkNoService()));
+  console.log("ok    " + (await checkKeySecret()));
 }
 
 export { pageBundle, fakeCore, element, address, row, wallet };
