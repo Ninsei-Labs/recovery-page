@@ -2,6 +2,7 @@
 // is bundled in memory and driven with a small DOM and fake SDK/chain seams, so a correct-looking string cannot pass.
 import assert from "node:assert/strict";
 import { DEFAULT_NODE, NODES } from "../lib/node.js";
+import { SETTLEMENT } from "../lib/settlement.js";
 import { address, fakeCore, pageBundle, row } from "./check-send.mjs";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -197,6 +198,284 @@ export async function checkFindSwaps() {
   return "the search reads events without addresses, reuses a returned block time and reads a null time";
 }
 
+// THE KEY SEARCH OVER SEVERAL NETWORKS, read from what the page shows and what it asks the SDK. A network that does
+// not answer completely (findSwaps throws or says `complete: false`, or its swaps' escrow events cannot be read) is
+// named, keeps "no swaps" hidden and leaves the retry on; the swaps another network found stay through the failure
+// and every retry. Once every network has answered completely the retry goes, and "no swaps" shows if none was found.
+//
+// lib/settlement.js reads one settlement chain today, so the second network is a second registry entry for the same
+// chain under another name: a synthetic example. Both send findSwaps the same request, so the fake SDK answers the
+// calls in the order the registry lists the networks, and each step checks its number of calls before anything else.
+const FIRST = "First network";
+const SECOND = "Second network";
+// THE REQUEST FIELDS findSwaps DECLARES (@ninsei-labs/sdk, recovery.d.ts). Its search is complete in one call: an index
+// range, an abort signal or a progress callback is not among them, so a control built on one (a range, Stop,
+// progress) would show the person something the search does not do.
+const FIND_SWAPS_FIELDS = [
+  "mnemonic",
+  "chainId",
+  "factory",
+  "factories",
+  "address",
+  "evmLogs",
+  "fromBlock",
+  "deploymentBlock",
+  "toBlock",
+  "evmBlockTime",
+  "evmBlockTimes",
+  "evmCode",
+  "moneroTip",
+  "moneroBlockTimestamp",
+  "xmrNodes",
+  "moneroNetwork",
+  "fetchImpl",
+];
+
+export async function checkKeySearchRetry() {
+  // EVERY FACTORY THE CHAIN HAD, each with its own deployment block, as findSwaps declares `factories`. More than one,
+  // so a search that names only the current factory cannot pass.
+  const factories = Object.entries(SETTLEMENT["arbitrum-sepolia"].factories).map(([address, deploymentBlock]) => ({
+    address,
+    deploymentBlock,
+  }));
+  assert.ok(factories.length > 1, "the settlement chain lists one factory: the check needs its history");
+
+  // SYNTHETIC ANSWERS. Two buys (the person locked the ETH): 1.5 and 0.25 ETH, open until t1 in 2033. Their escrow
+  // events claim the first: the maker revealed its half, so that XMR can be withdrawn; the second has no event and
+  // waits. A decline of an escrow this key did not find must change neither.
+  const empty = { complete: true, swaps: [] };
+  const incomplete = { complete: false, swaps: [] };
+  const thrown = () => new Error("example: no RPC answered");
+  const escrowA = "0x" + "a1".repeat(20);
+  const escrowB = "0x" + "a2".repeat(20);
+  const terms = { side: "locker", t1: 2_000_000_000, readyBy: 1_999_999_000 };
+  const found = {
+    complete: true,
+    swaps: [
+      { ...terms, escrow: escrowA, amount: "1500000000000000000", blockNumber: 210, blockTime: 1_700_000_000 },
+      { ...terms, escrow: escrowB, amount: "250000000000000000", blockNumber: 200, blockTime: 1_700_000_100 },
+    ],
+  };
+  const events = [
+    { escrow: escrowA, event: "HalfRevealed", half: "0x" + "3".repeat(64), byClaimer: true, blockNumber: 220 },
+    { escrow: "0x" + "ee".repeat(20), event: "Declined", by: "0x" + "4".repeat(40), blockNumber: 230 },
+  ];
+  // What the list shows for those two swaps: with their events read, or unknown while they cannot be read.
+  const rows = (network, read) => [
+    { network, amount: "swap.amount(amount=0.25, symbol=ETH)", action: read ? "later" : "unknown" },
+    { network, amount: "swap.amount(amount=1.5, symbol=ETH)", action: read ? "withdraw" : "unknown" },
+  ];
+
+  // Each step: the answers findSwaps and the escrow-event read give, in the order they are asked, then what the page
+  // must show: the network named as not searched (or none), the rows, "no swaps" and the retry.
+  const cases = [];
+  for (const [kind, failure] of [
+    ["throws", thrown],
+    ["answers complete: false", () => incomplete],
+  ]) {
+    for (const failing of [FIRST, SECOND]) {
+      const other = failing === FIRST ? SECOND : FIRST;
+      const inOrder = (mine, theirs) => (failing === FIRST ? [mine, theirs] : [theirs, mine]);
+      cases.push({
+        name: `${failing} ${kind} and ${other} finds nothing`,
+        steps: [
+          { finds: inOrder(failure(), empty), events: [], failed: failing, rows: [], none: false, retry: true },
+          { finds: [failure()], events: [], failed: failing, rows: [], none: false, retry: true },
+          { finds: [empty], events: [], failed: null, rows: [], none: true, retry: false },
+        ],
+      });
+      const two = rows(other, true);
+      cases.push({
+        name: `${failing} ${kind} and ${other} finds two swaps`,
+        steps: [
+          { finds: inOrder(failure(), found), events: [events], failed: failing, rows: two, none: false, retry: true },
+          { finds: [failure()], events: [], failed: failing, rows: two, none: false, retry: true },
+          { finds: [empty], events: [], failed: null, rows: two, none: false, retry: false },
+        ],
+      });
+    }
+  }
+  cases.push({
+    name: `${FIRST} finds two swaps whose events cannot be read and ${SECOND} finds nothing`,
+    steps: [
+      { finds: [found, empty], events: [thrown()], failed: FIRST, rows: rows(FIRST, false), none: false, retry: true },
+      { finds: [found], events: [thrown()], failed: FIRST, rows: rows(FIRST, false), none: false, retry: true },
+      { finds: [found], events: [events], failed: null, rows: rows(FIRST, true), none: false, retry: false },
+    ],
+  });
+
+  for (const { name, steps } of cases) {
+    const finds = [];
+    const reads = [];
+    const filters = [];
+    const asked = [];
+    const perEscrow = [];
+    let answers = { finds: [], events: [] };
+    const perOrder = (what) => async (escrow) => {
+      perEscrow.push(`${what} ${escrow}`);
+      return { isFunded: true, isClaimed: false, isRefunded: false, isReady: false };
+    };
+    const sdk = {
+      CHAINS: [FIRST, SECOND].map((chainName) => ({
+        id: "arbitrum-sepolia",
+        name: chainName,
+        chainId: 421614,
+        escrow: { mode: "live", address: "0x" + "12".repeat(20) },
+      })),
+      probeMoneroNode: async () => ({ ok: true, network: "stagenet", height: 100, synchronized: true, ms: 1 }),
+      findSwaps: async (input) => {
+        finds.push(input);
+        const answer = answers.finds.length ? answers.finds.shift() : empty;
+        if (answer instanceof Error) throw answer;
+        return answer;
+      },
+      readEscrowEventsByTopic: async (input) => {
+        reads.push(input);
+        await input.evmLogs({
+          topics: [["0x" + "11".repeat(32), "0x" + "22".repeat(32), "0x" + "33".repeat(32)]],
+          fromBlock: input.fromBlock,
+          toBlock: input.toBlock,
+        });
+        const answer = answers.events.length ? answers.events.shift() : [];
+        if (answer instanceof Error) throw answer;
+        return answer;
+      },
+      // The per-order reads of the facade: the search must not name the found escrows one by one.
+      createNinsei: () => ({
+        order: { status: perOrder("status"), deadlines: perOrder("deadlines"), decline: perOrder("decline") },
+      }),
+    };
+    const fetch = async (_url, init) => {
+      const request = JSON.parse(init.body);
+      asked.push(request.method);
+      if (request.method === "eth_blockNumber") return response("0x100");
+      if (request.method === "eth_getLogs") {
+        filters.push(request.params[0]);
+        return response([]);
+      }
+      throw new Error("unexpected request: " + request.method);
+    };
+    // A text with its parameters, so a line that names a network or an amount can be read.
+    const pageText = (key, params) => {
+      const shown = Object.entries(params || {}).map(([k, v]) => `${k}=${v}`);
+      return shown.length ? `${key}(${shown.join(", ")})` : key;
+    };
+    const { page, elements } = await pageBundle({ rowSdk: sdk, context: { fetch, pageText } });
+    page.__seed({ key: { mnemonic: "words", fingerprint: "fp" }, nodeNetwork: "stagenet" });
+    const result = elements.get("keyResult");
+    const none = elements.get("keyNone");
+    const partial = elements.get("keyPartial");
+    let retry = null;
+    let retryRow = null;
+    walk(result, (node, parent) => {
+      if (node.id === "keyMore") [retry, retryRow] = [node, parent];
+    });
+    assert.ok(retry, `${name}: the page builds no retry in the key result`);
+
+    for (const [at, step] of steps.entries()) {
+      const label = `${name}, ${at ? `retry ${at}` : "the search"}`;
+      answers = { finds: [...step.finds], events: [...step.events] };
+      const before = { finds: finds.length, reads: reads.length };
+      await (at ? retry.listeners.click() : page.findKeySwaps());
+      assert.equal(
+        finds.length - before.finds,
+        step.finds.length,
+        `${label}: findSwaps asked ${finds.length - before.finds} times, not once for each network still unread`,
+      );
+      assert.equal(
+        reads.length - before.reads,
+        step.events.length,
+        `${label}: ${reads.length - before.reads} escrow-event reads, not one for each network with swaps`,
+      );
+      assert.deepEqual(
+        [...new Set(asked)].filter((method) => method !== "eth_blockNumber" && method !== "eth_getLogs"),
+        [],
+        `${label}: the search asked the RPC for more than the head and the topic logs`,
+      );
+
+      assert.equal(result.hidden, false, `${label}: the key result is hidden`);
+      const shown = swapsShown(elements.get("swapList"));
+      assert.equal(shown.length, step.rows.length, `${label}: ${shown.length} rows shown, not ${step.rows.length}`);
+      assert.deepEqual(shown, step.rows, `${label}: the rows shown`);
+      if (step.none) assert.equal(none.hidden, false, `${label}: "no swaps" is hidden after a complete empty search`);
+      else assert.equal(none.hidden, true, `${label}: "no swaps" is shown while a network is unread or swaps exist`);
+      if (step.retry) {
+        assert.equal(retry.hidden || retryRow.hidden, false, `${label}: the retry is hidden after a failed network`);
+        assert.equal(retry.disabled, false, `${label}: the retry is disabled after a failed network`);
+      } else {
+        assert.equal(retry.hidden || retryRow.hidden, true, `${label}: the retry is shown after a complete search`);
+      }
+      if (step.failed) {
+        assert.equal(partial.hidden, false, `${label}: the unread network is not named`);
+        assert.ok(partial.textContent.includes(step.failed), `${label}: "${partial.textContent}" does not name it`);
+        const answered = step.failed === FIRST ? SECOND : FIRST;
+        assert.ok(!partial.textContent.includes(answered), `${label}: "${partial.textContent}" names ${answered}`);
+      } else {
+        assert.equal(partial.hidden, true, `${label}: a network is named as unread after every network answered`);
+      }
+    }
+
+    // WHAT THE SEARCH ASKED, over every call of every step. The page's arrays come from another realm, so the
+    // factories are compared as data.
+    for (const input of finds) {
+      const extra = Object.keys(input).filter((field) => !FIND_SWAPS_FIELDS.includes(field));
+      assert.deepEqual(extra, [], `${name}: the search passes ${extra.join(", ")}, which findSwaps does not take`);
+      assert.equal(input.mnemonic, "words", `${name}: the search does not use the key's words`);
+      assert.equal(input.chainId, 421614, `${name}: the search names another chain`);
+      assert.deepEqual(
+        JSON.parse(JSON.stringify(input.factories)),
+        factories,
+        `${name}: the search does not name every factory`,
+      );
+      assert.equal(input.toBlock, 256, `${name}: the search does not end at the chain head`);
+    }
+    for (const read of reads)
+      assert.deepEqual(
+        Object.keys(read).sort(),
+        ["evmLogs", "fromBlock", "toBlock"],
+        `${name}: the escrow-event read names more than its range`,
+      );
+    assert.equal(filters.length, reads.length, `${name}: an escrow-event read did not reach the RPC`);
+    assert.ok(
+      filters.every((filter) => !("address" in filter)),
+      `${name}: an escrow address reached the RPC`,
+    );
+    assert.deepEqual(perEscrow, [], `${name}: the search read the found escrows one by one`);
+    const controls = [];
+    walk(result, (node) => {
+      if (["button", "input", "select"].includes(node.tag)) controls.push(node.id || node.tag);
+    });
+    assert.deepEqual(controls, ["keyMore"], `${name}: the key result has controls besides the retry`);
+  }
+  return `${cases.length} failures on one of two networks: named, retried twice, rows kept, "no swaps" only at the end`;
+}
+
+function walk(node, visit, parent = null) {
+  visit(node, parent);
+  for (const child of node.children || []) walk(child, visit, node);
+}
+
+// The rows of the swap list: the network from the date line, the amount as written, and the action the row offers,
+// ordered by amount so the check does not depend on the list's order.
+function swapsShown(list) {
+  return list.children
+    .map((item) => {
+      const text = (className) => {
+        let value = null;
+        walk(item, (node) => {
+          if (node.className === className) value = node.textContent;
+        });
+        return value;
+      };
+      return {
+        network: String(text("swap-date")).split(" · ").pop(),
+        amount: text("swap-amount"),
+        action: item.attributes["data-action"],
+      };
+    })
+    .sort((a, b) => a.amount.localeCompare(b.amount));
+}
+
 export async function checkSwapRace() {
   const first = { ...row, swap: { ...row.swap, escrow: "0x" + "a1".repeat(20) } };
   const second = { ...row, swap: { ...row.swap, escrow: "0x" + "b2".repeat(20) } };
@@ -308,5 +587,6 @@ if (import.meta.main) {
   console.log("ok    " + (await checkListedNodeOnly()));
   console.log("ok    " + (await checkKeyFile()));
   console.log("ok    " + (await checkFindSwaps()));
+  console.log("ok    " + (await checkKeySearchRetry()));
   console.log("ok    " + (await checkSwapRace()));
 }
