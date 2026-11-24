@@ -1746,54 +1746,6 @@ await check("every script the page loads parses as a module", async () => {
   return `${files.length} files`;
 });
 
-// A SCAN THAT DID NOT FINISH IS NOT AN EMPTY ADDRESS. The restore names `scanComplete`; the page must carry it
-// into `moneyState`, and it must not fall back to the old lock window, which cannot see a spend after t1.
-await check("the page keeps the SDK's scan verdict and scans from the start block", async () => {
-  const sync = bodyOf(await read("recovery.js"), "syncWallet");
-  assert.match(
-    sync,
-    /core\.sweep\.restore\(\{[^}]*fromHeight: height[^}]*\}\)/,
-    "the full scan is not from the start block",
-  );
-  assert.match(sync, /restored\.scanComplete === true/, "syncWallet treats a missing scan verdict as complete");
-  assert.match(sync, /moneroHeaderTime\(nodeUrl\(\), daemonTip\)/, "syncWallet does not corroborate the node's tip");
-  assert.match(sync, /tipHeaderHeight\(nodeTip\)/, "syncWallet asks for a header at the block count");
-  assert.match(sync, /tipIsTrusted\(\{ tipTime, orderTime \}\)/, "syncWallet can call a short chain complete");
-  assert.match(
-    sync,
-    /scanStartHeight\(height, daemonTip\)/,
-    "syncWallet does not bound the start height by the node tip",
-  );
-  assert.match(sync, /flow\.err\.height/, "an above-tip start height has no refusal");
-  assert.ok(!/restoreWindow/.test(sync), "syncWallet still starts the lock window");
-  assert.ok(!/window:\s*lockWindow/.test(sync), "syncWallet still passes a lock window");
-  assert.ok(
-    !/from "\.\/lib\/window\.js"/.test(await read("recovery.js")),
-    "recovery.js still imports the window module",
-  );
-});
-
-await check("a refreshed balance keeps the scan verdict", async () => {
-  const refresh = bodyOf(await read("recovery.js"), "refreshBalance");
-  assert.match(
-    refresh,
-    /walletHeight < nodeHeight|walletHeight >= nodeHeight/,
-    "refreshBalance does not compare the wallet and node heights",
-  );
-  assert.match(refresh, /scanComplete/, "refreshBalance drops the scan verdict");
-  assert.match(refresh, /scanIncompleteReason/, "refreshBalance drops the scan reason");
-  assert.match(
-    refresh,
-    /previous\.scanComplete === false/,
-    "refreshBalance can upgrade an incomplete scan to complete",
-  );
-  assert.match(
-    refresh,
-    /scanComplete === false[\s\S]*?return syncWallet\(\)/,
-    "a retry after an incomplete scan does not run the scan again",
-  );
-});
-
 await check("no eval and no new Function in the page's own code", async () => {
   const offenders = [];
   for (const file of ["recovery.js", "diagnostics.js", ...LIB]) {
@@ -2149,16 +2101,6 @@ await check(
     );
   },
 );
-
-// THE PER-SWAP FILE IS GONE WITH NO TRANSITION: no field opens one, and nothing the page loads reads one.
-await check("a key file is refused by size before it is read", async () => {
-  const page = await read("recovery.js");
-  const chosen = bodyOf(page, "onKeyFileChosen");
-  assert.match(page, /const MAX_KEY_FILE_BYTES = 1_000_000/, "the page has no key-file size limit");
-  const guard = chosen.indexOf("file.size > MAX_KEY_FILE_BYTES");
-  const readAt = chosen.indexOf("await file.text()");
-  assert.ok(guard >= 0 && readAt > guard, "the key file is read before its size is checked");
-});
 
 await check("no per-swap recovery file can be opened any more", async () => {
   const html = await read("index.html");

@@ -212,6 +212,7 @@ function fakeCore({ relay = async () => ({ txids: [] }) } = {}) {
     fromOrder: 0,
     plan: 0,
     wallet: 0,
+    restore: 0,
     readRecovery: 0,
     keyImages: 0,
   };
@@ -219,6 +220,8 @@ function fakeCore({ relay = async () => ({ txids: [] }) } = {}) {
     calls,
     lastSign: null,
     lastRead: null,
+    lastRestore: null,
+    restoreResult: null,
     wallet: {
       use() {},
       async connect() {},
@@ -279,8 +282,10 @@ function fakeCore({ relay = async () => ({ txids: [] }) } = {}) {
         calls.destination += 1;
         return { ok: true };
       },
-      async restore() {
-        return { unlocked: 10n, total: 10n, passes: 1, lockedPass: false, scanComplete: true };
+      async restore(request) {
+        calls.restore += 1;
+        core.lastRestore = request;
+        return core.restoreResult || { unlocked: 10n, total: 10n, passes: 1, lockedPass: false, scanComplete: true };
       },
       async plan() {
         calls.plan += 1;
@@ -368,7 +373,7 @@ export async function checkOpenAndSync() {
   assert.equal(openCore.calls.plan, 1, "opening a swap builds its plan through the SDK");
   assert.equal(opened.page.__state().plan.revealedHalf, true);
 
-  const synced = await pageBundle();
+  const synced = await pageBundle({ context: { fetch: tipFetch() } });
   const syncCore = fakeCore();
   syncCore.sweep.wallet = () => ({
     driver: () => wallet,
@@ -386,17 +391,136 @@ export async function checkOpenAndSync() {
     nodeNetwork: "testnet",
     contents: { kind: "file" },
     plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+    height: 2,
     dest: address,
     adapter: null,
     wallet: null,
   });
   assert.equal(await synced.page.syncWallet(), true);
   assert.equal(syncCore.calls.relay, 0, "syncing the wallet must not relay");
-  assert.ok(synced.page.__state().balance, "the sync records the balance");
+  assert.equal(syncCore.calls.restore, 1, "the sync must run the full restore");
+  assert.equal(syncCore.lastRestore.fromHeight, 2, "the full scan must use the height field, not the plan's fallback");
+  assert.equal(syncCore.lastRestore.scanBack, 10, "the full scan keeps the SDK's scan-back bound");
+  assert.equal(synced.page.__state().balance.scanComplete, true, "a trusted tip must keep the SDK's complete scan");
 
-  // A CLOSED OR INCOMPLETE WALLET IS REBUILT, NOT READ FROM THE OLD ADAPTER.
+  // A RESTORE THAT DID NOT FINISH IS NOT A COMPLETE ADDRESS: the page keeps the SDK's verdict and its reason.
+  const incompleteSync = await pageBundle({ context: { fetch: tipFetch() } });
+  const incompleteCore = fakeCore();
+  incompleteCore.sweep.wallet = () => ({
+    driver: () => wallet,
+    async addListener() {},
+    async removeListener() {},
+    async unlockedBalance() {
+      return 0n;
+    },
+  });
+  incompleteCore.restoreResult = {
+    unlocked: 0n,
+    total: 0n,
+    passes: 1,
+    lockedPass: false,
+    scanComplete: false,
+    scanIncompleteReason: "behind-node",
+  };
+  incompleteSync.page.facades.set("31337/testnet", incompleteCore);
+  incompleteSync.page.__seed({
+    key: { mnemonic: "words", fingerprint: "fp" },
+    settlement: "31337",
+    network: "testnet",
+    nodeNetwork: "testnet",
+    contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+    height: 1,
+    dest: address,
+    adapter: null,
+    wallet: null,
+  });
+  assert.equal(await incompleteSync.page.syncWallet(), true);
+  assert.equal(
+    incompleteSync.page.__state().balance.scanComplete,
+    false,
+    "an incomplete restore must not become a complete scan",
+  );
+  assert.equal(
+    incompleteSync.page.__state().balance.scanIncompleteReason,
+    "behind-node",
+    "an incomplete restore must keep the SDK's reason",
+  );
+
+  // A START HEIGHT ABOVE THE NODE TIP IS REFUSED BEFORE THE SCAN: no restore is run.
+  const aboveTip = await pageBundle({ context: { fetch: tipFetch() } });
+  const aboveCore = fakeCore();
+  aboveCore.sweep.wallet = () => ({
+    driver: () => wallet,
+    async addListener() {},
+    async removeListener() {},
+    async unlockedBalance() {
+      return 0n;
+    },
+  });
+  aboveTip.page.facades.set("31337/testnet", aboveCore);
+  aboveTip.page.__seed({
+    key: { mnemonic: "words", fingerprint: "fp" },
+    settlement: "31337",
+    network: "testnet",
+    nodeNetwork: "testnet",
+    contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+    height: 101,
+    dest: address,
+    adapter: null,
+    wallet: null,
+  });
+  assert.equal(
+    await aboveTip.page.syncWallet(),
+    "flow.err.height",
+    "a start height above the tip must be refused before scanning",
+  );
+  assert.equal(aboveCore.calls.restore, 0, "a start height above the tip must not run the scan");
+
+  // A STALE TIP IS NOT CORROBORATION: a restore marked complete stays incomplete in the page.
+  const staleSync = await pageBundle({ context: { fetch: tipFetch(Math.floor(Date.now() / 1000) - 3 * 60 * 60) } });
+  const staleCore = fakeCore();
+  staleCore.sweep.wallet = () => ({
+    driver: () => wallet,
+    async addListener() {},
+    async removeListener() {},
+    async unlockedBalance() {
+      return 10n;
+    },
+  });
+  staleSync.page.facades.set("31337/testnet", staleCore);
+  staleSync.page.__seed({
+    key: { mnemonic: "words", fingerprint: "fp" },
+    settlement: "31337",
+    network: "testnet",
+    nodeNetwork: "testnet",
+    contents: { kind: "file" },
+    plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
+    height: 1,
+    dest: address,
+    adapter: null,
+    wallet: null,
+  });
+  assert.equal(await staleSync.page.syncWallet(), true);
+  assert.equal(
+    staleSync.page.__state().balance.scanComplete,
+    false,
+    "a stale tip must leave the restored scan incomplete",
+  );
+
+  // A CLOSED OR INCOMPLETE WALLET IS REBUILT, NOT READ FROM THE OLD ADAPTER. The rebuilt scan is still incomplete,
+  // so a refresh cannot upgrade the old verdict merely by opening the wallet again.
   const refreshed = await pageBundle();
   const refreshCore = fakeCore();
+  refreshCore.restoreResult = {
+    unlocked: 0n,
+    total: 0n,
+    passes: 1,
+    lockedPass: false,
+    scanComplete: false,
+    scanIncompleteReason: "behind-node",
+  };
   let rebuilt = 0;
   refreshCore.sweep.wallet = () => {
     rebuilt += 1;
@@ -429,6 +553,13 @@ export async function checkOpenAndSync() {
   });
   assert.equal(await refreshed.page.refreshBalance(), true);
   assert.equal(rebuilt, 1, "an incomplete balance reopens the wallet");
+  assert.equal(refreshCore.calls.restore, 1, "the rebuilt wallet runs the full scan");
+  assert.equal(refreshed.page.__state().balance.scanComplete, false, "a refresh must not upgrade an incomplete scan");
+  assert.equal(
+    refreshed.page.__state().balance.scanIncompleteReason,
+    "behind-node",
+    "a refresh keeps the incomplete scan reason",
+  );
   assert.equal(refreshCore.calls.relay, 0, "refreshing the balance must not relay");
 
   // A PLAIN SYNC MUST NOT UPGRADE A COMPLETE SCAN WHEN THE NODE'S TIP IS STALE. The node can stop advancing
