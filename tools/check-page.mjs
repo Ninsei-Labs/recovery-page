@@ -126,6 +126,7 @@ export async function checkFindSwaps() {
   const filters = [];
   const blockReads = [];
   const fetches = [];
+  const moneroCalls = [];
   let findInput = null;
   const chain = "0x" + "12".repeat(20);
   const escrow = "0x" + "ab".repeat(20);
@@ -154,6 +155,13 @@ export async function checkFindSwaps() {
   };
   const fetch = async (_url, init) => {
     const request = JSON.parse(init.body);
+    if (String(_url).endsWith("/json_rpc")) {
+      moneroCalls.push(request.method);
+      if (request.method === "get_block_header_by_height") {
+        return response({ status: "OK", block_header: { height: request.params.height, timestamp: 1_700_000_000 } });
+      }
+      throw new Error("unexpected Monero request: " + request.method);
+    }
     fetches.push(request.method);
     if (request.method === "eth_blockNumber") return response("0x100");
     if (request.method === "eth_getBlockByNumber") {
@@ -188,12 +196,22 @@ export async function checkFindSwaps() {
   );
   assert.equal(typeof findInput.moneroTip, "function", "the SDK must receive the node's tip reader");
   assert.equal(typeof findInput.moneroBlockTimestamp, "function", "the SDK must receive the block-time reader");
-  assert.equal(blockReads.length, 1, "a null block time must be read from the chain");
+  assert.equal(typeof findInput.evmBlockTime, "function", "the SDK must receive the order's block-time reader");
+  assert.ok(!("xmrNodes" in findInput), "the page must not hand findSwaps the SDK's own node reader");
+  assert.equal(await findInput.evmBlockTime(100), 123, "the block-time reader must return the chain's timestamp");
+  assert.equal(await findInput.moneroTip(), 99, "the tip reader must use get_info's height minus one");
+  assert.equal(
+    await findInput.moneroBlockTimestamp(99),
+    1_700_000_000,
+    "the block-time reader must read the requested Monero header",
+  );
+  assert.deepEqual(moneroCalls, ["get_block_header_by_height"], "the Monero reader must ask the header by height");
+  assert.equal(blockReads.length, 2, "a null block time must be read from the chain");
   assert.equal(blockReads[0].params[0], "0xc8", "the block read must name the null-time order's block");
   assert.deepEqual(
     fetches,
-    ["eth_blockNumber", "eth_getBlockByNumber", "eth_getLogs"],
-    "only the head, the missing time and the topic read are requested",
+    ["eth_blockNumber", "eth_getBlockByNumber", "eth_getLogs", "eth_getBlockByNumber"],
+    "only the head, the two block times and the topic read are requested",
   );
   return "the search reads events without addresses, reuses a returned block time and reads a null time";
 }
