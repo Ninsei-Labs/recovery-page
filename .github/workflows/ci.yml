@@ -51,6 +51,12 @@ jobs:
           if [ -n "$commit" ]; then export BUILD_COMMIT="$commit"; fi
           bun run test
 
+      # THE BUILT PAGE, RUN WHOLE with its own SDK against a wallet, a node and a chain of the test's, with each of its
+      # waits held open (tools/check-confirm.mjs, tools/check-eth.mjs). It runs here only: the release refuses a commit
+      # whose build run did not pass.
+      - name: Run the page whole
+        run: bun run test:page
+
       # THE POLICY IN A BROWSER. The runner's Chrome opens the built page as serve.bun.mjs serves it and as a host
       # without headers serves it, and the page asks hosts it does not list: the policy, from the header or from the
       # page's meta tag, must refuse each before a request leaves (tools/check-browser.mjs).

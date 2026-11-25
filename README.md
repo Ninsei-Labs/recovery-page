@@ -101,6 +101,10 @@ only when someone changes it.
 
 `bun run serve` serves `dist/` with the page's headers, for looking at a change locally.
 
+`bun run test:page` runs the built page whole, with the SDK it ships, against a wallet, a Monero node and a settlement
+chain that are the test's, and holds each of its waits open while a person does something newer. It takes about three minutes
+and runs after `bun run build`; CI runs it once for each commit, and `bun run test` does not include it.
+
 `bun run test:browser` opens the built page in Chrome (`CHROME_BIN`, or `google-chrome` or `chromium` on PATH),
 served the same way and again by a host that sends no headers, where only the meta tag holds the policy: each time
 the page must start under its policy, and the policy must refuse every host the page does not list while letting
@@ -214,6 +218,17 @@ archive itself against the published `.sha256`.
   cannot read, is said, not skipped.
 - **A missing answer is unknown.** A swap whose state could not be read is shown as unknown, a network that did
   not answer makes the list say it is incomplete, and a start block the chain does not give is asked for.
+- **Confirm sends the transfer on the screen, or nothing.** A changed address, another withdrawal, another swap, or words
+  or a file of another key end a transfer at once, while it is built, shown, and while Confirm reads the node again; from
+  the moment the node is given it until its answer, or four minutes without one, nothing newer can be started. Each press
+  of Confirm leaves one result on the page: not sent with why, submitting, sent with its transaction, or may have been
+  sent. An answer that comes late ends its own result; a success that comes late also closes its swap, if that is still
+  the one that is open, and lets its key go. The list is kept only while the page stays open: a reload clears it.
+- **A swap that is left keeps no key.** Its wallet, its signed sessions and its keys go with it.
+- **No text of a wallet, a node or an RPC is shown or copied.** A failure is named by the page's own words, a code and
+  fields that are a number, a name of at most 40 characters or an EVM address (`lib/reason.js`): a message may quote what
+  it was given, in any language, and no filter can tell. A file that could not be read keeps its refusal, and Find does
+  not fall back to an earlier key, until another file or words are entered.
 - **Verify what you serve.** `dist/build.json` lists a SHA-256 for every file, and a release archive
   should be checked against it. On IPFS the CID is the check.
 - **The page reaches only the hosts it lists.** Its `connect-src` names this origin, the listed nodes and the

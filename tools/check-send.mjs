@@ -81,14 +81,13 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
     "openSwap",
     "syncWallet",
     "findKeySwaps",
-    "facadeFor",
-    "facades",
+    "newFacade",
+    "reason",
     "onKeyFileChosen",
     "startNode",
     "recheck",
     "closeSwap",
     "refreshBalance",
-    "showDone",
     "log",
     "openEth",
     "ethConnect",
@@ -105,19 +104,19 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
         source +
         `\nmod = globalThis.rowSdk;\nexport { ${exports.join(", ")} };\n` +
         `\nexport function __seed(values) {\n` +
-        `  if ("signedToken" in values) signedToken = values.signedToken;\n` +
-        `  if ("settlement" in values) settlement = values.settlement;\n` +
-        `  if ("network" in values) network = values.network;\n` +
-        `  if ("nodeNetwork" in values) nodeNetwork = values.nodeNetwork;\n` +
         `  if ("key" in values) key = values.key;\n` +
         `  if ("search" in values) search = values.search;\n` +
-        `  if ("contents" in values) contents = values.contents;\n` +
-        `  if ("plan" in values) plan = values.plan;\n` +
-        `  if ("current" in values) current = values.current;\n` +
-        `  if ("adapter" in values) adapter = values.adapter;\n` +
-        `  if ("wallet" in values) wallet = values.wallet;\n` +
-        `  if ("balance" in values) balance = values.balance;\n` +
-        `  if ("lastTx" in values) lastTx = values.lastTx;\n` +
+        `  if ("nodeNetwork" in values) nodeAnswer = { url: nodeUrl(), network: values.nodeNetwork };\n` +
+        `  if ("current" in values) current = values.current && openedSwap(values.current);\n` +
+        `  const own = ["settlement", "network", "contents", "plan", "adapter", "wallet", "balance"];\n` +
+        `  const given = own.filter((name) => name in values && values[name] !== null);\n` +
+        `  if (given.length) {\n` +
+        `    current ||= openedSwap({ net: { id: values.settlement, monero: values.network }, swap: {}, time: null });\n` +
+        `    for (const name of given) current[name] = values[name];\n` +
+        `    current.key ||= { mnemonic: "words", fingerprint: "fp" };\n` +
+        `    const { settlement, network } = current;\n` +
+        `    current.core = mod.createNinsei({ settlement: { chain: settlement }, xmrNetwork: network });\n` +
+        `  }\n` +
         `  if ("ethMaterial" in values) ethMaterial = values.ethMaterial;\n` +
         `  if ("ethProvider" in values) ethProvider = values.ethProvider;\n` +
         `  if ("ethAdapter" in values) ethAdapter = values.ethAdapter;\n` +
@@ -126,7 +125,16 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
         `  if ("walletCheck" in values) walletCheck = values.walletCheck;\n` +
         `  if ("dest" in values) destInput.value = values.dest;\n` +
         `  if ("height" in values) heightInput.value = String(values.height);\n` +
+        `  if (values.wallet && current.plan) Object.assign(current, { node: nodeUrl(), height: selectedHeight(current) });\n` +
+        `  if (values.lastTx) destInput.value = values.lastTx.dest;\n` +
+        `  if (values.signedToken) {\n` +
+        `    const transfer = newTransfer(current, destInput.value.trim());\n` +
+        `    current.transfer = Object.assign(transfer, values.lastTx, { token: values.signedToken });\n` +
+        `  }\n` +
         `}\n` +
+        `export const __swap = () => current;\n` +
+        `export const __from = () => ({ node: nodeUrl(), height: selectedHeight(current) });\n` +
+        `export const __withdrawal = () => (current.transfer = newTransfer(current, destInput.value.trim()));\n` +
         `\nexport function __doneLinks() {\n` +
         `  const out = [];\n` +
         `  const walk = (node) => {\n` +
@@ -134,14 +142,17 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
         `    if (node.href) out.push(node.href);\n` +
         `    for (const child of node.children || []) walk(child);\n` +
         `  };\n` +
-        `  walk(doneInfoEl);\n` +
+        `  walk(resultListEl);\n` +
         `  return out;\n` +
         `}\n` +
         `\nexport function __state() {\n` +
-        `  return { signedToken, lastTx, key, search, contents, plan, current, adapter, wallet, network, settlement, balance,\n` +
-        `    nodeNetwork, confirmHidden: confirmEl.hidden, doneHidden: doneEl.hidden, withdrawDisabled: withdrawBtn.disabled,\n` +
+        `  const { row = null, contents = null, plan = null, adapter = null, wallet = null, balance = null } = current || {};\n` +
+        `  const { network = null, settlement = null, transfer = null, core = null } = current || {};\n` +
+        `  return { signedToken: transfer && transfer.token, transfer, key, search, contents, plan, current: row, adapter, wallet,\n` +
+        `    network, settlement, balance, nodeNetwork: nodeNetwork(), confirmHidden: confirmEl.hidden,\n` +
+        `    results: results.map((one) => one.state), withdrawDisabled: withdrawBtn.disabled,\n` +
         `    withdrawText: withdrawErrorEl.textContent, keyText: keyErrorEl.textContent, openErrorText: openErrorEl.textContent, keyPassHidden: keyPassField.hidden,\n` +
-        `    facades: facades.size, signed: window.__sweepFlow.signed, steps: window.__sweepFlow.steps.slice(),\n` +
+        `    core, steps: logEl.children.map((line) => line.textContent.trim()),\n` +
         `    ethMaterial, ethProvider, ethAdapter, ethBusy, ethErrorText: ethErrorEl.textContent,\n` +
         `    ethDoneHidden: ethDoneEl.hidden, ethConfirmHidden: ethConfirmEl.hidden, ethWalletText: ethWalletEl.textContent,\n` +
         `    ethConnectHidden: ethConnectBtn.hidden, ethSendDisabled: ethSendBtn.disabled, ethBoxHidden: ethBox.hidden,\n` +
@@ -195,8 +206,11 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
     createTextNode: (text) => ({ nodeType: 3, textContent: text }),
     addEventListener() {},
   };
-  const window = { __sweepFlow: { steps: [], signed: false } };
+  const window = {};
+  // THE FACADE OF A SWAP, by its networks: the SDK's constructor answers with what a check put here.
+  const facades = new Map();
   const rowSdk = {
+    createNinsei: ({ settlement, xmrNetwork }) => facades.get(settlement.chain + "/" + xmrNetwork) || null,
     msFromOrderSeconds,
     formatXmr: (value) => String(value),
     memoryAdapter: () => ({}),
@@ -226,8 +240,8 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
     ...extraContext,
   };
   runInNewContext(built.outputFiles[0].text, context);
-  const page = context.sendPage;
-  assert.ok(page && typeof page.sendTx === "function", "the send bundle exposes the page functions");
+  const page = { ...context.sendPage, facades };
+  assert.equal(typeof page.sendTx, "function", "the send bundle exposes the page functions");
   return { page, elements, window };
 }
 
@@ -328,7 +342,7 @@ function fakeCore({ relay = async () => ({ txids: [] }), planResult = null } = {
       },
       wallet() {
         calls.wallet += 1;
-        return { driver: () => wallet };
+        return { driver: () => wallet, async connect() {}, async close() {} };
       },
     },
   };
@@ -454,6 +468,8 @@ export async function checkOpenAndSync() {
   const syncCore = fakeCore();
   syncCore.sweep.wallet = () => ({
     driver: () => wallet,
+    async connect() {},
+    async close() {},
     async addListener() {},
     async removeListener() {},
     async unlockedBalance() {
@@ -473,7 +489,7 @@ export async function checkOpenAndSync() {
     adapter: null,
     wallet: null,
   });
-  assert.equal(await synced.page.syncWallet(), true);
+  assert.equal(await synced.page.syncWallet(synced.page.__swap(), synced.page.__from()), true);
   assert.equal(syncCore.calls.relay, 0, "syncing the wallet must not relay");
   assert.equal(syncCore.calls.restore, 1, "the sync must run the full restore");
   assert.equal(syncCore.lastRestore.fromHeight, 2, "the full scan must use the height field, not the plan's fallback");
@@ -485,6 +501,8 @@ export async function checkOpenAndSync() {
   const incompleteCore = fakeCore();
   incompleteCore.sweep.wallet = () => ({
     driver: () => wallet,
+    async connect() {},
+    async close() {},
     async addListener() {},
     async removeListener() {},
     async unlockedBalance() {
@@ -512,7 +530,7 @@ export async function checkOpenAndSync() {
     adapter: null,
     wallet: null,
   });
-  assert.equal(await incompleteSync.page.syncWallet(), true);
+  assert.equal(await incompleteSync.page.syncWallet(incompleteSync.page.__swap(), incompleteSync.page.__from()), true);
   assert.equal(
     incompleteSync.page.__state().balance.scanComplete,
     false,
@@ -529,6 +547,8 @@ export async function checkOpenAndSync() {
   const aboveCore = fakeCore();
   aboveCore.sweep.wallet = () => ({
     driver: () => wallet,
+    async connect() {},
+    async close() {},
     async addListener() {},
     async removeListener() {},
     async unlockedBalance() {
@@ -549,7 +569,7 @@ export async function checkOpenAndSync() {
     wallet: null,
   });
   assert.equal(
-    await aboveTip.page.syncWallet(),
+    await aboveTip.page.syncWallet(aboveTip.page.__swap(), aboveTip.page.__from()),
     "flow.err.height",
     "a start height above the tip must be refused before scanning",
   );
@@ -560,6 +580,8 @@ export async function checkOpenAndSync() {
   const staleCore = fakeCore();
   staleCore.sweep.wallet = () => ({
     driver: () => wallet,
+    async connect() {},
+    async close() {},
     async addListener() {},
     async removeListener() {},
     async unlockedBalance() {
@@ -579,7 +601,7 @@ export async function checkOpenAndSync() {
     adapter: null,
     wallet: null,
   });
-  assert.equal(await staleSync.page.syncWallet(), true);
+  assert.equal(await staleSync.page.syncWallet(staleSync.page.__swap(), staleSync.page.__from()), true);
   assert.equal(
     staleSync.page.__state().balance.scanComplete,
     false,
@@ -603,6 +625,8 @@ export async function checkOpenAndSync() {
     rebuilt += 1;
     return {
       driver: () => wallet,
+      async connect() {},
+      async close() {},
       async addListener() {},
       async removeListener() {},
       async unlockedBalance() {
@@ -628,7 +652,7 @@ export async function checkOpenAndSync() {
     wallet,
     balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: false, scanIncompleteReason: "behind-node" },
   });
-  assert.equal(await refreshed.page.refreshBalance(), true);
+  assert.equal(await refreshed.page.refreshBalance(refreshed.page.__swap(), refreshed.page.__from()), true);
   assert.equal(rebuilt, 1, "an incomplete balance reopens the wallet");
   assert.equal(refreshCore.calls.restore, 1, "the rebuilt wallet runs the full scan");
   assert.equal(refreshed.page.__state().balance.scanComplete, false, "a refresh must not upgrade an incomplete scan");
@@ -665,26 +689,23 @@ export async function checkOpenAndSync() {
     wallet,
     balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: true },
   });
-  assert.equal(await stale.page.refreshBalance(), true);
+  assert.equal(await stale.page.refreshBalance(stale.page.__swap(), stale.page.__from()), true);
   assert.equal(
     stale.page.__state().balance.scanComplete,
     false,
     "a stale node tip must leave the refreshed scan incomplete",
   );
-  // THE LOG IS COPIED TO THE CLIPBOARD. A future error message that includes the key must not put the words there.
-  const redacted = await pageBundle();
-  const mnemonic = "abandon ability able about above absent absorb abstract absurd abuse access accident";
-  redacted.page.__seed({ key: { mnemonic, fingerprint: "fp" } });
-  redacted.page.log("failure: " + mnemonic + " after");
-  const steps = redacted.page.__state().steps.join("\n");
-  assert.ok(!steps.includes(mnemonic), "the recovery words reached the log");
-  assert.ok(steps.includes("[redacted]"), "the recovery words were not replaced in the log");
+  // THE LOG IS COPIED TO THE CLIPBOARD, and an error's text may hold the key: none of it is said, only its name.
+  const said = await pageBundle();
+  said.page.log(said.page.reason(new TypeError("failure: abandon ability able after")));
+  assert.deepEqual(said.page.__state().steps, ["reason.none"]);
   return "openSwap and syncWallet run without a relay; an incomplete balance reopens the wallet; a stale tip stays incomplete; secrets never reach the log";
 }
 
 export async function checkSend() {
   const { page, elements } = await pageBundle();
   const core = fakeCore();
+  let closed = 0;
   page.facades.set("31337/testnet", core);
 
   // A SIGNED TRANSFER IS THE ONLY THING THE SEND BUTTON CAN RELAY, AND A SUCCESSFUL RELAY REMOVES THE KEYS.
@@ -697,7 +718,11 @@ export async function checkSend() {
     contents: { kind: "file" },
     plan: { address: "address", restoreHeight: 1, missing: [], revealedHalf: true },
     lastTx: { amount: 5000n, fee: null, receive: null, dest: address },
-    adapter: { async close() {} },
+    adapter: {
+      async close() {
+        closed += 1;
+      },
+    },
     wallet,
     balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: true },
   });
@@ -709,7 +734,7 @@ export async function checkSend() {
       JSON.stringify(["ab".repeat(32)]),
       "the relay gets a fresh unspent set",
     );
-    return { txids: ["tx-a", "tx-b"] };
+    return { txids: ["a1".repeat(32), "b2".repeat(32), "not an id"] };
   };
   assert.equal(await page.sendTx(), true);
   const after = page.__state();
@@ -717,23 +742,24 @@ export async function checkSend() {
   assert.equal(core.calls.readRecovery, 1, "the relay uses one fresh page read of the node");
   assert.equal(core.calls.keyImages, 1, "the page derives the images from its own read, not the wallet");
   assert.equal(after.signedToken, null, "the consumed session is dropped");
-  assert.equal(after.lastTx, null, "the signed transaction is dropped");
+  assert.equal(after.transfer, null, "the signed transaction is dropped");
   assert.equal(after.key, null, "the recovery key is dropped");
   assert.equal(after.search, null, "the search is dropped");
   assert.equal(after.contents, null, "the swap payload is dropped");
   assert.equal(after.adapter, null, "the wallet adapter is dropped");
-  assert.equal(after.facades, 0, "the facade is dropped");
-  assert.equal(core.calls.disconnect, 1, "the SDK wallet is disconnected when the key is dropped");
+  assert.equal(after.core, null, "the facade, with its signed sessions, is dropped");
+  assert.equal(closed, 1, "the swap's wallet is closed when the key is dropped");
   assert.equal(after.withdrawDisabled, true, "the withdraw button stays disabled after the send");
-  assert.equal(after.doneHidden, false, "the sent view stays");
+  assert.equal(after.results.join(), "sent", "the result stays");
+  assert.equal(elements.get("results").hidden, false, "the result is shown");
   assert.equal(after.confirmHidden, true, "the confirmation is closed");
   const links = page.__doneLinks();
   assert.equal(links.length, 2, "both transactions are listed");
-  assert.equal(links[0], "https://testnet.xmrchain.net/tx/tx-a");
-  assert.equal(links[1], "https://testnet.xmrchain.net/tx/tx-b");
+  assert.equal(links[0], "https://testnet.xmrchain.net/tx/" + "a1".repeat(32));
+  assert.equal(links[1], "https://testnet.xmrchain.net/tx/" + "b2".repeat(32));
   assert.ok(after.steps.includes("log.sent"), "a successful relay is logged");
   assert.ok(after.steps.includes("log.forgotten"), "the keys are dropped after the relay");
-  return "one relay, keys and payload dropped, sent view kept";
+  return "one relay, keys and payload dropped, the result kept";
 }
 
 export async function checkLostRelay() {
@@ -759,10 +785,10 @@ export async function checkLostRelay() {
   const after = page.__state();
   assert.equal(core.calls.relay, 1, "a lost relay answer is still one attempt");
   assert.equal(after.signedToken, null, "a consumed session is not reusable");
-  assert.equal(after.lastTx, null, "a transaction that may be on chain is not shown as signed data");
+  assert.equal(after.transfer, null, "a transaction that may be on chain is not shown as signed data");
+  assert.equal(after.results.join(), "unknown", "a lost answer is not a result it did not give");
   assert.equal(after.confirmHidden, true, "the consumed confirmation is hidden");
   assert.equal(after.withdrawText, "flow.err.sendUnknown", "a lost answer is unknown, not not-sent");
-  assert.equal(after.signed, false, "the page does not claim the transfer is signed");
   assert.equal(after.key.mnemonic, "words", "the key is kept for a fresh balance read");
   return "lost relay answer reads as unknown and consumes the session";
 }
@@ -794,7 +820,7 @@ export async function checkBeforeConfirm() {
   });
 
   // SIGNING BUILDS THE CONFIRMATION; IT DOES NOT RELAY.
-  assert.equal(await page.buildTx(), true);
+  assert.equal(await page.buildTx(page.__swap(), page.__withdrawal()), true);
   assert.equal(core.calls.sign, 1);
   assert.equal(core.calls.readRecovery, 1, "signing reads the page's own node");
   assert.equal(core.calls.keyImages, 1, "signing derives key images from the verified page read");
@@ -868,7 +894,11 @@ export async function checkBeforeConfirm() {
       wallet,
       dest: address,
     });
-    assert.equal(await fee.page.buildTx(), "sdk." + code, `${code} must reach the step`);
+    assert.equal(
+      await fee.page.buildTx(fee.page.__swap(), fee.page.__withdrawal()),
+      "sdk." + code,
+      `${code} must reach the step`,
+    );
   }
 
   // AN INCOMPLETE NODE READ IS NOT A SET TO SIGN. A page that cannot see the whole range stops before the wallet.
@@ -888,7 +918,11 @@ export async function checkBeforeConfirm() {
     balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: true },
     dest: address,
   });
-  assert.equal(await incomplete.page.buildTx(), "flow.err.sign", "an incomplete node read must not sign");
+  assert.equal(
+    await incomplete.page.buildTx(incomplete.page.__swap(), incomplete.page.__withdrawal()),
+    "flow.err.sign",
+    "an incomplete node read must not sign",
+  );
   assert.equal(incompleteCore.calls.sign, 0, "the wallet is not asked to sign without a complete page read");
 
   // A SPENT OUTPUT IS REMOVED FROM THE PAGE SET, SO THE WALLET CANNOT SIGN IT EITHER.
@@ -921,7 +955,11 @@ export async function checkBeforeConfirm() {
     balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: true },
     dest: address,
   });
-  assert.equal(await spent.page.buildTx(), "flow.err.sign", "a spent output must not reach the signature");
+  assert.equal(
+    await spent.page.buildTx(spent.page.__swap(), spent.page.__withdrawal()),
+    "flow.err.sign",
+    "a spent output must not reach the signature",
+  );
   assert.deepEqual(spentCore.lastSign.keyImages, [], "the page removes the spent output from the set");
 
   // THE SEND BUTTON'S OWN HANDLER REACHES THE RELAY: the markup check above and this call together prove the
@@ -1245,7 +1283,7 @@ export async function checkNoService() {
       },
     },
   });
-  await opened.page.facadeFor(31337, "testnet");
+  await opened.page.newFacade("testnet", "testnet");
   assert.equal(created, 1, "the search facade is built once");
   assert.equal(typeof options.fetch, "function", "the search facade gets a fetch");
   await assert.rejects(options.fetch(), /no service/, "the search facade must not reach a service");
@@ -1294,15 +1332,10 @@ export async function checkKeySecret() {
 
   assert.equal(opened.elements.get("keyWords").value, "", "the words stay in the field after the search");
   assert.equal(opened.elements.get("keyPass").value, "", "the password stays in the field after the search");
-  assert.ok(
-    !JSON.stringify(opened.window.__sweepFlow, (_key, value) =>
-      typeof value === "bigint" ? String(value) : value,
-    ).includes(mnemonic),
-    "the words reach the window state",
-  );
+  assert.deepEqual(Object.keys(opened.window), [], "the page keeps a diagnostic on the window");
   const steps = opened.page.__state().steps.join("\n");
   assert.ok(!steps.includes(mnemonic), "the words reach the log");
-  assert.ok(steps.includes("[redacted]"), "a secret in an error is not redacted");
+  assert.ok(!steps.includes(mnemonic.split(" ")[0]), "a word of the key reaches the log");
   return "the search clears the fields and keeps the words out of the log and the window state";
 }
 
@@ -1340,7 +1373,7 @@ export async function checkNodeReadHeight() {
     balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: true },
     dest: address,
   });
-  const built = await page.buildTx();
+  const built = await page.buildTx(page.__swap(), page.__withdrawal());
   assert.equal(built, true);
   assert.equal(core.calls.readRecovery, 1, "signing reads the page's own node");
   assert.equal(core.lastRead.fromHeight, 2, "the node read must use the height typed for the restore");
@@ -1361,7 +1394,11 @@ export async function checkNodeReadHeight() {
     balance: { total: 10n, unlocked: 10n, txs: 1, scanComplete: true },
     dest: address,
   });
-  assert.equal(await blank.page.syncWallet(), "flow.err.height.blank", "a blank height must be refused");
+  assert.equal(
+    await blank.page.syncWallet(blank.page.__swap(), blank.page.__from()),
+    "flow.err.height.blank",
+    "a blank height must be refused",
+  );
   assert.equal(blank.page.__state().wallet, null, "a blank height must not build a wallet");
   assert.equal(blankCore.calls.wallet, 0, "a blank height must not reach the node");
 
@@ -1377,7 +1414,11 @@ export async function checkNodeReadHeight() {
     adapter: { async close() {} },
     dest: address,
   });
-  assert.equal(await invalid.page.syncWallet(), "flow.err.height.invalid", "a fractional height must be named");
+  assert.equal(
+    await invalid.page.syncWallet(invalid.page.__swap(), invalid.page.__from()),
+    "flow.err.height.invalid",
+    "a fractional height must be named",
+  );
   assert.equal(invalidCore.calls.wallet, 0, "an invalid height must not reach the node");
   return "the node read starts at the typed height, shows its progress, and refuses a blank or invalid height";
 }

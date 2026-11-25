@@ -25,14 +25,44 @@ export const SDK_PREFIX = "sdk.";
 
 // THE ORDER AND SHAPE OF DETAILS (`params`) match the page dictionary (lib/codes.js): the same error has to
 // read the same way in both places.
-const PARAM_ORDER = ["step", "stage", "status", "field", "missing", "why", "got", "want", "unlocked", "lockedXmr",
-  "untilHeight", "untilTime", "expectedXmr", "id", "swapId", "vm", "rpc", "min", "surface", "to", "txid", "height",
-  "blockHash", "confirmations", "needConfirmations", "minConfirmations", "needSec", "leftSec", "readyBy", "operators", "tip"];
+const PARAM_ORDER = [
+  "step",
+  "stage",
+  "status",
+  "field",
+  "missing",
+  "why",
+  "got",
+  "want",
+  "unlocked",
+  "lockedXmr",
+  "untilHeight",
+  "untilTime",
+  "expectedXmr",
+  "id",
+  "swapId",
+  "vm",
+  "rpc",
+  "min",
+  "surface",
+  "to",
+  "txid",
+  "height",
+  "blockHash",
+  "confirmations",
+  "needConfirmations",
+  "minConfirmations",
+  "needSec",
+  "leftSec",
+  "readyBy",
+  "operators",
+  "tip",
+];
 
-let current = null;      // the loaded language (from locales/<tag>/index.js)
-let pluralRules = null;  // Intl.PluralRules of the current language
+let current = null; // the loaded language (from locales/<tag>/index.js)
+let pluralRules = null; // Intl.PluralRules of the current language
 let numberFormat = null; // Intl.NumberFormat
-let dateFormat = null;   // Intl.DateTimeFormat
+let dateFormat = null; // Intl.DateTimeFormat
 
 export const locales = () => AVAILABLE.slice();
 export const localeTag = () => (current ? current.tag : DEFAULT_LOCALE);
@@ -40,15 +70,21 @@ export const localeTag = () => (current ? current.tag : DEFAULT_LOCALE);
 // VALUES THE PAGE KNOWS (worker path, node address): the markup holds {name} and the value comes from ONE
 // place in code. A second copy of the path inside a text would drift from the real address.
 let values = {};
-export const bindValues = (map) => { values = { ...values, ...(map || {}) }; applyTranslations(); };
+export const bindValues = (map) => {
+  values = { ...values, ...(map || {}) };
+  applyTranslations();
+};
 
 // SUBSTITUTION: {name} is taken from params. A missing name stays as written: a silent empty string would
 // hide a typo in the language file.
-const fill = (text, params) => (params
-  ? String(text).replace(/\{(\w+)\}/g, (whole, name) => (
-      Object.prototype.hasOwnProperty.call(params, name) && params[name] !== null && params[name] !== undefined
-        ? String(params[name]) : whole))
-  : String(text));
+const fill = (text, params) =>
+  params
+    ? String(text).replace(/\{(\w+)\}/g, (whole, name) =>
+        Object.prototype.hasOwnProperty.call(params, name) && params[name] !== null && params[name] !== undefined
+          ? String(params[name])
+          : whole,
+      )
+    : String(text);
 
 // NUMBER FORM: a string as written, an object by Intl.PluralRules and params.count.
 const formOf = (words, params) => {
@@ -93,16 +129,16 @@ export function t(key, params) {
   if (words !== undefined) return fill(formOf(words, params), params);
   if (key.startsWith(SDK_PREFIX)) {
     const code = key.slice(SDK_PREFIX.length);
-    const phrase = dict.sdk[code];
-    if (!phrase) return code;
+    const words = dict.sdk[code] ? fill(dict.sdk[code], params) : code;
     const detail = detailOf(params, dict);
-    return detail ? fill(phrase, params) + " (" + detail + ")" : fill(phrase, params);
+    return detail ? words + " (" + detail + ")" : words;
   }
   return String(key);
 }
 
 // NUMBER AND DATE COME FROM THE CURRENT LANGUAGE'S PLATFORM (separators, order, form).
-export const n = (value, options = null) => (options ? new Intl.NumberFormat(localeTag(), options) : numberFormat).format(value);
+export const n = (value, options = null) =>
+  (options ? new Intl.NumberFormat(localeTag(), options) : numberFormat).format(value);
 
 // A DATE FORMAT MUST NOT TAKE THE PAGE DOWN. Intl.DateTimeFormat.format() throws RangeError on a bad date
 // (an empty field, a broken timestamp), and that used to kill the WHOLE page: the core never opened the
@@ -138,17 +174,27 @@ export async function load(tag) {
 // THE PAGE'S OWN STORAGE: the choice survives a reload. Closed storage is not a page failure: the choice is
 // simply not remembered.
 export function stored() {
-  try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
 }
 function remember(tag) {
-  try { localStorage.setItem(STORAGE_KEY, tag); } catch { /* storage is closed - no reason to break the page */ }
+  try {
+    localStorage.setItem(STORAGE_KEY, tag);
+  } catch {
+    /* storage is closed - no reason to break the page */
+  }
 }
 
 // THE BROWSER'S LANGUAGE, ONLY AMONG THE ONES THE PAGE CARRIES: "ru-RU" reads as "ru".
 function wantedFromBrowser() {
   const list = [].concat(navigator.languages || [], navigator.language || []);
   for (const raw of list) {
-    const tag = String(raw || "").toLowerCase().split("-")[0];
+    const tag = String(raw || "")
+      .toLowerCase()
+      .split("-")[0];
     if (AVAILABLE.includes(tag)) return tag;
   }
   return null;
@@ -165,7 +211,10 @@ function setText(node, text) {
   for (let i = 0; i < pieces.length; i++) {
     const piece = pieces[i];
     if (!piece) continue;
-    if (i % 3 === 0) { node.appendChild(document.createTextNode(piece)); continue; }
+    if (i % 3 === 0) {
+      node.appendChild(document.createTextNode(piece));
+      continue;
+    }
     const el = document.createElement(i % 3 === 1 ? "b" : "code");
     el.textContent = piece;
     node.appendChild(el);
@@ -177,7 +226,8 @@ export function applyTranslations(root = document) {
   const head = document.querySelector("[data-i18n-title]") || document.documentElement;
   document.title = t(head.getAttribute("data-i18n-title") || "page.title");
   for (const el of root.querySelectorAll("[data-i18n]")) setText(el, t(el.getAttribute("data-i18n"), values));
-  for (const el of root.querySelectorAll("[data-i18n-placeholder]")) el.setAttribute("placeholder", t(el.getAttribute("data-i18n-placeholder"), values));
+  for (const el of root.querySelectorAll("[data-i18n-placeholder]"))
+    el.setAttribute("placeholder", t(el.getAttribute("data-i18n-placeholder"), values));
 }
 
 // THE LANGUAGE PICKER: the list comes from the folders (AVAILABLE), the labels from the languages themselves.
@@ -217,7 +267,11 @@ export async function init(pickerId = "lang") {
       field.hidden = true;
     }
     fillPicker(picker);
-    picker.addEventListener("change", () => { setLocale(picker.value).catch(() => { /* the language did not change - the old one stays */ }); });
+    picker.addEventListener("change", () => {
+      setLocale(picker.value).catch(() => {
+        /* the language did not change - the old one stays */
+      });
+    });
   }
   applyTranslations();
   remember(current.tag);

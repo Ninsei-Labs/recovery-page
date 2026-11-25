@@ -208,6 +208,14 @@ const VERDICTS = [
     "network",
     { network: "fakenet" },
   ],
+  [
+    "an unknown network that is a text, not a name",
+    { ok: false, why: "nettype", nettype: "a sentence of the node", ms: 90 },
+    3_500_000,
+    "bad",
+    "network",
+    { network: "?" },
+  ],
 ];
 await check("a node is good only when it answers on mainnet, synchronized, within 3 blocks of the median", () => {
   for (const [what, a, top, state, why, params] of VERDICTS) {
@@ -344,6 +352,87 @@ await check("every literal t() key in the page exists", async () => {
     }
   }
   assert.deepEqual(missing, []);
+});
+
+await check("a reason is names and numbers, never a text of what failed", async () => {
+  const { reasonOf, txIds } = await import("../lib/reason.js");
+  // A translator that answers what it was given: what passes the rule is exactly what it was given.
+  const shownAs = (params) => JSON.stringify(params ?? {}, (_, v) => (typeof v === "bigint" ? String(v) : v));
+  const t = (key, params) => {
+    if (key === "sdk.some-code") return "known " + shownAs(params);
+    return key.startsWith("sdk.") ? key.slice(4) : key + " " + shownAs(params);
+  };
+  const half = "ab".repeat(32);
+  const words = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+  const given = (error) => reasonOf(error, t);
+  // What a provider, a node or a library can put in an error: none of these is ever in the answer.
+  const texts = [
+    words,
+    "Le portefeuille refuse la phrase legal puis winner puis thank",
+    "transaction " + half + " refused",
+    half,
+    half.toUpperCase(),
+    "0x" + half,
+    Buffer.from(half, "hex").toString("base64"),
+    BigInt("0x" + half).toString(),
+    words.replaceAll(" ", "-"),
+    "x".repeat(41),
+  ];
+  const shown = [];
+  for (const text of texts) {
+    for (const error of [
+      new Error(text),
+      Object.assign(new Error(text), { code: text }),
+      Object.assign(new Error(text), { name: text }),
+      Object.assign(new Error(text), { code: -32603, data: text }),
+      Object.assign(new Error(text), {
+        code: "some-code",
+        params: { why: text, got: text, to: text, list: [text], nested: { a: text } },
+      }),
+      Object.assign(new Error(text), { code: "some-code", params: text }),
+      text,
+    ]) {
+      const answer = given(error);
+      assert.ok(!answer.includes(text), `a text reached the answer: ${answer}`);
+      assert.ok(!/[0-9a-f]{41}/i.test(answer), answer);
+      shown.push(answer);
+    }
+  }
+  assert.equal(shown.length, 70);
+  // What may be shown is: names, numbers, yes or no, and addresses.
+  const address = "0x" + "11".repeat(20);
+  const params = { field: "order", why: "spend-point", got: 1, ok: true, fee: 5n, account: address, missing: ["half"] };
+  const dropped = {
+    note: "a sentence",
+    big: BigInt("0x" + half),
+    nested: { a: 1 },
+    none: NaN,
+    mixed: ["half", "two words"],
+  };
+  assert.equal(
+    given({ code: "some-code", params: { ...params, ...dropped } }),
+    `known {"field":"order","why":"spend-point","got":1,"ok":true,"fee":"5","account":"${address}","missing":["half"]}`,
+  );
+  // A code the page does not know says so, by its name; one that is a text says nothing of it.
+  assert.equal(given({ code: "NEW_CODE" }), 'reason.unknown {"code":"NEW_CODE"}');
+  assert.equal(given({ code: 4001 }), 'reason.number {"code":"4001"}');
+  assert.equal(given(new TypeError("a text")), 'reason.none {"name":"TypeError"}');
+  assert.deepEqual(txIds([half, half.toUpperCase(), "not an id", null, half + "0"]), [half]);
+  assert.deepEqual(txIds(half), []);
+  return `${shown.length} errors that quote what they were given`;
+});
+
+await check("every failure of the page's own has words", async () => {
+  const missing = [];
+  let found = 0;
+  for (const file of ["recovery.js", ...LIB]) {
+    for (const m of (await read(file)).matchAll(/pageFailure\(\s*"([a-z-]+)"/g)) {
+      found += 1;
+      if (!("reason.page." + m[1] in strings)) missing.push(`${file}: ${m[1]}`);
+    }
+  }
+  assert.deepEqual(missing, []);
+  assert.ok(found >= 10, `${found} failures of the page's own`);
 });
 
 await check("every word a node row or the note under the list can show exists", async () => {
@@ -931,16 +1020,9 @@ await check("sweep.fromOrder refuses an order that does not fit the key, by what
   return `${refusals.length} refusals`;
 });
 
-// THE CHAIN READ IS A REAL ETH_CALL, never a constant. The page builds a withdrawal through sweep.fromOrder in
-// check-page.mjs; this check owns the chain seam and its refusals.
+// THE CHAIN READ IS A REAL ETH_CALL, never a constant. The whole page reads the maker's half through it in
+// check-confirm.mjs (its settlement chain refuses any other call); this check owns the seam and its refusals.
 await check('the chain read is a real eth_call, never the "0x" stub', async () => {
-  const page = await read("recovery.js");
-  assert.ok(!/evmCall:\s*(?:async\s*)?\([^)]*\)\s*=>\s*["']0x["']/.test(page), "evmCall answers a constant");
-  assert.match(
-    page,
-    /evmCall: \(request\) => evmCall\(chainId, request\)/,
-    "the facade does not read the chain through lib/settlement.js",
-  );
   const to = "0x" + "a".repeat(40);
   const data = "0x12345678";
   const fake = (answers) => {
@@ -1888,7 +1970,7 @@ await check(
 // sign; only the send button's step relays. The markup is checked here; the flow itself runs in check-send.mjs.
 await check("nothing is sent before the confirmation", async () => {
   const html = await read("index.html");
-  const confirm = /<div id="confirm"[^>]*>([\s\S]*?)<\/div>\s*<div id="done"/.exec(html);
+  const confirm = /<div id="confirm"[^>]*>([\s\S]*?)<\/div>\s*<\/div>\s*<\/section>/.exec(html);
   assert.ok(confirm, "no confirmation step");
   assert.match(confirm[1], /id="txInfo"/, "the confirmation does not show the transfer");
   assert.match(
@@ -2247,6 +2329,26 @@ await check("the actions that still ran on Node 20 are current and pinned by com
 
 // THE BROWSER CHECK OF THE POLICY RUNS IN CI: it needs a browser, so it is not part of `bun run test`, which the
 // pre-commit hook and the container build run.
+// THE WHOLE-PAGE CHECKS TAKE MINUTES, so they run once for each commit, in the build job of CI: the release refuses a
+// commit whose build run did not pass, and the image and the release run the other checks on their own bytes.
+await check("the page is run whole once for each commit, in the build job of CI", async () => {
+  const { scripts } = JSON.parse(await read("package.json"));
+  const ci = await read(".github/workflows/ci.yml");
+  const build = ci.slice(ci.indexOf("\n  build:"), ci.indexOf("\n  docker:"));
+  assert.ok(build.length > 100, "no build job in ci.yml");
+  assert.match(build, /^ +run: bun run test:page$/m, "the build job does not run the page whole");
+  const others = [
+    ci.replace(build, ""),
+    await read(".github/workflows/release.yml"),
+    await read("Dockerfile"),
+    scripts.test,
+  ];
+  assert.ok(
+    others.every((text) => !/test:page|check-confirm|check-eth/.test(text)),
+    "the page is run whole a second time",
+  );
+});
+
 await check("the build workflow checks the page's policy in a browser", async () => {
   const workflow = await read(".github/workflows/ci.yml");
   assert.match(workflow, /run: bun run test:browser/, "ci.yml does not run the browser check");

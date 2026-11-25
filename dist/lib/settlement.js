@@ -17,6 +17,8 @@
 //               it and say "no swaps". A factory without a block here fails the repository's checks instead of
 //               being searched from a guess.
 
+import { pageFailure } from "./reason.js?v=0.4.4";
+
 export const SETTLEMENT = Object.freeze({
   arbitrum: Object.freeze({
     chainId: 42161,
@@ -129,7 +131,7 @@ export async function evmCall(network, request, fetchImpl = globalThis.fetch) {
     }
     if (body && body.error) {
       const revert = /revert/i.test(String(body.error.message || "")) || body.error.code === 3;
-      if (revert) throw new Error(`eth_call reverted: ${body.error.message || body.error.code}`);
+      if (revert) throw pageFailure("revert", {}, `eth_call reverted: ${body.error.message || body.error.code}`);
       failures.push(`${url}: RPC ${body.error.code ?? "error"}`);
       continue;
     }
@@ -139,7 +141,7 @@ export async function evmCall(network, request, fetchImpl = globalThis.fetch) {
     }
     return body.result;
   }
-  throw new Error(`no ${network} RPC answered (${failures.join("; ")})`);
+  throw pageFailure("rpc", {}, `no ${network} RPC answered (${failures.join("; ")})`);
 }
 
 // THE SDK'S LOG-READ SEAM: ({ address, topics, fromBlock, toBlock }) -> logs. The recovery key search sends the
@@ -265,7 +267,9 @@ async function logWindow(network, chain, filter, fetchImpl) {
     }
     return body.result;
   }
-  const failure = new Error(
+  const failure = pageFailure(
+    "rpc",
+    {},
     `no ${network} RPC answered eth_getLogs ${filter.fromBlock}..${filter.toBlock} (${failures.join("; ")})`,
   );
   if (refusedWidth) failure.code = "range-too-wide";
@@ -311,7 +315,7 @@ export async function evmBlockTime(network, blockNumber, fetchImpl = globalThis.
     }
     return Number(BigInt(stamp));
   }
-  throw new Error(`no ${network} RPC answered the time of block ${blockNumber} (${failures.join("; ")})`);
+  throw pageFailure("rpc", {}, `no ${network} RPC answered the time of block ${blockNumber} (${failures.join("; ")})`);
 }
 
 // THE CURRENT HEIGHT, for bounding a log search: public RPCs refuse a query that spans tens of millions of blocks.
@@ -334,5 +338,5 @@ export async function evmBlockNumber(network, fetchImpl = globalThis.fetch) {
       /* try the next RPC */
     }
   }
-  throw new Error(`no ${network} RPC answered eth_blockNumber`);
+  throw pageFailure("rpc", {}, `no ${network} RPC answered eth_blockNumber`);
 }
