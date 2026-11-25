@@ -194,13 +194,27 @@ a `build` run still going. It then takes the version from the tag, installs the 
 runs the checks, and attaches one archive to a GitHub release: the contents of `dist/`, plus a
 `.sha256`. Nothing is published to npm - the page is not a library.
 
-The workflow has four jobs with different access: `build` has `contents: read`, no write token and
-no Cloudflare secret; `image` has `packages: write` and publishes the container image to GHCR;
+The workflow has six jobs with different access: `build` has `contents: read`, no write token and
+no Cloudflare secret; `image` has `packages: write` and publishes the container image to GHCR under its
+own tag; `latest` has `packages: write` and points `latest` at it;
 `publish` has `contents: write` and only attaches the verified archive, after the image exists;
-`deploy` has `contents: read` and uploads the same built `dist/` to Cloudflare Pages. The deploy job
+`deploy` has `contents: read` and uploads the same built `dist/` to Cloudflare Pages; `promotions` has no
+access and says what moved. The deploy job
 uses the protected `recovery-deploy` environment, which is where the required reviewers and the
 `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit) and `CLOUDFLARE_ACCOUNT_ID` environment secrets
 belong. A missing Cloudflare token leaves the archive published and skips the deploy, as before.
+
+Only the newest tag on `main` moves the image's `latest` and the production page, one release at a time, and the
+tags are read again at the moment of the move. An older tag that is dispatched, run again or approved late finishes
+its own image tag, archive and release, and nothing else; going back to an older page is a manual act outside the
+workflow. Nothing that is published is replaced: a missing checksum is made from the published archive, and an
+archive that must be replaced is deleted from the release by hand first. All this holds for runs of the current
+workflow: a run that began from an older commit, run again, keeps that commit's workflow.
+
+One job of each kind runs and one waits. A third that arrives takes the place of the waiting one, whose job is then
+cancelled and moves nothing. The run says so itself: its name carries the tag, and its last job, `promotions`, is red
+and names the cancelled turn. If that tag is the newest on `main`, start the cancelled job of that run again; if not,
+nothing is missing. A run that waits for the approval of its deploy is in the list with its tag.
 
 To verify an archive before serving it, compare every file with `build.json` inside it, or check the
 archive itself against the published `.sha256`.

@@ -1,4 +1,5 @@
 name: release
+run-name: release ${{ inputs.tag || github.ref_name }}
 
 # A TAG IS THE ONLY THING THAT MAKES A RELEASE.
 #
@@ -7,8 +8,14 @@ name: release
 # the page is not a library, and a registry has no business holding a copy that can drift from the
 # release notes.
 #
-# THE RUN IS THREE JOBS WITH THREE DIFFERENT TRUST BOUNDARIES:
+# AN OLDER TAG RELEASED AGAIN finishes its own image, archive and release. It moves neither `latest` nor the production
+# page, and replaces no archive and no checksum that is already published. This holds for runs of this file: a run that
+# began from an older commit keeps the workflow of that commit.
+#
+# THE RUN IS JOBS WITH DIFFERENT TRUST BOUNDARIES:
 #   build   - no write token, no Cloudflare secret: checkout, test, pack the archive;
+#   image   - a package token: build and push the image under its own tag;
+#   latest  - a package token, nothing built: point `latest` at the newest tag's image;
 #   publish - a write token, no dependency install: attach the verified archive to the release;
 #   deploy  - no repository write token: upload the same built `dist/` to Cloudflare Pages.
 # The deploy job uses the protected `recovery-deploy` environment. The build job never sees the
@@ -178,11 +185,50 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ env.TAG }}
-            ${{ env.IMAGE }}:latest
           build-args: |
             BUILD_COMMIT=${{ steps.labels.outputs.commit }}
             VERSION=${{ steps.labels.outputs.version }}
             BUILD_DATE=${{ steps.labels.outputs.date }}
+
+  # `latest` IS MOVED APART FROM THE BUILD, by one job at a time, which reads the tags again at the moment it moves it: two
+  # releases that overlap end with the newer one, in whatever order they finish.
+  latest:
+    name: point latest at the newest image
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: release-latest
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0 # main and every tag, to know the newest
+          persist-credentials: false
+
+      - name: Log in to the registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Point latest at this image, if its tag is the newest on main
+        run: |
+          set -eu
+          git fetch --quiet --force --tags origin main:refs/remotes/origin/main
+          tags=$(git -c versionsort.suffix=- tag --list 'v*' --merged origin/main --sort=-v:refname)
+          newest=${tags%%$'\n'*}
+          test -n "$newest"
+          if [ "$newest" != "$TAG" ]; then
+            echo "$newest is newer than $TAG: latest stays" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE:$TAG"
 
   publish:
     name: publish the release
@@ -206,26 +252,51 @@ jobs:
 
       # A RERUN OF A TAG WHOSE RELEASE EXISTS MUST ATTACH, NOT FAIL. The first v0.1.0 run created the
       # release and failed before the files were attached; a retry has to be able to finish it.
+      #
+      # NOTHING THAT IS PUBLISHED IS REPLACED, the archive or its checksum: no two builds give the same bytes, and a person
+      # compares the archive they took with its published checksum. Only what is missing is added, the checksum always
+      # from the published archive. A checksum that waits for its archive takes only the archive it names.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          files="release/ninsei-recovery-${TAG}.zip release/ninsei-recovery-${TAG}.zip.sha256"
+          zip="ninsei-recovery-${TAG}.zip"
           # THE JOB IS IN release/, WHICH IS NOT A GIT CHECKOUT. Name the repository explicitly, or gh looks for
           # .git in the wrong directory and the release is never created.
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" $files --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$TAG" $files --repo "$GITHUB_REPOSITORY" \
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" "release/$zip" "release/$zip.sha256" --repo "$GITHUB_REPOSITORY" \
               --title "Ninsei recovery page $TAG" \
               --notes "Static page: unzip and serve the contents over HTTPS with the headers in deploy/. The archive holds dist/ only; every file's SHA-256 is in build.json."
+            exit 0
+          fi
+          assets=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          has() { printf '%s\n' "$assets" | grep -qxF "$1"; }
+          if ! has "$zip"; then
+            if has "$zip.sha256"; then
+              gh release download "$TAG" --pattern "$zip.sha256" --dir waiting --repo "$GITHUB_REPOSITORY"
+              if ! (cd release && sha256sum -c "../waiting/$zip.sha256"); then
+                echo "$TAG has a checksum of another archive: delete it from the release by hand, or attach that archive" >&2
+                exit 1
+              fi
+            fi
+            gh release upload "$TAG" "release/$zip" --repo "$GITHUB_REPOSITORY"
+          fi
+          if ! has "$zip.sha256"; then
+            gh release download "$TAG" --pattern "$zip" --dir published --repo "$GITHUB_REPOSITORY"
+            (cd published && sha256sum "$zip" > "$zip.sha256")
+            gh release upload "$TAG" "published/$zip.sha256" --repo "$GITHUB_REPOSITORY"
           fi
 
+  # ONE DEPLOY AT A TIME, and the tags are read again in the step that uploads: of two releases that overlap, or an older
+  # one approved late, the page ends with the newer. A rollback is a manual act outside this workflow.
   deploy:
     name: deploy the page
     needs: build
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-page
+      cancel-in-progress: false
     permissions:
       contents: read # checkout the pinned deploy tool
       actions: read # download the release-dist artifact
@@ -237,6 +308,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0 # main and every tag, to know the newest
           persist-credentials: false
 
       - name: Take the tested artefact
@@ -273,6 +345,14 @@ jobs:
             echo "CLOUDFLARE_API_TOKEN is not set; the page is not deployed to Cloudflare Pages."
             exit 0
           fi
+          git fetch --quiet --force --tags origin main:refs/remotes/origin/main
+          tags=$(git -c versionsort.suffix=- tag --list 'v*' --merged origin/main --sort=-v:refname)
+          newest=${tags%%$'\n'*}
+          test -n "$newest"
+          if [ "$newest" != "$TAG" ]; then
+            echo "$newest is newer than $TAG: the page stays" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           wrangler="bun tools/deploy/node_modules/wrangler/bin/wrangler.js"
           if ! $wrangler pages project list | grep -qE '(^|[^a-z0-9-])ninsei-recovery([^a-z0-9-]|$)'; then
             $wrangler pages project create ninsei-recovery --production-branch=main
@@ -280,3 +360,37 @@ jobs:
           # The build wrote dist/ from the tagged commit; the deploy names that commit and the tag.
           $wrangler pages deploy release/dist --project-name=ninsei-recovery --branch=main \
             --commit-hash="$(git rev-parse HEAD)" --commit-message="$TAG" --commit-dirty=true
+
+  # A TURN THAT WAS TAKEN IS SAID. In each group one job runs and one waits; a third takes the place of the waiting one, which
+  # is cancelled and moves nothing. No queue is kept here: this job names the run, and what to do if its tag is the newest.
+  promotions:
+    name: say what was promoted
+    needs: [latest, deploy]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Name the promotions of this run
+        env:
+          LATEST: ${{ needs.latest.result }}
+          PAGE: ${{ needs.deploy.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          replaced=
+          {
+            echo "### $TAG"
+            for turn in "image tag latest=$LATEST" "the page=$PAGE"; do
+              echo "- ${turn%=*}: ${turn##*=}"
+              if [ "${turn##*=}" = cancelled ]; then replaced=yes; fi
+            done
+            if [ -n "$replaced" ]; then
+              echo
+              echo "A turn of $TAG was cancelled before it ran: another release waited in its place, or the run was stopped."
+              echo "If $TAG is the newest tag on main, start the cancelled job of $RUN_URL again."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$replaced" ]; then
+            echo "::error::$TAG was not promoted: start the cancelled job of $RUN_URL again if it is the newest tag on main"
+            exit 1
+          fi
