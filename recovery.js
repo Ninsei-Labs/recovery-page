@@ -33,7 +33,7 @@ import {
   moneroHeaderTime,
   nodeFor,
 } from "./lib/node.js";
-import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
+import { keyNetworks, settlementOf, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js";
 import { nameOf, pageFailure, reasonOf, txIds } from "./lib/reason.js";
 import {
   swapState,
@@ -43,7 +43,7 @@ import {
   tipHeaderHeight,
   tipTrusted as tipIsTrusted,
 } from "./lib/withdrawal.js";
-import { sideOf, deadlineOf, newOrders, swapStateOf, ethRecipient } from "./lib/rows.js";
+import { sideOf, deadlineOf, newOrders, orderId, swapStateOf, ethRecipient } from "./lib/rows.js";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=__V_MONERO__";
@@ -109,6 +109,7 @@ const ethConfirmEl = $("ethConfirm");
 const ethInfoEl = $("ethInfo");
 const ethSendBtn = $("ethSend");
 const ethDoneEl = $("ethDone");
+const ethDoneHeadEl = $("ethDoneHead");
 const ethDoneInfoEl = $("ethDoneInfo");
 keyActionsEl.append(keyMoreEl);
 keyResultEl.insertBefore(keyActionsEl, swapListEl);
@@ -144,9 +145,9 @@ let searchReady = false; // the wallet and the browser's crypto answered (runPre
 let nodeAnswer = null; // { url, network }: the last node that answered, and the Monero network it named (checkNode)
 
 // ONE OPENED SWAP IS ONE OBJECT, and its state is kept nowhere else: the row and the key it was opened with, its own SDK
-// facade, its payload and plan, its wallet with the node and height it was restored from, what the wallet saw, and the
-// transfer being built, shown or sent. Opening a row makes a new one; closing it lets go of everything but the row, so
-// no key, no payload, no signed session and no wallet outlives it.
+// facade, its payload and plan, its wallet with the node and height it was restored from, what the wallet saw, the
+// transfer being built, shown or sent, and the ETH action with the person's wallet. Opening a row makes a new one;
+// closing it lets go of everything but the row, so no key, no payload, no signed session and no wallet outlives it.
 //
 // THE ONE RULE. A step that waits takes its swap (and its transfer) when it starts, reads and writes only that object
 // after a wait, and asks `holds` before it shows, signs or gives anything. A newer act never edits what a running
@@ -171,6 +172,7 @@ function openedSwap(row) {
     building: false, // a Withdraw is running
     outcome: null, // "sent" once its XMR left, "unsure" while that is not known and the balance was not read again
     progress: null, // the stage the bar under the button shows
+    eth: null, // the ETH action of a swap whose ETH can be taken (openEth)
   };
 }
 
@@ -199,22 +201,13 @@ const holds = (swap, transfer = null) =>
 // FROM THE MOMENT THE NODE IS GIVEN A TRANSFER until its answer nothing newer can be started: it could not stop it.
 const sending = () => Boolean(current && current.transfer && current.transfer.given);
 
-// ETH SETTLEMENT: the injected provider, its adapter, the action material from sweep.fromOrder, and the receipt wait.
-let ethProvider = null;
-let ethAdapter = null;
-let ethMaterial = null;
-let ethBusy = false;
-// A CONNECTION OUTLIVES THE CLICK ONLY UNTIL ANOTHER SWAP IS OPENED. The sequence lets a late wallet
-// answer be dropped instead of writing the new row's state.
-let ethConnectSeq = 0;
-
 const looksLikeXmrAddress = (text) => /^[1-9A-HJ-NP-Za-km-z]{95}$|^[1-9A-HJ-NP-Za-km-z]{106}$/.test(text);
 const wordCount = () => keyWordsInput.value.trim().split(/\s+/).filter(Boolean).length;
 const currentState = () => (current ? moneyState(current) : null);
 const nodeNetwork = () => (nodeAnswer && nodeAnswer.url === nodeUrl() ? nodeAnswer.network : null);
 // THE SDK'S DEADLINE CONVERSION IS LOADED ASYNCHRONOUSLY. The row rules live in lib/rows.js; this binding supplies
 // the converter once the bundle is present, without moving the decision back into the page.
-const rowStateOf = (row) => swapStateOf(row, { msFromOrderSeconds: mod && mod.msFromOrderSeconds });
+const rowStateOf = (row) => swapStateOf(settled(row), { msFromOrderSeconds: mod && mod.msFromOrderSeconds });
 const rowDeadlineOf = (swap) => deadlineOf(swap, mod && mod.msFromOrderSeconds);
 
 // VIOLET IS THE NEXT ACTION: "Find my swaps" once twelve words or a key file (and its password) are there,
@@ -455,6 +448,7 @@ document.addEventListener("i18n:applied", () => {
   drawChecks();
   drawProgress();
   drawResults();
+  drawEth();
 });
 
 // XMR AMOUNTS ARE A PACKAGE RULE (formatXmr, BigInt): one atomic unit is "0.000000000001", and above 9007 XMR
@@ -623,6 +617,7 @@ function enterKey({ file = null } = {}) {
   else keyFileInput.value = "";
   quiet(keyErrorEl);
   dropTransfer(current, "key");
+  dropCheck(current);
   updateButtons();
 }
 keyWordsInput.addEventListener("input", () => {
@@ -994,9 +989,22 @@ function swapRow(row) {
         class: "swap-state",
         text: t("swap.state." + state.state, { deadline: state.params.deadline ? d(state.params.deadline) : "" }),
       }),
-      h("div", { class: "swap-do" }, [action]),
+      ...(contradicted(row) ? [h("p", { class: "swap-state", "data-conflict": "", text: t("swap.conflict") })] : []),
+      h("div", { class: "swap-do" }, [action, ...(contradicted(row) ? [checkAgain(row)] : [])]),
     ],
   );
+}
+// THE CHAIN IS READ AGAIN for the network of a row, as a repeated search reads it.
+function checkAgain(row) {
+  const button = h("button", { type: "button", class: "small", "data-check": "", text: t("swap.check") });
+  button.disabled = sending() || search.searching;
+  button.addEventListener("click", () => {
+    const mine = search;
+    mine.sources.find((source) => source.net === row.net).complete = false;
+    mine.done = false;
+    return searchKey(mine, { more: true });
+  });
+  return button;
 }
 
 // --- 2. The ETH side: refund a buy, claim a sell ------------------------------------------------
@@ -1014,126 +1022,176 @@ function injectedProvider() {
   return eth;
 }
 
-// THE ACTION FACADE READS THROUGH THE SAME PROVIDER THAT WILL SEND. createNinsei's `evmCall` is the action's slot
-// check and clock; using the page's public RPC here would let the check and the signature see two different chains.
-function actionCore(row, provider) {
-  const call = async ({ to, data, from }) => {
-    const tx = from ? { to, data, from } : { to, data };
-    const result = await provider.request({ method: "eth_call", params: [tx, "latest"] });
-    if (typeof result !== "string" || !result.startsWith("0x")) throw pageFailure("answer");
-    return result;
-  };
+// THE ACTION FACADE HAS NO CHAIN READ OF ITS OWN, so the SDK's slot check and clock read through the wallet that will
+// send; the page's public RPC here would let the check and the signature see two different chains.
+function actionCore(swap) {
   return mod.createNinsei({
-    settlement: { chain: row.net.chainId },
-    xmrNetwork: row.net.monero,
+    settlement: { chain: swap.settlement },
+    xmrNetwork: swap.network,
     mode: "live",
     fetch: noService,
     storage: mod.memoryAdapter(),
-    evmCall: call,
   });
 }
 
-function clearEthConnection() {
-  if (ethAdapter) {
-    try {
-      ethAdapter.disconnect();
-    } catch {
-      /* the provider is going away */
-    }
+// ONE ORDER HAS ONE SUBMISSION, from the moment its request is handed to the wallet until it is known to have ended. The
+// entry is made at the hand-over and nowhere else, so a step that has not reached the wallet holds no order: it belongs
+// to the view that made it, and ends with that view, with another key, or with a failure. "asking" until the wallet
+// answers, "waiting" with a hash and no receipt, "elsewhere" while the wallet is on another network, "done" by its
+// receipt, "unknown" when neither came: then the page never offers another by itself. Public values only.
+const ethOrders = new Map();
+const idOf = (row) => orderId(row.net, row.swap.escrow);
+const ethOrder = (row) => ethOrders.get(idOf(row)) || null;
+const viewing = (row) => Boolean(current && current.eth && idOf(current.row) === idOf(row));
+
+// WHAT THE CHAIN'S EVENTS SHOW IS NEWER THAN A RECEIPT. A row whose action was executed here is settled, also in a list
+// read before the events show it; events that show another end of the order win, and the row says so.
+const ended = ({ status }) => Boolean(status && (status.isClaimed || status.isRefunded || status.isDeclined));
+function settled(row) {
+  const tx = ethOrder(row);
+  if (!tx || tx.state !== "done" || ended(row)) return row;
+  const status = { ...row.status, isRefunded: tx.kind === "refund", isClaimed: tx.kind === "claim", isDeclined: false };
+  return { ...row, status };
+}
+function contradicted(row) {
+  const tx = ethOrder(row);
+  if (!tx || tx.state !== "done" || !ended(row)) return false;
+  const { isRefunded, isClaimed, isDeclined } = row.status;
+  return tx.kind === "refund" ? !isRefunded || isDeclined === true || isClaimed === true : !isClaimed;
+}
+
+// THE PERSON'S WALLET, AS ONE STEP MAY USE IT. What the SDK asks goes to it unchanged, but for three things: a transaction
+// is handed over only by `hand`, which makes the order's entry, or refuses a step that was left; a network the wallet does
+// not know is offered with the page's own public RPCs (the SDK's registry may name the machine it runs on); and a network
+// that was added is selected, once, if the wallet did not (the SDK leaves it added). `code` is the wallet's own number for
+// the request that failed, which the SDK replaces by a code of its own.
+function walletFor(swap, injected, hand = null) {
+  const wallet = {
+    code: null,
+    async request(request) {
+      try {
+        if (request.method === "eth_sendTransaction") {
+          if (!hand) throw pageFailure("left");
+          hand();
+        }
+        if (request.method !== "wallet_addEthereumChain") return await injected.request(request);
+        const { rpcs } = settlementOf(swap.settlement);
+        const network = { ...request.params[0], rpcUrls: [...rpcs] };
+        const added = await injected.request({ ...request, params: [network] });
+        const { chainId } = network;
+        if (Number(await injected.request({ method: "eth_chainId" })) !== Number(chainId))
+          await injected.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
+        return added;
+      } catch (error) {
+        wallet.code = Number.isSafeInteger(error && error.code) ? error.code : null;
+        throw error;
+      }
+    },
+  };
+  return wallet;
+}
+const walletReason = (error, { code }) =>
+  reason(error) + (code === null ? "" : "; " + t("reason.wallet", { code: String(code) }));
+
+// THE ETH BLOCK IS DRAWN FROM THE SWAP ON THE SCREEN, its own step and its order's submission, so nothing of another swap
+// can stand in it: the action's facts once they are prepared, then Connect, then the confirmation, or what became of it.
+function drawEth() {
+  const eth = current && current.eth;
+  ethBox.hidden = !eth;
+  if (!eth) return;
+  const { row } = current;
+  const { material } = eth;
+  const tx = ethOrder(row);
+  for (const el of [ethStateEl, ethFactsEl, ethRecipientEl]) el.hidden = !material;
+  if (material) {
+    const deadline = rowDeadlineOf(row.swap);
+    const until = { deadline: deadline ? d(deadline) : "" };
+    const done = tx && tx.state === "done";
+    ethStateEl.textContent = t((done ? "eth.done." : "eth.state.") + material.kind, until);
+    ethRecipientEl.textContent = t("eth.recipient", { address: ethRecipient(row, material) });
+    drawInfo(ethFactsEl, [
+      ["info.swap", material.escrow],
+      ["eth.kind.label", t("eth.kind." + material.kind)],
+      ["info.amount.order", formatCoin(row.net, material.expect.amount)],
+      ["eth.recipient.label", ethRecipient(row, material)],
+      ["eth.window.label", t("eth.window." + material.kind, until)],
+    ]);
+    // NO ESTIMATE: it would send the action's calldata to the wallet's RPC before Confirm, and the half must stay in the
+    // tab until the SDK builds the send, with a gas limit of its own.
+    drawInfo(ethInfoEl, [
+      ["eth.gas.label", t("eth.gas.fixed")],
+      ["eth.recipient.label", ethRecipient(row, material)],
+    ]);
   }
-  ethAdapter = null;
-  ethProvider = null;
-  ethBusy = false;
+  const is = tx ? (tx.state === "unknown" && !tx.hash ? "lost" : tx.state) : eth.checking ? "checking" : null;
+  ethConnectBtn.hidden = !material || Boolean(is) || Boolean(eth.injected);
+  ethConnectBtn.disabled = eth.connecting;
+  ethWalletEl.hidden = !eth.injected;
+  ethWalletEl.textContent = eth.injected ? t("eth.wallet", { address: eth.account, chain: row.net.name }) : "";
+  ethConfirmEl.hidden = !eth.injected || Boolean(is);
+  ethDoneEl.hidden = !is;
+  if (!is) return;
+  ethDoneHeadEl.textContent = t("eth.tx.head." + is);
+  drawInfo(ethDoneInfoEl, [
+    ...(tx && tx.hash ? [["info.txid", ethExplorerLink(tx.hash, row)]] : []),
+    ["eth.state.label", t(is === "done" ? "eth.done." + tx.kind : "eth.tx." + is, { network: row.net.name })],
+  ]);
 }
 
-function clearEthState() {
-  // A NEW SWAP INVALIDATES A CONNECTION STILL IN FLIGHT. The prepared material is cleared here, but a
-  // failed connect calls clearEthConnection so the person can retry the same action.
-  ethConnectSeq += 1;
-  clearEthConnection();
-  ethMaterial = null;
-}
-
-function drawEthFacts(row, material) {
-  const deadline = rowDeadlineOf(row.swap);
-  const rows = [
-    ["info.swap", material.escrow],
-    ["eth.kind.label", () => t("eth.kind." + material.kind)],
-    ["info.amount.order", () => formatCoin(row.net, material.expect.amount)],
-    ["eth.recipient.label", () => ethRecipient(row, material)],
-    [
-      "eth.window.label",
-      () =>
-        t(material.kind === "refund" ? "eth.window.refund" : "eth.window.claim", {
-          deadline: deadline ? d(deadline) : "",
-        }),
-    ],
-  ];
-  drawInfo(ethFactsEl, rows);
-}
-
-function drawEthState(row, material) {
-  ethStateEl.textContent = t(material.kind === "refund" ? "eth.state.refund" : "eth.state.claim", {
-    deadline: rowDeadlineOf(row.swap) ? d(rowDeadlineOf(row.swap)) : "",
-  });
-  ethRecipientEl.textContent = t("eth.recipient", { address: ethRecipient(row, material) });
-  ethRecipientEl.hidden = false;
-}
-
-async function openEth(row) {
-  clearEthState();
-  ethDoneEl.hidden = true;
-  ethConfirmEl.hidden = true;
-  ethWalletEl.hidden = true;
-  ethRecipientEl.hidden = true;
-  ethConnectBtn.hidden = true;
-  ethConnectBtn.disabled = true;
+async function openEth(swap) {
+  const { row } = swap;
+  swap.eth = { material: null, injected: null, account: null, connecting: false, checking: null };
   quiet(ethErrorEl);
-  stepTransfer.hidden = true;
-  ethBox.hidden = false;
-  swapHeadEl.textContent = t("page.step.eth");
+  drawEth();
+  // A HASH WHOSE RECEIPT WAS NOT READ is asked for again, before anything else can be offered.
+  const tx = ethOrder(row);
+  if (tx && tx.hash && (tx.state === "unknown" || tx.state === "elsewhere")) ethReceipt(row, tx);
   try {
-    const core = await newFacade(row.net.chainId, row.net.monero);
-    const built = await core.sweep.fromOrder({
-      mnemonic: key.mnemonic,
+    swap.core = await newFacade(swap.settlement, swap.network);
+    if (!holds(swap)) return false;
+    const built = await swap.core.sweep.fromOrder({
+      mnemonic: swap.key.mnemonic,
       chainId: row.net.chainId,
-      network: row.net.id,
-      moneroNetwork: row.net.monero,
+      network: swap.settlement,
+      moneroNetwork: swap.network,
       order: row.swap,
     });
+    if (!holds(swap)) return false;
     if (!built || (built.kind !== "refund" && built.kind !== "claim")) throw pageFailure("action");
-    ethMaterial = built;
-    drawEthFacts(row, built);
-    drawEthState(row, built);
-    ethConnectBtn.hidden = false;
-    ethConnectBtn.disabled = false;
-    ethConnectBtn.textContent = t("page.btn.eth.connect");
+    swap.eth.material = built;
+    drawEth();
     log(t("log.eth.opened", { kind: built.kind, escrow: short(built.escrow) }));
     return true;
   } catch (e) {
+    if (!holds(swap)) return false;
     log(t("log.eth.prepareFailed", { words: reason(e) }), "bad");
     return say(ethErrorEl, "eth.err.prepare");
   }
 }
 
 async function ethConnect() {
+  const swap = current;
+  const eth = swap && swap.eth;
+  if (eth && eth.connecting) return false;
   quiet(ethErrorEl);
-  const row = current && current.row;
-  const material = ethMaterial;
-  if (!material || !row) return say(ethErrorEl, "eth.err.prepare");
-  const provider = injectedProvider();
-  if (!provider) return say(ethErrorEl, "eth.err.noProvider");
-  ethConnectBtn.disabled = true;
-  const seq = ++ethConnectSeq;
+  if (!eth || !eth.material) return say(ethErrorEl, "eth.err.prepare");
+  const injected = injectedProvider();
+  if (!injected) {
+    log(t("log.eth.connectFailed", { words: t("eth.err.noProvider") }), "bad");
+    return say(ethErrorEl, "eth.err.noProvider");
+  }
+  const { row } = swap;
+  const { material } = eth;
+  const wallet = walletFor(swap, injected);
+  eth.connecting = true;
+  drawEth();
   try {
-    // THE ADAPTER IS LOCAL UNTIL THE WHOLE CHECK PASSES. A connection that answers after another swap
-    // was opened must not install itself over the new row.
-    const adapter = mod.evmWallet(provider);
+    const adapter = mod.evmWallet(wallet);
     await adapter.connect({ chainId: row.net.chainId });
-    const address = await adapter.address();
+    const account = await adapter.address();
     const chainId = await adapter.chainId();
-    if (seq !== ethConnectSeq || !current || current.row !== row || ethMaterial !== material) return false;
-    if (!address) throw new Error("wallet-not-connected");
+    if (!holds(swap)) return false;
+    if (!account) throw Object.assign(new Error("wallet-not-connected"), { code: "wallet-not-connected" });
     if (chainId !== Number(material.expect.chainId)) {
       throw Object.assign(new Error("wrong-chain"), {
         code: "wrong-chain",
@@ -1142,31 +1200,19 @@ async function ethConnect() {
     }
     if (material.kind === "claim") {
       const expected = String(material.claimer || material.expect.claimer || "").toLowerCase();
-      if (address.toLowerCase() !== expected) {
-        ethConnectBtn.hidden = false;
-        ethConnectBtn.disabled = false;
-        return say(ethErrorEl, "eth.err.claimer", { account: address, expected });
+      if (account.toLowerCase() !== expected) {
+        log(t("log.eth.connectFailed", { words: t("eth.err.claimer", { account, expected }) }), "bad");
+        return say(ethErrorEl, "eth.err.claimer", { account, expected });
       }
     }
-    ethProvider = provider;
-    ethAdapter = adapter;
-    ethWalletEl.textContent = t("eth.wallet", { address, chain: row.net.name });
-    ethWalletEl.hidden = false;
-    ethConnectBtn.hidden = true;
-    ethConfirmEl.hidden = false;
-    ethSendBtn.disabled = false;
-    drawEthGas();
-    log(t("log.eth.connected", { address, chainId }));
+    // THE WALLET IS THE SWAP'S ONLY ONCE THE WHOLE CHECK PASSED. A failed connection keeps the prepared action, so the
+    // next press of Connect tries the same one again.
+    Object.assign(eth, { injected, account });
+    log(t("log.eth.connected", { address: account, chainId }));
     return true;
   } catch (e) {
-    // THE PREPARED ACTION SURVIVES A FAILED CONNECTION. Only the adapter and the provider are dropped,
-    // so the next Connect wallet click retries the same action instead of answering eth.err.prepare.
-    if (seq !== ethConnectSeq || !current || current.row !== row) return false;
-    const words = reason(e);
-    log(t("log.eth.connectFailed", { words }), "bad");
-    clearEthConnection();
-    ethConnectBtn.hidden = false;
-    ethConnectBtn.disabled = false;
+    if (!holds(swap)) return false;
+    log(t("log.eth.connectFailed", { words: walletReason(e, wallet) }), "bad");
     return say(
       ethErrorEl,
       e && e.code === "wrong-chain"
@@ -1175,30 +1221,46 @@ async function ethConnect() {
           ? "eth.err.rejected"
           : "eth.err.connect",
     );
+  } finally {
+    eth.connecting = false;
+    drawEth();
   }
 }
 
-// THE GAS LIMIT IS THE WALLET'S, NOT AN ESTIMATE'S. Reading it would mean sending the action's calldata
-// to the wallet's RPC before Confirm; the half must stay in the tab until the SDK builds the send.
-function drawEthGas() {
-  drawInfo(ethInfoEl, [
-    ["eth.gas.label", () => t("eth.gas.unknown")],
-    ["eth.recipient.label", () => ethRecipient(current.row, ethMaterial)],
-  ]);
+// ANOTHER KEY ENDS A STEP THAT HAS NOT REACHED THE WALLET, as it drops a transfer: it is not handed over, and says so. One
+// the wallet has is its own, and only its outcome is said.
+function dropCheck(swap) {
+  const eth = swap && swap.eth;
+  if (!eth || !eth.checking) return;
+  eth.checking = null;
+  log(t("log.eth.stopped"), "wait");
+  drawEth();
+  say(ethErrorEl, "eth.err.key", {}, "wait");
 }
 
 async function ethSend() {
+  const swap = current;
+  const eth = swap && swap.eth;
   quiet(ethErrorEl);
-  const row = current && current.row;
-  const material = ethMaterial;
-  if (ethBusy || !material || !ethAdapter || !ethProvider || !row) return say(ethErrorEl, "eth.err.prepare");
-  const provider = ethProvider;
-  const adapter = ethAdapter;
-  ethBusy = true;
-  ethSendBtn.disabled = true;
-  const kind = material.kind;
+  if (!eth || !eth.material || !eth.injected) return say(ethErrorEl, "eth.err.prepare");
+  const { row } = swap;
+  if (eth.checking || ethOrder(row)) return false;
+  const { material, injected } = eth;
+  const { kind } = material;
+  const check = {};
+  eth.checking = check;
+  drawEth();
+  // THE ORDER IS HELD FROM HERE ON: the wallet is given the transaction in the same turn. A step that was left, or that
+  // another key ended, is refused, and nothing is held.
+  let tx = null;
+  const wallet = walletFor(swap, injected, () => {
+    if (!holds(swap) || eth.checking !== check) throw pageFailure("left");
+    eth.checking = null;
+    ethOrders.set(idOf(row), (tx = { kind, state: "asking", hash: null, injected }));
+    drawEth();
+  });
+  const mine = () => holds(swap) && eth.checking === check;
   try {
-    const core = actionCore(row, provider);
     const request = { escrow: material.escrow, expect: material.expect };
     if (kind === "claim") {
       request.halfClaimer = material.half;
@@ -1206,85 +1268,105 @@ async function ethSend() {
     } else {
       request.halfLocker = material.half;
     }
-    const sent = await core.actions[kind](request, adapter);
+    const sent = await actionCore(swap).actions[kind](request, mod.evmWallet(wallet));
     const hash = sent && sent.hash;
     if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw pageFailure("hash");
-    log(t("log.eth.sent", { kind, hash }));
-    ethConfirmEl.hidden = true;
-    ethDoneEl.hidden = false;
-    ethDoneInfoEl.replaceChildren();
-    drawInfo(ethDoneInfoEl, [
-      ["info.txid", () => ethExplorerLink(hash, row)],
-      ["eth.state.label", () => t(kind === "refund" ? "eth.done.refund" : "eth.done.claim")],
-    ]);
-    const receipt = await waitForEthReceipt(hash, adapter);
-    if (!receipt.ok) {
-      if (receipt.why === "reverted") {
-        // A REVERTED CALL IS A TERMINAL ANSWER: no receipt will arrive, so the confirmation comes back with a
-        // usable send button. A timeout is different: the transaction may still land, and re-sending it would be a
-        // second action on the same order.
-        ethDoneEl.hidden = true;
-        ethConfirmEl.hidden = false;
-        ethSendBtn.disabled = false;
-        return say(ethErrorEl, "eth.err.reverted");
-      }
-      return say(ethErrorEl, "eth.err.receipt");
-    }
-    // ONLY AN OBSERVED RECEIPT MOVES THE ROW. The row state is local until a fresh search; no claim of success
-    // before the chain has executed the call.
-    if (!current || current.row !== row) return false;
-    row.status =
-      kind === "refund"
-        ? { ...row.status, isRefunded: true, isClaimed: false, isDeclined: false }
-        : { ...row.status, isClaimed: true, isRefunded: false, isDeclined: false };
-    drawSwaps();
-    ethStateEl.textContent = t(kind === "refund" ? "eth.done.refund" : "eth.done.claim");
-    log(t("log.eth.receipt", { kind, hash }));
-    return true;
+    tx.hash = hash;
   } catch (e) {
-    const words = reason(e);
-    log(t("log.eth.failed", { words }), "bad");
-    ethSendBtn.disabled = false;
-    const key =
-      e && e.code === "wrong-account"
-        ? "eth.err.account"
-        : e && e.code === "wrong-chain"
-          ? "eth.err.chain"
-          : e && e.code === "wallet-rejected"
-            ? "eth.err.rejectSend"
-            : e &&
-                e.code === "bad-input" &&
-                e.params &&
-                (e.params.field === "wallet" || e.params.field === "wallet.address")
-              ? "eth.err.account"
-              : e && e.code === "contract-reverted"
-                ? ["too-early", "window-closed", "not-ready", "ready-window-closed"].includes(e.params && e.params.why)
-                  ? "eth.err.window"
-                  : "eth.err.reverted"
-                : e && e.code === "wallet-not-connected"
-                  ? "eth.err.connect"
-                  : "eth.err.send";
-    return say(ethErrorEl, key);
-  } finally {
-    ethBusy = false;
+    // ENDED OR LEFT BEFORE THE WALLET WAS ASKED: nothing was handed over, and there is nothing of it to say here.
+    if (!tx && !mine()) {
+      if (!holds(swap)) log(t("log.eth.stopped"), "wait");
+      return false;
+    }
+    log(t("log.eth.failed", { words: walletReason(e, wallet) }), "bad");
+    const words = ethStop(e, wallet.code, Boolean(tx));
+    if (tx && words === "eth.err.unknown") tx.state = "unknown";
+    else if (tx) ethOrders.delete(idOf(row));
+    if (eth.checking === check) eth.checking = null;
+    drawSwaps();
+    drawEth();
+    return viewing(row) ? say(ethErrorEl, words) : false;
   }
+  log(t("log.eth.sent", { kind, hash: tx.hash }));
+  return ethReceipt(row, tx);
 }
 
-async function waitForEthReceipt(hash, adapter) {
-  const started = Date.now();
-  for (;;) {
-    try {
-      const receipt = await adapter.receipt(hash);
-      if (receipt && typeof receipt === "object") {
-        if (receipt.status === "0x1" || receipt.status === 1) return { ok: true, receipt };
-        if (receipt.status === "0x0" || receipt.status === 0) return { ok: false, why: "reverted" };
-      }
-    } catch {
-      /* a receipt that cannot be read is not a success; keep asking until the deadline */
-    }
-    if (Date.now() - started > 120_000) return { ok: false, why: "timeout" };
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
+// WHY A SEND STOPPED. A step that did not reach the wallet sent nothing; a wallet that was given the transaction and did
+// not refuse it by name may have sent it. A wallet that does not support the method (4200, and the JSON-RPC number for an
+// unknown method) has sent nothing either, whatever code the SDK makes of it.
+function ethStop(e, number, handed) {
+  const code = e && e.code;
+  const { why, field } = (e && e.params) || {};
+  if (handed && (number === 4200 || number === -32601)) return "eth.err.refused";
+  if (code === "wrong-account") return "eth.err.account";
+  if (code === "bad-input" && (field === "wallet" || field === "wallet.address")) return "eth.err.account";
+  if (code === "wrong-chain") return "eth.err.chain";
+  if (code === "wallet-rejected") return "eth.err.rejectSend";
+  if (code === "contract-reverted") {
+    if (["too-early", "window-closed", "not-ready", "ready-window-closed"].includes(why)) return "eth.err.window";
+    return handed ? "eth.err.refused" : "eth.err.check";
   }
+  if (code === "wallet-not-connected" && why !== "transport") return "eth.err.connect";
+  return handed && code !== "insufficient-funds" ? "eth.err.unknown" : "eth.err.send";
+}
+
+// SENT IS NOT DONE. Only a successful receipt of this transaction settles its order, whatever swap is on the screen by
+// then; one that failed opens the action again; none in time is unknown, and the page sends no second one by itself.
+async function ethReceipt(row, tx) {
+  const { kind, hash } = tx;
+  tx.state = "waiting";
+  drawEth();
+  tx.state = await waitForEthReceipt(tx, row.net.chainId);
+  if (tx.state === "failed") ethOrders.delete(idOf(row));
+  log(t("log.eth.receipt." + tx.state, { kind, hash, network: row.net.name }), tx.state === "done" ? "ok" : "bad");
+  drawSwaps();
+  drawEth();
+  if (tx.state === "done") return true;
+  const words = { failed: "eth.err.failed", elsewhere: "eth.err.elsewhere" }[tx.state] || "eth.err.receipt";
+  return viewing(row) ? say(ethErrorEl, words, { network: row.net.name }) : false;
+}
+
+// "done", "failed", "elsewhere", or "unknown" once the limit passes, also when the wallet never answers a read. A receipt
+// counts only when it is this transaction's, and is asked only of the order's own network: a wallet that moved elsewhere
+// has not lost it, so the page says where it must be.
+const ETH_RECEIPT_LIMIT_MS = 120_000;
+const ETH_RECEIPT_EVERY_MS = 2_000;
+async function waitForEthReceipt(tx, chainId) {
+  const { hash, injected } = tx;
+  let over = false;
+  const limit = after(ETH_RECEIPT_LIMIT_MS).then(() => {
+    over = true;
+    return null;
+  });
+  const ask = (method, params) =>
+    Promise.race([
+      limit,
+      (async () => {
+        try {
+          return await injected.request({ method, params });
+        } catch {
+          return null;
+        }
+      })(),
+    ]);
+  let elsewhere = false;
+  while (!over) {
+    const chain = await ask("eth_chainId", []);
+    if (over) break;
+    elsewhere = typeof chain === "string" && Number(chain) !== chainId;
+    // A receipt that cannot be read is not a success and not a failure: ask again until the limit.
+    const receipt = elsewhere ? null : await ask("eth_getTransactionReceipt", [hash]);
+    const own = receipt && String(receipt.transactionHash).toLowerCase() === hash.toLowerCase();
+    if (own && Number(receipt.status) === 1) return "done";
+    if (own && Number(receipt.status) === 0) return "failed";
+    const state = elsewhere ? "elsewhere" : "waiting";
+    if (!over && tx.state !== state) {
+      tx.state = state;
+      drawEth();
+    }
+    await Promise.race([after(ETH_RECEIPT_EVERY_MS), limit]);
+  }
+  return elsewhere ? "elsewhere" : "unknown";
 }
 
 function ethExplorerLink(hash, row) {
@@ -1321,7 +1403,7 @@ async function readSwap(swap) {
     swapHeadEl.textContent = t("page.step.eth");
     drawSwaps();
     stepSwap.scrollIntoView({ block: "nearest" });
-    return await openEth(row);
+    return await openEth(swap);
   }
   moneyEl.hidden = false;
   moneyEl.dataset.state = "wait";
@@ -2103,14 +2185,9 @@ function closeSwap(why = "left") {
   dropTransfer(swap, why);
   current = null;
   leaveSwap(swap);
-  clearEthState();
   stepSwap.hidden = true;
   stepTransfer.hidden = true;
-  ethBox.hidden = true;
-  ethDoneEl.hidden = true;
-  ethConfirmEl.hidden = true;
-  ethWalletEl.hidden = true;
-  ethRecipientEl.hidden = true;
+  drawEth();
   quiet(ethErrorEl);
   moneyEl.hidden = true;
   confirmEl.hidden = true;

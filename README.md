@@ -214,8 +214,14 @@ archive itself against the published `.sha256`.
   factory, the `OrderCreated` topic and a block range, never the key or a commitment; the swap's state comes from
   one bulk `eth_getLogs` over the found escrows, and the maker's half is an `eth_call` (`sweep.plan`) only for
   the swap the person opens. The page holds no EVM key: a refund or claim is one transaction signed by the
-  person's own browser wallet, through the SDK. A network the SDK names a live factory for, but which this page
-  cannot read, is said, not skipped.
+  person's own browser wallet, through the SDK. A wallet that does not know the network is offered it with the public
+  RPCs of `lib/settlement.js`; one that stays on another network gets no transaction. The person's half is in no
+  request before the transaction the person confirmed, and "Refunded" or "Claimed" stands only after its receipt. One
+  order has one submission at a time while the page is open, from the moment the wallet is handed the transaction: no
+  second one is offered while it is asked or while the transaction has no receipt. Until then nothing holds the order,
+  and another key entered ends the step. A receipt is asked only of the order's network: a wallet that moved is told where
+  it must be. What the chain's events show is newer than a receipt, and a row they contradict says so. A network the SDK names a live factory for, but which this page cannot read, is said,
+  not skipped.
 - **A missing answer is unknown.** A swap whose state could not be read is shown as unknown, a network that did
   not answer makes the list say it is incomplete, and a start block the chain does not give is asked for.
 - **Confirm sends the transfer on the screen, or nothing.** A changed address, another withdrawal, another swap, or words

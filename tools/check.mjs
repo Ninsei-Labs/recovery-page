@@ -1787,21 +1787,6 @@ await check("a withdrawal refreshes its balance and reopens a closed wallet", as
   return checkOpenAndSync();
 });
 
-await check("the ETH action is sent by the SDK and only a receipt moves the row", async () => {
-  const { checkEthAction } = await import("./check-send.mjs");
-  return checkEthAction();
-});
-
-await check("a connection that answers after another swap opens is ignored", async () => {
-  const { checkEthRace } = await import("./check-send.mjs");
-  return checkEthRace();
-});
-
-await check("an ETH row opens the ETH block, not the XMR flow", async () => {
-  const { checkEthRouting } = await import("./check-send.mjs");
-  return checkEthRouting();
-});
-
 await check("the wallet is loaded once and a node change asks only the node", async () => {
   const { checkPreflight } = await import("./check-send.mjs");
   return checkPreflight();

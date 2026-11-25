@@ -26,8 +26,8 @@ export const NOW = Date.UTC(2026, 10, 20, 12);
 const NOW_SEC = NOW / 1000;
 const LATEST_BLOCK = 326_100_000;
 const ORDER_BLOCK = 326_050_000;
-export const FACTORY = "0x245d3a4ac4b98d713f6c5130b56cd5d550f8cefe";
-export const CHAIN_ID = 421614;
+// The factory and the chain the example XMR swaps are on; an ETH world is given its own network.
+const SEPOLIA = { id: "arbitrum-sepolia", chainId: 421614, factory: "0x245d3a4ac4b98d713f6c5130b56cd5d550f8cefe" };
 const TIP = 2_000_000; // the top Monero block
 const FUNDED_AT = TIP - 25;
 const ORDER_SEC = NOW_SEC - 3600;
@@ -52,13 +52,24 @@ const halves = createHalves({
 });
 
 // ONE FOUND ORDER, as the factory emits it. `side` is the person's: "locker" bought XMR, "claimer" sold it.
-export function makeOrder({ words, index, side, amountWei, t1, readyBy, person, maker = "0x" + "33".repeat(20) }) {
+export function makeOrder({
+  net = SEPOLIA,
+  words,
+  index,
+  side,
+  amountWei,
+  t1,
+  readyBy,
+  person,
+  maker = "0x" + "33".repeat(20),
+}) {
+  const { chainId, factory } = net;
   const salt = "0x" + word((index + 1).toString(16));
-  const me = takerHalvesV2({ mnemonic: words, chainId: CHAIN_ID, factory: FACTORY, salt });
+  const me = takerHalvesV2({ mnemonic: words, chainId, factory, salt });
   const makerHalf = takerHalvesV2({
     mnemonic: MAKER,
-    chainId: CHAIN_ID,
-    factory: FACTORY,
+    chainId,
+    factory,
     salt: "0x" + word((index + 500).toString(16)),
   });
   const makerPoint = halves.publicHalves(BigInt(makerHalf.spendHalf)).ed;
@@ -77,12 +88,15 @@ export function makeOrder({ words, index, side, amountWei, t1, readyBy, person, 
     amountWei: BigInt(amountWei),
     t1,
     readyBy,
+    // The person's half is worked out when it is asked for and kept nowhere: a check that looks for it in memory must
+    // not find the world's own.
+    half: () => word(takerHalvesV2({ mnemonic: words, chainId, factory, salt }).spendHalf),
     makerHalf: "0x" + word(makerHalf.spendHalf),
     block: ORDER_BLOCK + index,
     events: [],
   };
   order.log = {
-    address: FACTORY,
+    address: factory,
     topics: [ORDER_CREATED_TOPIC, ...[order.escrow, order.locker, order.claimer].map((a) => "0x" + word(a))],
     data:
       "0x" +
@@ -115,7 +129,9 @@ export const eventLog = (order, name, values) => ({
   topics:
     name === "Ready"
       ? [topic("Ready(address)"), "0x" + word(values.by)]
-      : [topic(name === "HalfRevealed" ? "HalfRevealed(bytes32,bool)" : "Declined(address)")],
+      : name === "HalfRevealed"
+        ? [topic("HalfRevealed(bytes32,bool)")]
+        : [topic("Declined(address)"), "0x" + word(order.claimer)],
   data: name === "HalfRevealed" ? "0x" + word(values.half) + word(values.byClaimer ? "1" : "0") : "0x",
   blockNumber: "0x" + (order.block + 10).toString(16),
   transactionHash: "0x" + word("cc"),
@@ -128,7 +144,7 @@ const json = (value) => ({ ok: true, status: 200, json: async () => value, clone
  * The settlement chain's public RPCs: the orders and their events, read as the page reads them. Each answer goes through
  * `call` by its name ("rpc" for an escrow's revealed half, "head" for the latest block); `failing()` refuses the logs.
  */
-export function settlementChain(orders, call, failing = () => false) {
+export function settlementChain(orders, call, failing = () => false, net = SEPOLIA) {
   const hosts = new Set(Object.values(SETTLEMENT).flatMap((net) => net.rpcs));
   const NAMES = { eth_blockNumber: "head", eth_call: "rpc" };
   return {
@@ -144,7 +160,7 @@ export function settlementChain(orders, call, failing = () => false) {
           const from = Number(filter.fromBlock);
           const to = Number(filter.toBlock);
           const logs = filter.address
-            ? orders.filter(() => filter.address.toLowerCase() === FACTORY).map((order) => order.log)
+            ? orders.filter(() => filter.address.toLowerCase() === net.factory).map((order) => order.log)
             : orders.flatMap((order) => order.events);
           return json({
             result: logs.filter((log) => Number(log.blockNumber) >= from && Number(log.blockNumber) <= to),
@@ -240,10 +256,10 @@ export async function xmrWorld({ from = 0 } = {}) {
     order.events = [eventLog(order, "HalfRevealed", { half: order.makerHalf, byClaimer: true })];
     const built = await core.sweep.fromOrder({
       mnemonic: swap.words,
-      chainId: CHAIN_ID,
-      network: "arbitrum-sepolia",
+      chainId: SEPOLIA.chainId,
+      network: SEPOLIA.id,
       moneroNetwork: "stagenet",
-      order: { ...order, factory: FACTORY, amount: order.amountWei.toString() },
+      order: { ...order, factory: SEPOLIA.factory, amount: order.amountWei.toString() },
     });
     const w = built.payload.moneroWallet;
     const keys = spendKeysFromRevealedHalf({
@@ -424,4 +440,152 @@ export async function xmrWorld({ from = 0 } = {}) {
     },
   };
   return world;
+}
+
+// --- the ETH side ----------------------------------------------------------------------------------
+
+// The escrow's own rule for a half (NinseiEscrow.halfMatchesCommit): the low 160 bits of keccak256(x || y) of half * G.
+function halfCommitment(half) {
+  const { x, y } = secp256k1.Point.BASE.multiply(BigInt(half)).toAffine();
+  const point = Buffer.from([x, y].map((v) => v.toString(16).padStart(64, "0")).join(""), "hex");
+  return hex(keccak_256(point)).slice(-40);
+}
+
+/**
+ * Swaps whose ETH can be taken on `net`, and a person's EVM wallet (EIP-1193). Two buys past their deadline, and a sell
+ * its maker marked ready, in its claim window, of one key; a buy past its deadline of another. `from` is the first order's
+ * number: worlds with other numbers have other halves.
+ */
+export function ethWorld(net, { from = 20 } = {}) {
+  const gate = gates();
+  const requests = []; // every request that left the page, to a host or to the wallet, with what it carried
+  const sent = []; // the transactions the wallet was handed, each with the hash it answered with
+  const person = "0x" + "11".repeat(20);
+  const depositor = "0x" + "44".repeat(20);
+  const past = { t1: NOW_SEC - 600, readyBy: NOW_SEC - 1800 };
+  const open = { t1: NOW_SEC + 3600, readyBy: NOW_SEC + 1800 };
+  const orders = {
+    refund: { words: KEY_ONE, eth: "0.6", side: "locker", ...past },
+    claim: { words: KEY_ONE, eth: "0.8", side: "claimer", maker: depositor, ...open },
+    again: { words: KEY_ONE, eth: "0.9", side: "locker", ...past },
+    other: { words: KEY_TWO, eth: "1.1", side: "locker", ...past },
+  };
+  Object.values(orders).forEach((entry, at) => {
+    const order = makeOrder({ ...entry, net, index: from + at, person, amountWei: entry.eth * 10 + "0".repeat(17) });
+    const own = entry.side === "locker" ? order.commitHalfLocker : order.commitHalfClaimer;
+    assert.equal(own.slice(-40), halfCommitment("0x" + order.half()), "the example order commits to another half");
+    order.events = entry.side === "claimer" ? [eventLog(order, "Ready", { by: depositor })] : [];
+    Object.assign(entry, { order, escrow: order.escrow });
+  });
+  const all = Object.values(orders).map((entry) => entry.order);
+
+  const selector = (name) => topic(name + "()").slice(0, 10);
+  const slots = (order) => ({
+    status: word("1") + word("0") + word("0") + word(order.amountWei.toString(16)),
+    ready: word(order.side === "claimer" ? depositor : "0"),
+    t1: word(order.t1.toString(16)),
+    readyBy: word(order.readyBy.toString(16)),
+    termsHash: word("7e"),
+    edPointLocker: word(order.edPointLocker),
+    edPointClaimer: word(order.edPointClaimer),
+    edViewPointLocker: word(order.edViewPointLocker),
+    commitHalfLocker: word(order.commitHalfLocker),
+    commitHalfClaimer: word(order.commitHalfClaimer),
+  });
+
+  const fail = (code, message) => Object.assign(new Error(message), { code });
+  // A transaction's hash is the wallet's, one for each; its receipt is the chain's, by that hash and no other.
+  const hashOf = (count) => "0x" + word((0x5a5a00 + count).toString(16));
+  const wallet = {
+    account: person,
+    chainId: 1, // where the wallet is when the page meets it
+    known: [1], // the networks it knows; another is answered 4902, as EIP-3326 has it
+    selects: true, // it selects a network it added
+    stays: false, // it says it switched and did not
+    fails: {}, // method -> error it answers with
+    noHash: false, // it answers a transaction without its hash
+    receipts: {}, // hash -> what the chain says of it; every transaction has `receipt` unless it is here
+    receipt: { status: "0x1" },
+    asked: [], // the hashes it was asked the receipt of
+    offered: [], // what it was offered by wallet_addEthereumChain
+    prompts: [], // what it asked the person: the networks it was asked to select or add, and the transactions
+    request({ method, params = [] }) {
+      requests.push({ to: "wallet", method, body: JSON.stringify(params) });
+      return gate.call(method, async () => {
+        if (wallet.fails[method]) throw wallet.fails[method];
+        if (method === "eth_requestAccounts" || method === "eth_accounts") return [wallet.account];
+        if (method === "eth_chainId") return "0x" + wallet.chainId.toString(16);
+        if (method === "wallet_switchEthereumChain") {
+          const id = Number(params[0].chainId);
+          if (!wallet.known.includes(id)) throw fail(4902, "Unrecognized chain ID. Try adding the chain first.");
+          wallet.prompts.push("select");
+          if (!wallet.stays) wallet.chainId = id;
+          return null;
+        }
+        if (method === "wallet_addEthereumChain") {
+          wallet.prompts.push("add");
+          wallet.offered.push(params[0]);
+          wallet.known.push(Number(params[0].chainId));
+          if (wallet.selects && !wallet.stays) wallet.chainId = Number(params[0].chainId);
+          return null;
+        }
+        if (method === "eth_getBlockByNumber") return { timestamp: "0x" + NOW_SEC.toString(16) };
+        if (method === "eth_call") {
+          const order = all.find((entry) => entry.escrow === params[0].to.toLowerCase());
+          assert.ok(order, "the wallet was asked to read an address that is no order's escrow");
+          const read = Object.entries(slots(order)).find(([name]) => selector(name) === params[0].data);
+          assert.ok(read, "the wallet was asked to read " + params[0].data);
+          return "0x" + read[1];
+        }
+        if (method === "eth_sendTransaction") {
+          const hash = hashOf(sent.length + 1);
+          sent.push({ ...params[0], hash, on: wallet.chainId });
+          return wallet.noHash ? undefined : hash;
+        }
+        if (method === "eth_getTransactionReceipt") {
+          const [hash] = params;
+          wallet.asked.push(hash);
+          // A RECEIPT IS ONE NETWORK'S: the wallet answers for the one it is on.
+          if (!sent.some((tx) => tx.hash === hash && tx.on === wallet.chainId)) return null;
+          const receipt = hash in wallet.receipts ? wallet.receipts[hash] : wallet.receipt;
+          return receipt && { transactionHash: hash, ...receipt };
+        }
+        throw fail(4200, "the wallet does not support " + method);
+      });
+    },
+  };
+
+  const chain = settlementChain(all, gate.call, () => false, net);
+  return {
+    now: NOW,
+    net,
+    orders,
+    person,
+    wallet,
+    ethereum: wallet,
+    requests,
+    sent,
+    hold: gate.hold,
+    quiet: gate.quiet,
+    hashOf,
+    fail,
+    async fetch(url, init) {
+      requests.push({ to: url, method: "POST", body: (init && init.body) || "" });
+      if (url.startsWith("./monero.worker.js"))
+        return { status: 200, arrayBuffer: async () => new ArrayBuffer(1_500_000) };
+      if (chain.answers(url)) return chain.fetch(url, init);
+      if (url.endsWith("/json_rpc")) {
+        const { method, params } = JSON.parse(init.body);
+        const stagenet = url.startsWith(STAGENET_NODE);
+        const info = { status: "OK", height: TIP + 1, nettype: stagenet ? "stagenet" : "mainnet", synchronized: true };
+        if (method === "get_info") return json({ result: info });
+        const timestamp = NOW_SEC - 60 - (TIP - params.height) * 120;
+        return json({ result: { status: "OK", block_header: { height: params.height, timestamp } } });
+      }
+      throw new Error("the page asked " + url);
+    },
+    async createWallet() {
+      assert.fail("a Monero wallet was opened for an ETH action");
+    },
+  };
 }
