@@ -68,8 +68,8 @@ WORKDIR /srv
 COPY --from=build /src/dist ./recovery
 COPY serve.bun.mjs ./serve.bun.mjs
 COPY deploy/http-policy.mjs ./deploy/http-policy.mjs
-# The policy's connect-src is built from the two lists of hosts the page calls.
-COPY lib/node.js lib/settlement.js ./lib/
+# The policy's connect-src is built from the lists of hosts in lib; its modules import one another, so all of it goes.
+COPY lib ./lib
 
 # A FIXED, UNPRIVILEGED UID: a runtime that changes identity between hosts is one whose file
 # permissions surprise the next operator. 10001 is the convention used by the other services here.

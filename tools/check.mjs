@@ -1862,7 +1862,7 @@ await check("the nginx example revalidates page modules, and every server uses o
   );
   assert.match(
     await read("Dockerfile"),
-    /COPY lib\/node\.js lib\/settlement\.js \.\/lib\//,
+    /COPY lib \.\/lib/,
     "the container does not receive the lists the policy is built from",
   );
   const serve = await read("serve.bun.mjs");
