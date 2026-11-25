@@ -34,6 +34,7 @@ import {
   nodeFor,
 } from "./lib/node.js?v=0.4.4";
 import { keyNetworks, evmCall, evmLogs, evmBlockNumber, evmBlockTime } from "./lib/settlement.js?v=0.4.4";
+import { nameOf, pageFailure, reasonOf, txIds } from "./lib/reason.js?v=0.4.4";
 import {
   swapState,
   moneyState,
@@ -42,7 +43,7 @@ import {
   tipHeaderHeight,
   tipTrusted as tipIsTrusted,
 } from "./lib/withdrawal.js?v=0.4.4";
-import { sideOf, deadlineOf, swapStateOf, ethRecipient } from "./lib/rows.js?v=0.4.4";
+import { sideOf, deadlineOf, newOrders, swapStateOf, ethRecipient } from "./lib/rows.js?v=0.4.4";
 
 // PATHS ARE RELATIVE: a domain root and a subdirectory must both work. The `?v=` hash is stamped by build/build.mjs.
 const BUNDLE = "./assets/vendors/monero/monero-ts-browser.js?v=f7dc8fd1";
@@ -130,28 +131,74 @@ const withdrawErrorEl = $("withdrawError");
 const confirmEl = $("confirm");
 const txInfoEl = $("txInfo");
 const sendBtn = $("send");
-const doneEl = $("done");
-const doneInfoEl = $("doneInfo");
+const resultsEl = $("results");
+const resultListEl = $("resultList");
 
 let api = null; // monero-ts namespace
 let mod = null; // built SDK core
-const facades = new Map(); // "<settlement>/<monero network>" -> core facade (createNinsei)
-let adapter = null; // core wallet adapter (connect/sync/unlockedBalance/driver)
-let wallet = null; // library wallet: driver() of the adapter
-let keyFileText = null; // the chosen key file's text, until the search reads it
+let keyFile = null; // { text, refused } of the chosen file, until the search reads it: text is null while it is read
+let finding = null; // the "Find my swaps" press that is running; null when none is
 let key = null; // { mnemonic, fingerprint } of the last search: the words live here and nowhere else
 let search = null; // the last search: { rows, failed } - rows are { swap, net, side, status, time }
-let current = null; // the row being withdrawn
-let contents = null; // the current swap's file from sweep.fromOrder, a plain envelope in memory
-let plan = null; // core plan: address, height, missing, revealed half
-let network = null; // Monero network of the current swap
-let nodeNetwork = null; // Monero network the chosen node answered with (checkNode)
-let settlement = null; // settlement network of the current swap, one lib/settlement.js knows
-let balance = null; // { total, unlocked, txs } after a sync, null before one
-let signedToken = null; // signing token (sweep.sign -> sweep.relay)
-let sweepKeyImages = null; // the page-read set passed to sign and checked again before relay
-let nodeReadCheckpoint = null; // the page's own node read, resumed before a second observation
-let lastTx = null; // signed transfer data for the confirmation
+let searchReady = false; // the wallet and the browser's crypto answered (runPreflight)
+let nodeAnswer = null; // { url, network }: the last node that answered, and the Monero network it named (checkNode)
+
+// ONE OPENED SWAP IS ONE OBJECT, and its state is kept nowhere else: the row and the key it was opened with, its own SDK
+// facade, its payload and plan, its wallet with the node and height it was restored from, what the wallet saw, and the
+// transfer being built, shown or sent. Opening a row makes a new one; closing it lets go of everything but the row, so
+// no key, no payload, no signed session and no wallet outlives it.
+//
+// THE ONE RULE. A step that waits takes its swap (and its transfer) when it starts, reads and writes only that object
+// after a wait, and asks `holds` before it shows, signs or gives anything. A newer act never edits what a running
+// step works on: it replaces `current`, or drops the swap's transfer, and the older step finds it no longer holds.
+let current = null;
+function openedSwap(row) {
+  return {
+    row,
+    key,
+    settlement: row.net.id, // settlement network, one lib/settlement.js knows
+    network: row.net.monero, // Monero network
+    core: null, // its own SDK facade: the signed sessions and their adapters live and end with it
+    contents: null, // the file from sweep.fromOrder, a plain envelope in memory
+    plan: null, // core plan: address, height, missing, revealed half
+    node: null, // the node its wallet was built on
+    height: null, // the height its wallet was restored from
+    adapter: null, // core wallet adapter (connect/sync/unlockedBalance/driver)
+    wallet: null, // library wallet: driver() of the adapter
+    balance: null, // { total, unlocked, txs } after a sync, null before one
+    checkpoint: null, // the page's own node read, resumed before a second observation
+    transfer: null, // the transfer Withdraw started (newTransfer), until it ends
+    building: false, // a Withdraw is running
+    outcome: null, // "sent" once its XMR left, "unsure" while that is not known and the balance was not read again
+    progress: null, // the stage the bar under the button shows
+  };
+}
+
+// ONE WITHDRAWAL: the address it is for from the press of Withdraw on, and the signed session and figures the
+// confirmation shows. `pressed` is a Confirm that is running, `given` is the node having it, `dropped` is why it ended.
+function newTransfer(swap, dest) {
+  return {
+    dest,
+    network: swap.network,
+    fingerprint: swap.key.fingerprint,
+    token: null,
+    amount: null,
+    fee: null,
+    receive: null,
+    pressed: false,
+    given: false,
+    dropped: null,
+  };
+}
+
+// WHAT A STEP ASKS AFTER A WAIT: its swap is still the one on the screen, and its transfer is still the swap's and is
+// for the address in the field.
+const holds = (swap, transfer = null) =>
+  swap === current && (!transfer || (swap.transfer === transfer && destInput.value.trim() === transfer.dest));
+
+// FROM THE MOMENT THE NODE IS GIVEN A TRANSFER until its answer nothing newer can be started: it could not stop it.
+const sending = () => Boolean(current && current.transfer && current.transfer.given);
+
 // ETH SETTLEMENT: the injected provider, its adapter, the action material from sweep.fromOrder, and the receipt wait.
 let ethProvider = null;
 let ethAdapter = null;
@@ -161,20 +208,10 @@ let ethBusy = false;
 // answer be dropped instead of writing the new row's state.
 let ethConnectSeq = 0;
 
-// Console and test state: no secrets (no words, no keys, no halves).
-window.__sweepFlow = {
-  ready: false,
-  network: null,
-  address: null,
-  restoreHeight: null,
-  unlocked: 0n,
-  signed: false,
-  steps: [],
-};
-
 const looksLikeXmrAddress = (text) => /^[1-9A-HJ-NP-Za-km-z]{95}$|^[1-9A-HJ-NP-Za-km-z]{106}$/.test(text);
 const wordCount = () => keyWordsInput.value.trim().split(/\s+/).filter(Boolean).length;
-const currentState = () => (current ? moneyState({ plan, balance }) : null);
+const currentState = () => (current ? moneyState(current) : null);
+const nodeNetwork = () => (nodeAnswer && nodeAnswer.url === nodeUrl() ? nodeAnswer.network : null);
 // THE SDK'S DEADLINE CONVERSION IS LOADED ASYNCHRONOUSLY. The row rules live in lib/rows.js; this binding supplies
 // the converter once the bundle is present, without moving the decision back into the page.
 const rowStateOf = (row) => swapStateOf(row, { msFromOrderSeconds: mod && mod.msFromOrderSeconds });
@@ -182,17 +219,30 @@ const rowDeadlineOf = (swap) => deadlineOf(swap, mod && mod.msFromOrderSeconds);
 
 // VIOLET IS THE NEXT ACTION: "Find my swaps" once twelve words or a key file (and its password) are there,
 // "Withdraw XMR" once the money is ready and an address is named.
+//
+// A BUTTON IS OPEN OR CLOSED BY THE STATE, never by the step that pressed it: an older step that ends must not open
+// the button of a newer one.
 function updateButtons() {
-  const keyReady = keyFileText ? keyPassField.hidden || Boolean(keyPassInput.value) : wordCount() === 12;
+  const reading = Boolean(keyFile && keyFile.text === null);
+  const refused = Boolean(keyFile && keyFile.refused);
+  const keyReady = keyFile ? !reading && (keyPassField.hidden || Boolean(keyPassInput.value)) : wordCount() === 12;
   findSwapsBtn.classList.toggle("ready", keyReady);
+  findSwapsBtn.disabled = !searchReady || reading || refused || Boolean(finding) || sending();
+  for (const input of [keyWordsInput, keyFileInput, keyPassInput]) input.disabled = Boolean(finding) || sending();
+  keyMoreEl.disabled = sending();
+  destInput.disabled = sending();
+  heightInput.disabled = sending() || Boolean(current && current.building);
   const state = currentState();
+  const transfer = current && current.transfer;
+  const signed = Boolean(transfer && transfer.token);
+  const sent = Boolean(current && current.outcome === "sent");
+  withdrawBtn.disabled = !current || current.building || sent || sending();
+  sendBtn.disabled = !signed || transfer.pressed;
   withdrawBtn.classList.toggle(
     "ready",
-    Boolean(state && state.state === "ready") &&
-      looksLikeXmrAddress(destInput.value.trim()) &&
-      !signedToken &&
-      doneEl.hidden,
+    Boolean(state && state.state === "ready") && looksLikeXmrAddress(destInput.value.trim()) && !signed && !sent,
   );
+  updateNodeLock();
 }
 
 // ONE PLAIN LINE PER STEP for a stop; the detail is in the technical log. `tone` is "bad" for an error and
@@ -211,10 +261,10 @@ function quiet(el) {
   el.hidden = true;
 }
 // PROGRESS IS A STAGE AND A BAR. `fraction` fills the bar (the scan, block by block); null runs it without an
-// end (connecting, signing, sending). `sub` returns the line under the bar. Drawn from this state, so a language
-// change redraws the same numbers.
-let progress = null;
+// end (connecting, signing, sending). `sub` returns the line under the bar. It is kept on its swap and drawn for the
+// swap on the screen, so a scan of another swap moves nothing here and a language change redraws the same numbers.
 function drawProgress() {
+  const progress = current && current.progress;
   if (!progress) {
     progressEl.hidden = true;
     return;
@@ -231,12 +281,12 @@ function drawProgress() {
   progressSubEl.hidden = !text;
   progressEl.hidden = false;
 }
-function showProgress(words, { params = {}, fraction = null, sub = null } = {}) {
-  progress = { key: words, params, fraction, sub };
+function showProgress(swap, words, { params = {}, fraction = null, sub = null } = {}) {
+  swap.progress = { key: words, params, fraction, sub };
   drawProgress();
 }
-function hideProgress() {
-  progress = null;
+function hideProgress(swap) {
+  swap.progress = null;
   drawProgress();
 }
 
@@ -248,17 +298,74 @@ function timeLeft(seconds) {
     : t("flow.time.min", { n: n(Math.round(seconds / 60)) });
 }
 
-// A SIGNED TRANSFER BELONGS TO THE ADDRESS IT WAS SIGNED FOR: a changed address puts the confirmation away, and the
-// button signs again.
-function dropSigned() {
-  signedToken = null;
-  lastTx = null;
-  confirmEl.hidden = true;
+// A TRANSFER BELONGS TO THE ADDRESS IT WAS STARTED FOR, from the press of Withdraw on: a changed address ("changed",
+// changed back or not), another Withdraw ("again"), another swap or search ("left"), or words typed or a file chosen for
+// another key ("key") drops it at once, whatever step it is in, and the confirmation goes with it. A pressed Confirm ends
+// here as not sent: it was not given to the node, and now it cannot be. One that was given is the node's to answer, and
+// is never dropped.
+function dropTransfer(swap, why) {
+  const transfer = swap && swap.transfer;
+  if (!transfer || transfer.given) return;
+  swap.transfer = null;
+  transfer.dropped = why;
+  if (transfer.pressed) {
+    hideProgress(swap);
+    record(transfer, "unsent", why);
+    log(t("log.send.stopped", { dest: transfer.dest }), "wait");
+  }
+  if (swap === current) {
+    confirmEl.hidden = true;
+    if (why === "key") say(withdrawErrorEl, "flow.err.key", {}, "wait");
+  }
+  updateButtons();
+}
+
+// WHAT BECAME OF EACH PRESS OF CONFIRM in this page, newest first. A result is a small public record, not the transfer: it
+// belongs to no open swap, so opening another swap or key leaves it where the person can find it, named by its key; the
+// end of a press touches its own record only. It says only what is known: "unsent" with why, "given" while the node has
+// it and has not answered, "sent" with its transaction, or "unknown".
+const results = [];
+function record(transfer, state, why = null) {
+  const { fingerprint, dest, network, receive } = transfer;
+  const result = { fingerprint, dest, network, receive, state, why, txids: [] };
+  results.unshift(result);
+  drawResults();
+  return result;
+}
+function endResult(result, state, { why = null, txids = [] } = {}) {
+  result.state = state;
+  result.why = why;
+  result.txids = txids;
+  drawResults();
+}
+function drawResults() {
+  resultsEl.hidden = !results.length;
+  resultListEl.replaceChildren(
+    ...results.map((result) => {
+      const info = h("div", { class: "info" });
+      const ids = result.txids.map((id) => ["info.txid", () => explorerLink(result.network, id)]);
+      const none = result.state === "unsent" ? [] : [["info.txid", t("value.txid." + result.state)]];
+      drawInfo(info, [
+        ["info.recipient", result.dest],
+        ["info.receive", receives(result)],
+        ["info.key", t("key.print", { fp: result.fingerprint })],
+        ...(ids.length ? ids : none),
+      ]);
+      const hint = result.state === "unsent" ? "result.unsent." + result.why : `result.${result.state}.hint`;
+      return h("div", { class: "done", "data-state": result.state }, [
+        h("p", { class: "done-head", text: t("result." + result.state) }),
+        info,
+        h("p", { class: "hint", text: t(hint) }),
+      ]);
+    }),
+  );
 }
 
 destInput.addEventListener("input", () => {
-  if (signedToken) dropSigned();
-  quiet(withdrawErrorEl);
+  if (sending()) return;
+  dropTransfer(current, "changed");
+  if (current && current.building) say(withdrawErrorEl, "flow.err.changed", {}, "wait");
+  else quiet(withdrawErrorEl);
   updateButtons();
 });
 
@@ -271,33 +378,16 @@ function log(text, cls = "") {
     logEl.textContent = "";
     logEl.dataset.started = "1";
   }
-  // THE LOG IS COPIED TO THE CLIPBOARD. An error message is untrusted input: a future SDK or wallet error can
-  // include the phrase that is in the key field. Redact the known key before it reaches the element or the copied
-  // state; individual words are not redacted because ordinary errors use them too.
-  const safe = redactText(text);
   const line = document.createElement("span");
   line.className = cls;
-  line.textContent = safe + "\n";
+  line.textContent = text + "\n";
   logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
-  window.__sweepFlow.steps.push(safe);
 }
 
-const REDACTED = "[redacted]";
-function redactText(text) {
-  let out = String(text == null ? "" : text);
-  // Redact other values the page already holds: the chosen key file and its password can also appear in a future
-  // transport error. Exact, non-trivial strings only; ordinary words stay readable in the technical log.
-  const held = [keyFileText, keyPassInput && keyPassInput.value].filter(
-    (value) => typeof value === "string" && value.trim().length >= 4,
-  );
-  for (const secret of held) out = out.split(secret).join(REDACTED);
-  if (!key || typeof key.mnemonic !== "string" || !key.mnemonic.trim()) return out;
-  const words = key.mnemonic.trim().split(/\s+/);
-  if (words.length < 2) return out;
-  const escaped = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  return out.replace(new RegExp(escaped.join("\\s+"), "gi"), REDACTED);
-}
+// THE ONE RULE FOR A TEXT THAT MAY BE SHOWN OR COPIED (lib/reason.js): the page's own words for a code, names and
+// numbers. No message of a wallet, a node, an RPC or a library is.
+const reason = (error) => reasonOf(error, t);
 
 // WHAT THE PAGE CHECKED: the wallet in this tab, the chosen node and a secure connection, each a line with its
 // state and, when it failed, the reason. Drawn from this record, so a language change redraws it.
@@ -341,34 +431,30 @@ function h(tag, attrs = {}, children = []) {
   return node;
 }
 
-// PANELS REMEMBER THEIR ROWS: [label key, value, class]; a language change REDRAWS from the same data.
-const panels = new Map();
-function renderInfo(node, rows) {
-  const draw = () => {
-    node.textContent = "";
-    const dl = h("dl");
-    for (const [labelKey, value, cls] of rows) {
-      dl.appendChild(h("dt", { "data-i18n": labelKey, text: t(labelKey) }));
-      const dd = h("dd", { class: cls || "" });
-      const shown = typeof value === "function" ? value() : value;
-      if (shown && shown.nodeType === 1) dd.appendChild(shown);
-      else dd.textContent = String(shown);
-      dl.appendChild(dd);
-    }
-    node.appendChild(dl);
-    node.hidden = false;
-  };
-  panels.set(node, draw);
-  draw();
+// A PANEL OF ROWS: [label key, value, class]. It keeps none of them: a language change draws it again from what is open.
+function drawInfo(node, rows) {
+  node.textContent = "";
+  const dl = h("dl");
+  for (const [labelKey, value, cls] of rows) {
+    dl.appendChild(h("dt", { "data-i18n": labelKey, text: t(labelKey) }));
+    const dd = h("dd", { class: cls || "" });
+    const shown = typeof value === "function" ? value() : value;
+    if (shown && shown.nodeType === 1) dd.appendChild(shown);
+    else dd.textContent = String(shown);
+    dl.appendChild(dd);
+  }
+  node.appendChild(dl);
+  node.hidden = false;
 }
 
 document.addEventListener("i18n:applied", () => {
-  for (const draw of panels.values()) draw();
   for (const [el, [words, params]] of said) el.textContent = t(words, params);
   drawSwaps();
-  if (current) drawMoney();
+  if (current && current.plan) drawMoney();
+  drawConfirm();
   drawChecks();
   drawProgress();
+  drawResults();
 });
 
 // XMR AMOUNTS ARE A PACKAGE RULE (formatXmr, BigInt): one atomic unit is "0.000000000001", and above 9007 XMR
@@ -380,26 +466,18 @@ const xmr = (atomic) => {
     return String(atomic);
   }
 };
-// REFUSAL IN WORDS BY CODE: the core holds SdkError.code, the language holds the wording. A plain Error (a
-// transport of the page's own) is its message.
-const sdkWords = (error) => t("sdk." + ((error && error.code) || "unknown"), (error && error.params) || {});
-const errorWords = (error) => (error && error.code ? sdkWords(error) : String((error && error.message) || error));
 const short = (address) => String(address).slice(0, 10) + "…";
 
-// A BUTTON IS BUSY WHILE ITS STEP RUNS. An exception nobody named is logged in full and said in one plain line.
-async function busy(btn, fn, errorEl = null) {
-  const wasDisabled = btn.disabled;
-  btn.disabled = true;
+// AN EXCEPTION NOBODY NAMED is logged with its cause and said in one plain line, under the swap its step began with.
+async function step(fn, errorEl) {
+  const swap = current;
   try {
     return await fn();
   } catch (e) {
-    const msg = String((e && e.message) || e);
-    log(t("log.error", { message: msg }), "bad");
-    hideProgress();
-    if (errorEl) say(errorEl, "flow.err.generic");
+    log(t("log.error", { message: reason(e) }), "bad");
+    if (swap === current) say(errorEl, "flow.err.generic");
     return null;
   } finally {
-    btn.disabled = wasDisabled;
     updateButtons();
   }
 }
@@ -411,29 +489,22 @@ async function sdkBundle() {
   return mod;
 }
 
-// CORE FACADE PER SETTLEMENT NETWORK AND MONERO NETWORK: a swap is read and withdrawn through the facade built for
-// its own chain, never a default one.
+// ONE SWAP'S CORE FACADE, built for its own networks and ended with it: the SDK keeps every signed session and its wallet
+// adapter in the facade that made them, so a facade shared by swaps would keep the keys of those that were left.
 //
 // THE CHAIN READ IS REAL: `evmCall` is an eth_call over the settlement network's public RPCs (lib/settlement.js),
 // and a failed read throws instead of answering "0x". The escrow events are read in bulk by readEscrowEventsByTopic, and
 // sweep.plan reads the revealed half; the plan's app route fallback meets `noService`, which it reads as "not revealed".
-async function facadeFor(chainId, xmrNetwork) {
+async function newFacade(settlement, xmrNetwork) {
   const m = await sdkBundle();
-  const id = chainId + "/" + xmrNetwork;
-  if (!facades.has(id)) {
-    facades.set(
-      id,
-      m.createNinsei({
-        settlement: { chain: chainId },
-        xmrNetwork,
-        mode: "live",
-        fetch: noService,
-        storage: m.memoryAdapter(),
-        evmCall: (request) => evmCall(chainId, request),
-      }),
-    );
-  }
-  return facades.get(id);
+  return m.createNinsei({
+    settlement: { chain: settlement },
+    xmrNetwork,
+    mode: "live",
+    fetch: noService,
+    storage: m.memoryAdapter(),
+    evmCall: (request) => evmCall(settlement, request),
+  });
 }
 
 // --- 0b. Environment: without these checks nothing makes sense ---
@@ -454,7 +525,7 @@ async function loadWallet() {
     api = m.default || m;
     log(t("log.lib.loaded", { version: api.getVersion?.() ?? "?" }));
   } catch (e) {
-    failed.push(["preflight.fail.bundle", { message: e.message }]);
+    failed.push(["preflight.fail.bundle", { message: reason(e) }]);
   }
 
   // CORE. A load failure is named in the log, never swallowed.
@@ -462,7 +533,7 @@ async function loadWallet() {
     await sdkBundle();
     log(t("log.core.loaded", { file: SDK_BUNDLE.split("/").pop() }));
   } catch (e) {
-    failed.push(["preflight.fail.core", { message: (e && e.message) || e }]);
+    failed.push(["preflight.fail.core", { message: reason(e) }]);
   }
 
   if (api) {
@@ -470,13 +541,12 @@ async function loadWallet() {
     try {
       const r = await fetch(WORKER);
       const buf = await r.arrayBuffer();
-      if (r.status !== 200 || buf.byteLength < 1_000_000)
-        throw new Error(t("preflight.fail.workerBytes", { bytes: n(buf.byteLength) }));
+      if (r.status !== 200 || buf.byteLength < 1_000_000) throw pageFailure("worker", { bytes: buf.byteLength });
       log(
         t("log.worker.ok", { mb: n(buf.byteLength / 1048576, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }),
       );
     } catch (e) {
-      failed.push(["preflight.fail.worker", { message: e.message }]);
+      failed.push(["preflight.fail.worker", { message: reason(e) }]);
     }
   }
 
@@ -492,12 +562,15 @@ async function loadWallet() {
 
 // THE CHOSEN NODE: one get_info through the package rule (probeMoneroNode), its height and network. This is the one
 // check a change of node runs again. No node chosen is a failure in its own words, never a silent fallback to one
-// nobody chose. `isCurrent` is false once a newer check has started: an older answer must not paint the line or
-// set the network for a node that is no longer chosen.
-async function checkNode(isCurrent) {
+// nobody chose. An answer belongs to the node that gave it and to the question it answers: it must not paint the line
+// or name the network once another node is chosen, or once the same node was asked again.
+let nodeAsk = 0;
+async function checkNode() {
+  const url = nodeUrl();
+  const ask = ++nodeAsk;
+  const stands = () => ask === nodeAsk && nodeUrl() === url;
   setCheck("node", "wait");
-  if (!nodeUrl()) {
-    nodeNetwork = null;
+  if (!url) {
     setCheck("node", "bad", () => t("preflight.fail.noNode"));
     return false;
   }
@@ -507,19 +580,19 @@ async function checkNode(isCurrent) {
   } catch {
     // Without the core there is no probe; the wallet line names the failure.
   }
-  if (!isCurrent()) return false;
+  if (!stands()) return false;
   if (!core) {
-    nodeNetwork = null;
+    nodeAnswer = null;
     setCheck("node", "bad", () => t("node.state.unchecked"));
     return false;
   }
-  const probe = await core.probeMoneroNode({ url: nodeUrl() });
-  if (!isCurrent()) return false;
-  nodeNetwork = probe.ok ? probe.network || null : null;
+  const probe = await core.probeMoneroNode({ url });
+  if (!stands()) return false;
+  nodeAnswer = probe.ok ? { url, network: probe.network || null } : null;
   if (!probe.ok) {
     // THE REASON IN THE NODE LIST'S OWN WORDS (nodeVerdict), with the node's name.
     const verdict = nodeVerdict(probe, null);
-    const host = nodeHost(nodeUrl());
+    const host = nodeHost(url);
     const why = () => host + ": " + t("node.state." + verdict.why, verdict.params);
     log(t("preflight.fail.node", { message: why() }), "bad");
     setCheck("node", "bad", why);
@@ -528,9 +601,9 @@ async function checkNode(isCurrent) {
   log(
     t("log.node.answering", {
       height: n(probe.height),
-      sync: probe.synchronized,
-      nettype: probe.nettype,
-      node: t("node.label.listed", { url: nodeUrl() }),
+      sync: probe.synchronized === true,
+      nettype: nameOf(probe.nettype) || "?",
+      node: t("node.label.listed", { url }),
     }),
   );
   setCheck("node", "ok");
@@ -539,64 +612,81 @@ async function checkNode(isCurrent) {
 
 // --- 1. The recovery key and the swaps it made ---
 
-// THE WORDS OR THE FILE, NOT BOTH: typing words puts a chosen file away, and choosing a file empties the words, so
-// the search never reads one while the person looks at the other.
-keyWordsInput.addEventListener("input", () => {
-  if (keyFileText && keyWordsInput.value.trim()) {
-    keyFileText = null;
-    keyFileInput.value = "";
-    keyPassInput.value = "";
-    keyPassField.hidden = true;
-  }
+// THE WORDS OR THE FILE, NOT BOTH, AND NO TRANSFER OF THE KEY BEFORE: what a person enters last is the key they mean, from
+// the moment they enter it. Typed words put a chosen file away; a chosen file empties the words at once, also while it is
+// read and when it cannot be; and either ends a transfer that has not been given to the node, shown or pressed.
+function enterKey({ file = null } = {}) {
+  keyFile = file;
+  keyPassInput.value = "";
+  keyPassField.hidden = true;
+  if (file) keyWordsInput.value = "";
+  else keyFileInput.value = "";
   quiet(keyErrorEl);
+  dropTransfer(current, "key");
   updateButtons();
+}
+keyWordsInput.addEventListener("input", () => {
+  if (!sending()) enterKey();
 });
 keyPassInput.addEventListener("input", updateButtons);
 
 // THE PASSWORD IS ASKED ONLY FOR A KEY FILE WRITTEN WITH ONE, and the SDK's reader says which: opening the file
 // without a password stops at the stage "passphrase" for a protected file, reads a plain one, and refuses anything
-// that is not a key file.
+// that is not a key file. A file that is still being read when the person enters another key is no longer the chosen one.
 async function onKeyFileChosen() {
-  quiet(keyErrorEl);
-  const file = keyFileInput.files && keyFileInput.files[0];
-  keyPassInput.value = "";
-  keyPassField.hidden = true;
-  if (file && file.size > MAX_KEY_FILE_BYTES) {
-    keyFileText = null;
+  const picked = keyFileInput.files && keyFileInput.files[0];
+  if (sending()) {
     keyFileInput.value = "";
-    say(keyErrorEl, "flow.err.keyFileTooLarge");
+    return false;
+  }
+  if (!picked) {
+    enterKey();
+    return false;
+  }
+  const file = { text: null, refused: null };
+  enterKey({ file });
+  // A FILE THAT COULD NOT BE READ STAYS THE KEY THAT WAS ENTERED, and its refusal stands until the person types or
+  // chooses again: nothing is searched in its place.
+  const refuse = (words) => {
+    file.refused = words;
     updateButtons();
-    return;
+    return say(keyErrorEl, words);
+  };
+  if (picked.size > MAX_KEY_FILE_BYTES) return refuse("flow.err.keyFileTooLarge");
+  let text;
+  try {
+    text = await picked.text();
+  } catch (e) {
+    if (keyFile !== file) return false;
+    log(t("log.key.refused", { words: reason(e) }), "bad");
+    return refuse("flow.err.keyFileRead");
   }
-  keyFileText = file ? await file.text() : null;
-
-  if (keyFileText) {
-    keyWordsInput.value = "";
-    try {
-      await (await sdkBundle()).openRecoveryKeyFile(keyFileText, "");
-    } catch (e) {
-      if (e && e.params && e.params.stage === "passphrase") {
-        keyPassField.hidden = false;
-      } else {
-        log(t("log.key.refused", { words: sdkWords(e) }), "bad");
-        keyFileText = null;
-        keyFileInput.value = "";
-        say(keyErrorEl, "flow.err.keyFile");
-      }
+  if (keyFile !== file) return false;
+  file.text = text;
+  try {
+    await (await sdkBundle()).openRecoveryKeyFile(text, "");
+  } catch (e) {
+    if (keyFile !== file) return false;
+    if (e && e.params && e.params.stage === "passphrase") keyPassField.hidden = false;
+    else {
+      log(t("log.key.refused", { words: reason(e) }), "bad");
+      return refuse("flow.err.keyFile");
     }
+  } finally {
+    updateButtons();
   }
-  updateButtons();
+  return true;
 }
 
 // THE KEY FROM THE FIELDS, or null with the reason said. The words are never part of a log line: a refusal names
 // the SDK's code and the field, nothing typed.
-async function readKey() {
+async function readKey(press) {
   const m = await sdkBundle();
-  if (keyFileText) {
+  if (keyFile) {
     try {
-      return await m.openRecoveryKeyFile(keyFileText, keyPassInput.value);
+      return await m.openRecoveryKeyFile(keyFile.text, keyPassInput.value);
     } catch (e) {
-      log(t("log.key.refused", { words: sdkWords(e) }), "bad");
+      log(t("log.key.refused", { words: reason(e) }), "bad");
       const stage = e && e.params && e.params.stage;
       if (stage === "passphrase") {
         keyPassField.hidden = false;
@@ -614,7 +704,7 @@ async function readKey() {
   try {
     return m.importRecoveryKey(keyWordsInput.value);
   } catch (e) {
-    log(t("log.key.refused", { words: sdkWords(e) }), "bad");
+    log(t("log.key.refused", { words: reason(e) }), "bad");
     say(keyErrorEl, "flow.err.words");
     return null;
   }
@@ -623,7 +713,7 @@ async function readKey() {
 function clearKeyFields() {
   keyWordsInput.value = "";
   keyFileInput.value = "";
-  keyFileText = null;
+  keyFile = null;
   keyPassInput.value = "";
   keyPassField.hidden = true;
 }
@@ -632,60 +722,76 @@ function clearKeyFields() {
 // keyNetworks). The search reads the factory's orders and matches their commitments in this tab: only the factory,
 // the topic and the block range reach the RPC. Each found swap's state and date are read from the chain; a read
 // that fails is "unknown", never "nothing to do". With empty fields the button searches again with the same key.
+//
+// A NEW KEY STARTS CLEAN, when its press begins: the swap being withdrawn closes and the old key's answer goes, before
+// the new key is read. Under a refusal the old answer would read as the answer to the words just typed, and an open
+// swap would go on with a key the person has left. The words leave the fields once they are read.
 async function findKeySwaps(options = {}) {
-  const more = options && options.more === true;
-  quiet(keyErrorEl);
-  if (!more) {
-    const typed = Boolean(keyFileText || keyWordsInput.value.trim());
-    const read = typed || !key ? await readKey() : key;
-    if (!read) {
-      // A REFUSED NEW KEY puts the old one's answer away: under the refusal it would read as the answer to the words
-      // just typed. The old key is forgotten with it; the person is trying another one.
-      if (current) await closeSwap();
-      key = null;
-      search = null;
-      drawSwaps();
-      return false;
-    }
-    // A NEW KEY STARTS CLEAN: the swap being withdrawn closes, and the words leave the fields at once.
-    if (current) await closeSwap();
+  if (sending()) return false;
+  const refused = keyFile && keyFile.refused;
+  if (!refused) quiet(keyErrorEl);
+  if (options && options.more === true) return searchKey(search, { more: true });
+  if (refused) return say(keyErrorEl, refused);
+  const press = (finding = {});
+  const again = keyFile || keyWordsInput.value.trim() ? null : key;
+  closeSwap();
+  key = null;
+  search = null;
+  drawSwaps();
+  updateButtons();
+  try {
+    const read = again || (await readKey(press));
+    if (!read || finding !== press) return false;
     key = { mnemonic: read.mnemonic, fingerprint: read.fingerprint };
     clearKeyFields();
-    search = {
-      rows: [],
-      failed: [],
-      done: false,
-      searching: true,
-      sources: [],
-    };
-    drawSwaps();
-  } else if (!search || search.done || search.searching) {
-    return false;
+    search = { key, rows: [], failed: [], done: false, searching: false, sources: [] };
+    return await searchKey(search);
+  } catch (e) {
+    log(t("log.error", { message: reason(e) }), "bad");
+    return say(keyErrorEl, "flow.err.generic");
+  } finally {
+    if (finding === press) finding = null;
+    updateButtons();
   }
-  if (!key) return false;
+}
+
+// ONE SEARCH, OF ONE KEY: it reads its own key and writes its own rows, and stops when another has replaced it.
+async function searchKey(mine, { more = false } = {}) {
+  if (!mine || mine.done || mine.searching) return false;
+  mine.searching = true;
+  drawSwaps();
+  try {
+    return await readSwaps(mine, more);
+  } catch (e) {
+    if (search !== mine) return false;
+    log(t("log.error", { message: reason(e) }), "bad");
+    return say(keyErrorEl, "flow.err.generic");
+  } finally {
+    mine.searching = false;
+    drawSwaps();
+  }
+}
+async function readSwaps(mine, more) {
   // THE NODE IS PROBED WHEN A SEARCH BEGINS, not when the page opens. The answer names the network of the swap's
   // start height; a failed probe leaves the search on the settlement chain alone and the swap says its height is
   // missing, rather than contacting every listed node on every visit.
-  if (!nodeNetwork && nodeUrl()) await checkNode(() => true);
+  if (!nodeNetwork() && nodeUrl()) await checkNode();
   const m = await sdkBundle();
+  if (search !== mine) return false;
   if (!more) {
     const { search: networks, unreadable } = keyNetworks(m.CHAINS);
     for (const id of unreadable) {
       log(t("log.key.unreadable", { network: id }), "bad");
-      search.failed.push(id);
+      mine.failed.push(id);
     }
     if (!networks.length) {
-      search.done = true;
-      search.searching = false;
-      drawSwaps();
+      mine.done = true;
       return say(keyErrorEl, "flow.err.keyChain");
     }
-    search.sources = networks.map((net) => ({ net, complete: false, error: null }));
-    log(t("log.key.searching", { fp: key.fingerprint, networks: networks.map((net) => net.name).join(", ") }));
+    mine.sources = networks.map((net) => ({ net, complete: false, error: null }));
+    log(t("log.key.searching", { fp: mine.key.fingerprint, networks: networks.map((net) => net.name).join(", ") }));
   }
-  search.searching = true;
-  drawSwaps();
-  for (const source of search.sources) {
+  for (const source of mine.sources) {
     if (source.complete) continue;
     const net = source.net;
     let found;
@@ -693,7 +799,7 @@ async function findKeySwaps(options = {}) {
     try {
       latest = await evmBlockNumber(net.id);
       found = await m.findSwaps({
-        mnemonic: key.mnemonic,
+        mnemonic: mine.key.mnemonic,
         chainId: net.chainId,
         factories: net.factories,
         evmLogs: (request) => evmLogs(net.id, request),
@@ -701,22 +807,24 @@ async function findKeySwaps(options = {}) {
         // THE START HEIGHT IS THE SDK'S RULE: the page hands it the order's block time and a Monero node's tip and
         // headers, read the way a node answers them (lib/node.js), from the node a swap of this network uses.
         evmBlockTime: (block) => evmBlockTime(net.id, block),
-        ...(await moneroReaders(nodeFor(net.monero, nodeNetwork), net.monero, m.probeMoneroNode)),
+        ...(await moneroReaders(nodeFor(net.monero, nodeNetwork()), net.monero, m.probeMoneroNode)),
       });
+      if (search !== mine) return false;
     } catch (e) {
-      if (!search.failed.includes(net.name)) search.failed.push(net.name);
-      log(t("log.key.searchFailed", { network: net.name, words: errorWords(e) }), "bad");
+      if (search !== mine) return false;
+      if (!mine.failed.includes(net.name)) mine.failed.push(net.name);
+      log(t("log.key.searchFailed", { network: net.name, words: reason(e) }), "bad");
       continue;
     }
     // A PREVIOUS FAILURE OF THIS NETWORK IS CLEARED BY A SUCCESSFUL READ; unreadable networks (not in sources)
     // stay named.
-    const failedAt = search.failed.indexOf(net.name);
-    if (failedAt >= 0) search.failed.splice(failedAt, 1);
+    const failedAt = mine.failed.indexOf(net.name);
+    if (failedAt >= 0) mine.failed.splice(failedAt, 1);
     // THE SDK'S RESULT IS COMPLETE BY CONSTRUCTION: there is no index range, so there is no cursor to carry.
     // A false `complete` is named as a failed read rather than shown as a partial list.
     source.complete = found.complete === true;
     if (!source.complete) {
-      if (!search.failed.includes(net.name)) search.failed.push(net.name);
+      if (!mine.failed.includes(net.name)) mine.failed.push(net.name);
       log(t("log.key.searchFailed", { network: net.name, words: "incomplete" }), "bad");
       continue;
     }
@@ -729,11 +837,7 @@ async function findKeySwaps(options = {}) {
       }),
       found.swaps.length ? "ok" : "",
     );
-    const seen = new Set(search.rows.map((row) => String(row.swap.escrow || "").toLowerCase()));
-    for (const swap of found.swaps) {
-      const escrow = String(swap.escrow || "").toLowerCase();
-      if (seen.has(escrow)) continue;
-      seen.add(escrow);
+    for (const swap of newOrders(mine.rows, net, found.swaps)) {
       const row = { swap, net, side: sideOf(swap), status: null, time: null };
       // THE BLOCK TIME CAME BACK WITH THE SEARCH. Read it again only when the SDK did not return it; a genuine
       // genesis timestamp of 0 is a value, not a missing one.
@@ -746,15 +850,16 @@ async function findKeySwaps(options = {}) {
               ? await evmBlockTime(net.id, swap.blockNumber)
               : null;
       } catch (e) {
-        log(t("log.swap.timeFailed", { escrow: short(swap.escrow), words: errorWords(e) }), "wait");
+        log(t("log.swap.timeFailed", { escrow: short(swap.escrow), words: reason(e) }), "wait");
       }
-      search.rows.push(row);
+      mine.rows.push(row);
     }
+    if (search !== mine) return false;
     // THE ESCROW EVENTS ARE READ IN ONE TOPIC-ONLY REQUEST. Asking status() for every found escrow named each of
     // them to the public RPC next to the visitor's IP; one eth_getLogs by the three event topics returns the claim,
     // refund and decline facts for every escrow in the range, and the page keeps those of its own rows. A failed
     // bulk read leaves the rows unknown instead of falling back to per-order calls.
-    const networkRows = search.rows.filter((row) => row.net === net);
+    const networkRows = mine.rows.filter((row) => row.net === net);
     if (networkRows.length) {
       try {
         const events = await m.readEscrowEventsByTopic({
@@ -772,6 +877,7 @@ async function findKeySwaps(options = {}) {
           })(),
           toBlock: latest,
         });
+        if (search !== mine) return false;
         const byEscrow = new Map();
         for (const event of events) {
           const key = String(event.escrow || "").toLowerCase();
@@ -781,27 +887,20 @@ async function findKeySwaps(options = {}) {
         for (const row of networkRows)
           row.status = statusFromEvents(byEscrow.get(String(row.swap.escrow).toLowerCase()) || []);
       } catch (e) {
+        if (search !== mine) return false;
         // THE EVENT READ FAILED, SO THE ROW STATE IS UNKNOWN. Do not leave the search marked complete: the person
         // can retry the same network instead of being stuck with rows whose state cannot be shown.
         source.complete = false;
-        if (!search.failed.includes(net.name)) search.failed.push(net.name);
-        log(t("log.key.eventsFailed", { network: net.name, words: errorWords(e) }), "bad");
+        if (!mine.failed.includes(net.name)) mine.failed.push(net.name);
+        log(t("log.key.eventsFailed", { network: net.name, words: reason(e) }), "bad");
       }
     }
   }
-  search.searching = false;
   // NEWEST FIRST, by the block that holds the order.
-  search.rows.sort((a, b) => (b.swap.blockNumber ?? -1) - (a.swap.blockNumber ?? -1));
+  mine.rows.sort((a, b) => (b.swap.blockNumber ?? -1) - (a.swap.blockNumber ?? -1));
   // A FAILED NETWORK IS NOT A COMPLETE SEARCH: the person can try again, and "no swaps" must stay hidden.
-  search.done = search.sources.every((source) => source.complete) && search.failed.length === 0;
-  window.__sweepFlow.search = {
-    fingerprint: key.fingerprint,
-    failed: [...search.failed],
-    complete: search.done,
-    swaps: search.rows.map((row) => ({ escrow: row.swap.escrow, side: row.side, ...rowStateOf(row) })),
-  };
-  drawSwaps();
-  if (search.failed.length && !search.rows.length && search.failed.length >= search.sources.length) {
+  mine.done = mine.sources.every((source) => source.complete) && mine.failed.length === 0;
+  if (mine.failed.length && !mine.rows.length && mine.failed.length >= mine.sources.length) {
     return say(keyErrorEl, "flow.err.search");
   }
   return true;
@@ -864,10 +963,11 @@ function swapRow(row) {
   if (state.action === "withdraw" || state.action === "refund" || state.action === "claim") {
     action = h("button", {
       type: "button",
-      class: current === row ? "small ready" : "small",
+      class: current && current.row === row ? "small ready" : "small",
       text: t("swap.action." + state.action),
     });
-    action.addEventListener("click", () => busy(action, () => openSwap(row), openErrorEl));
+    action.disabled = sending();
+    action.addEventListener("click", () => openSwap(row));
   } else {
     action = h("span", {
       class: "swap-action",
@@ -879,7 +979,11 @@ function swapRow(row) {
   }
   return h(
     "li",
-    { class: "swap", "data-action": state.action, ...(current === row ? { "aria-current": "true" } : {}) },
+    {
+      class: "swap",
+      "data-action": state.action,
+      ...(current && current.row === row ? { "aria-current": "true" } : {}),
+    },
     [
       h("div", { class: "swap-top" }, [
         h("span", { class: "swap-side", text: side }),
@@ -916,7 +1020,7 @@ function actionCore(row, provider) {
   const call = async ({ to, data, from }) => {
     const tx = from ? { to, data, from } : { to, data };
     const result = await provider.request({ method: "eth_call", params: [tx, "latest"] });
-    if (typeof result !== "string" || !result.startsWith("0x")) throw new Error("eth_call: bad answer");
+    if (typeof result !== "string" || !result.startsWith("0x")) throw pageFailure("answer");
     return result;
   };
   return mod.createNinsei({
@@ -965,7 +1069,7 @@ function drawEthFacts(row, material) {
         }),
     ],
   ];
-  renderInfo(ethFactsEl, rows);
+  drawInfo(ethFactsEl, rows);
 }
 
 function drawEthState(row, material) {
@@ -989,7 +1093,7 @@ async function openEth(row) {
   ethBox.hidden = false;
   swapHeadEl.textContent = t("page.step.eth");
   try {
-    const core = await facadeFor(row.net.chainId, row.net.monero);
+    const core = await newFacade(row.net.chainId, row.net.monero);
     const built = await core.sweep.fromOrder({
       mnemonic: key.mnemonic,
       chainId: row.net.chainId,
@@ -997,7 +1101,7 @@ async function openEth(row) {
       moneroNetwork: row.net.monero,
       order: row.swap,
     });
-    if (!built || (built.kind !== "refund" && built.kind !== "claim")) throw new Error("no ETH action");
+    if (!built || (built.kind !== "refund" && built.kind !== "claim")) throw pageFailure("action");
     ethMaterial = built;
     drawEthFacts(row, built);
     drawEthState(row, built);
@@ -1007,14 +1111,14 @@ async function openEth(row) {
     log(t("log.eth.opened", { kind: built.kind, escrow: short(built.escrow) }));
     return true;
   } catch (e) {
-    log(t("log.eth.prepareFailed", { words: sdkWords(e) }), "bad");
+    log(t("log.eth.prepareFailed", { words: reason(e) }), "bad");
     return say(ethErrorEl, "eth.err.prepare");
   }
 }
 
 async function ethConnect() {
   quiet(ethErrorEl);
-  const row = current;
+  const row = current && current.row;
   const material = ethMaterial;
   if (!material || !row) return say(ethErrorEl, "eth.err.prepare");
   const provider = injectedProvider();
@@ -1028,7 +1132,7 @@ async function ethConnect() {
     await adapter.connect({ chainId: row.net.chainId });
     const address = await adapter.address();
     const chainId = await adapter.chainId();
-    if (seq !== ethConnectSeq || current !== row || ethMaterial !== material) return false;
+    if (seq !== ethConnectSeq || !current || current.row !== row || ethMaterial !== material) return false;
     if (!address) throw new Error("wallet-not-connected");
     if (chainId !== Number(material.expect.chainId)) {
       throw Object.assign(new Error("wrong-chain"), {
@@ -1057,8 +1161,8 @@ async function ethConnect() {
   } catch (e) {
     // THE PREPARED ACTION SURVIVES A FAILED CONNECTION. Only the adapter and the provider are dropped,
     // so the next Connect wallet click retries the same action instead of answering eth.err.prepare.
-    if (seq !== ethConnectSeq || current !== row) return false;
-    const words = sdkWords(e);
+    if (seq !== ethConnectSeq || !current || current.row !== row) return false;
+    const words = reason(e);
     log(t("log.eth.connectFailed", { words }), "bad");
     clearEthConnection();
     ethConnectBtn.hidden = false;
@@ -1077,15 +1181,15 @@ async function ethConnect() {
 // THE GAS LIMIT IS THE WALLET'S, NOT AN ESTIMATE'S. Reading it would mean sending the action's calldata
 // to the wallet's RPC before Confirm; the half must stay in the tab until the SDK builds the send.
 function drawEthGas() {
-  renderInfo(ethInfoEl, [
+  drawInfo(ethInfoEl, [
     ["eth.gas.label", () => t("eth.gas.unknown")],
-    ["eth.recipient.label", () => ethRecipient(current, ethMaterial)],
+    ["eth.recipient.label", () => ethRecipient(current.row, ethMaterial)],
   ]);
 }
 
 async function ethSend() {
   quiet(ethErrorEl);
-  const row = current;
+  const row = current && current.row;
   const material = ethMaterial;
   if (ethBusy || !material || !ethAdapter || !ethProvider || !row) return say(ethErrorEl, "eth.err.prepare");
   const provider = ethProvider;
@@ -1104,12 +1208,12 @@ async function ethSend() {
     }
     const sent = await core.actions[kind](request, adapter);
     const hash = sent && sent.hash;
-    if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("no transaction hash");
+    if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw pageFailure("hash");
     log(t("log.eth.sent", { kind, hash }));
     ethConfirmEl.hidden = true;
     ethDoneEl.hidden = false;
     ethDoneInfoEl.replaceChildren();
-    renderInfo(ethDoneInfoEl, [
+    drawInfo(ethDoneInfoEl, [
       ["info.txid", () => ethExplorerLink(hash, row)],
       ["eth.state.label", () => t(kind === "refund" ? "eth.done.refund" : "eth.done.claim")],
     ]);
@@ -1128,7 +1232,7 @@ async function ethSend() {
     }
     // ONLY AN OBSERVED RECEIPT MOVES THE ROW. The row state is local until a fresh search; no claim of success
     // before the chain has executed the call.
-    if (current !== row) return false;
+    if (!current || current.row !== row) return false;
     row.status =
       kind === "refund"
         ? { ...row.status, isRefunded: true, isClaimed: false, isDeclined: false }
@@ -1138,7 +1242,7 @@ async function ethSend() {
     log(t("log.eth.receipt", { kind, hash }));
     return true;
   } catch (e) {
-    const words = sdkWords(e);
+    const words = reason(e);
     log(t("log.eth.failed", { words }), "bad");
     ethSendBtn.disabled = false;
     const key =
@@ -1183,7 +1287,7 @@ async function waitForEthReceipt(hash, adapter) {
   }
 }
 
-function ethExplorerLink(hash, row = current) {
+function ethExplorerLink(hash, row) {
   const a = document.createElement("a");
   a.href = ((row && row.net.explorer) || "") + hash;
   a.target = "_blank";
@@ -1196,19 +1300,17 @@ function ethExplorerLink(hash, row = current) {
 // --- 2. One swap: its keys, its start height, the SDK's plan ---
 
 // OPEN ONE SWAP FOR THE WITHDRAWAL. sweep.fromOrder takes the key and the order, checks the chain's points against
-// the key, builds the joint address and returns the file the plan reads. Nothing is written to disk.
+// the key, builds the joint address and returns the file the plan reads. Nothing is written to disk. The swap open
+// before closes: its transfer, its wallet and its steps end with it.
 async function openSwap(row) {
-  quiet(openErrorEl);
+  if (sending()) return false;
   if (!key) return say(keyErrorEl, "key.gone", {}, "wait");
-  // ONE SWAP AT A TIME: a wallet of another swap closes first, so a withdrawal never goes from the wrong address.
-  if (current) await closeSwap();
-  current = row;
-  // AN OPEN IS A FIXED CONTEXT. A later open of another row supersedes this one; its continuations must not write
-  // contents, plan or balance under the newly selected row.
-  const stillCurrent = () => current === row;
-  settlement = row.net.id;
-  network = row.net.monero;
-  window.__sweepFlow.network = network;
+  closeSwap();
+  const swap = (current = openedSwap(row));
+  return step(() => readSwap(swap), openErrorEl);
+}
+async function readSwap(swap) {
+  const { row } = swap;
   stepSwap.hidden = false;
   const openState = rowStateOf(row);
   if (openState.action === "refund" || openState.action === "claim") {
@@ -1226,44 +1328,43 @@ async function openSwap(row) {
   swapHeadEl.textContent = t("page.step.swap");
   moneyHeadEl.textContent = t("money.reading");
   swapInfoEl.hidden = true;
-  ethBox.hidden = true;
-  ethDoneEl.hidden = true;
-  clearEthState();
   drawSwaps();
   stepSwap.scrollIntoView({ block: "nearest" });
   // A TESTNET SWAP NEEDS A STAGENET NODE. If the current pick is on another network, the project's stagenet node is
   // chosen; the withdrawal still refuses a node of another network instead of scanning the wrong chain.
-  if (network === "stagenet" && nodeNetwork !== "stagenet" && !nodeLocked()) {
+  if (swap.network === "stagenet" && nodeNetwork() !== "stagenet" && !nodeLocked()) {
     setNodeUrl(STAGENET_NODE, { remember: false, by: "pick" });
+    markChoice(nodeUrl());
     try {
-      await checkNode(() => true);
+      await checkNode();
       drawCurrent();
     } catch {
       /* the withdrawal names the node failure */
     }
   }
-  if (!stillCurrent()) return false;
-  const core = await facadeFor(settlement, network);
-  if (!stillCurrent()) return false;
+  if (!holds(swap)) return false;
+  swap.core = await newFacade(swap.settlement, swap.network);
+  if (!holds(swap)) return false;
   // THE SDK BUILDS THE WITHDRAWAL FROM THE KEY AND THE ORDER. It decides the side, checks the chain's points against
   // the key, builds the joint address and returns the file plan/keys accept. The page keeps no payload rule.
   let material;
   try {
-    material = await core.sweep.fromOrder({
-      mnemonic: key.mnemonic,
+    material = await swap.core.sweep.fromOrder({
+      mnemonic: swap.key.mnemonic,
       chainId: row.net.chainId,
-      network: settlement,
-      moneroNetwork: network,
+      network: swap.settlement,
+      moneroNetwork: swap.network,
       order: row.swap,
     });
-    if (!stillCurrent()) return false;
   } catch (e) {
-    if (!stillCurrent()) return false;
+    if (!holds(swap)) return false;
     const why = e && e.params && e.params.why;
-    log(t("log.order." + (why || "bad"), { escrow: row.swap.escrow }), "bad");
+    const named = ["side", "spend-point", "own-view-point", "maker-view-point"].includes(why) ? why : "bad";
+    log(t("log.order." + named, { escrow: row.swap.escrow }), "bad");
     moneyEl.hidden = true;
     return say(openErrorEl, why === "maker-view-point" ? "flow.err.view" : "flow.err.order");
   }
+  if (!holds(swap)) return false;
   const address = material.address;
   // The chain holds the locker's view point. On a buy that is the person's own, so the maker's view half is on no
   // chain and only the scan can show it; on a sell the maker's point was checked against the key by fromOrder.
@@ -1276,38 +1377,26 @@ async function openSwap(row) {
   // THE START HEIGHT CAME WITH THE SEARCH (findSwaps). None is said with the SDK's reason, and the step asks for one.
   const startHeight = Number(row.swap.startHeight) > 0 ? Number(row.swap.startHeight) : null;
   if (startHeight) log(t("log.height.found", { height: n(startHeight), block: n(row.swap.blockNumber) }));
-  else log(t("log.height.failed", { why: row.swap.startHeightReason || "?" }), "wait");
-  contents = material.contents;
+  else log(t("log.height.failed", { why: nameOf(row.swap.startHeightReason) || "?" }), "wait");
   // PLAN IS THE CORE'S (sweep.plan): the address, the height and the maker's half, read from the escrow.
-  // THE PLAN IS HELD IN A LOCAL UNTIL THE CONTEXT IS CHECKED. Assigning the global first let a slow plan for
-  // row A land after row B was opened: the screen and contents were B's, the plan was A's, and B's withdrawal
-  // was refused until it was reopened.
+  let plan;
   try {
-    const planned = await core.sweep.plan({ file: { contents }, passphrase: "" });
-    if (!stillCurrent()) return false;
-    plan = planned;
+    plan = await swap.core.sweep.plan({ file: { contents: material.contents }, passphrase: "" });
   } catch (e) {
-    if (!stillCurrent()) return false;
-    log(t("log.plan.failed", { words: sdkWords(e) }), "bad");
-    contents = null;
+    if (!holds(swap)) return false;
+    log(t("log.plan.failed", { words: reason(e) }), "bad");
     moneyEl.hidden = true;
     return say(openErrorEl, "flow.err.plan");
   }
-  window.__sweepFlow.plan = {
-    address: plan.address,
-    restoreHeight: plan.restoreHeight,
-    missing: [...plan.missing],
-    revealedHalf: plan.revealedHalf,
-  };
-  window.__sweepFlow.address = plan.address;
+  if (!holds(swap)) return false;
+  swap.contents = material.contents;
+  swap.plan = plan;
   if (plan.missing.includes("revealed-half")) log(t("log.miss.revealedHalf"), "wait");
   const height = Number(plan.restoreHeight) > 0 ? Number(plan.restoreHeight) : 0;
   heightInput.value = height > 0 ? String(height) : "";
-  window.__sweepFlow.restoreHeight = height;
   // NO HEIGHT IS A NAMED STATE: the scan would start from Monero's first block and take hours, so the step says it
   // and shows the field for the person to fill. A known height stays out of sight.
   heightBox.hidden = height > 0;
-  balance = null;
   drawMoney();
   const ready = currentState().state === "ready";
   stepTransfer.hidden = !ready;
@@ -1326,13 +1415,15 @@ const STATE_TONES = {
   unseen: "wait",
   incomplete: "wait",
   nothing: "none",
+  sent: "none",
+  unsure: "wait",
 };
 
 function drawMoney() {
-  const m = currentState();
-  moneyEl.dataset.state = STATE_TONES[m.state] || "none";
-  moneyHeadEl.textContent = t("money." + m.state);
-  const row = current;
+  const state = current.outcome || currentState().state;
+  moneyEl.dataset.state = STATE_TONES[state] || "none";
+  moneyHeadEl.textContent = t("money." + state);
+  const { row } = current;
   const rows = [
     ["info.swap", row.swap.escrow],
     ["info.side", () => t(row.side === "buy" ? "value.side.buy" : "value.side.sell")],
@@ -1340,7 +1431,7 @@ function drawMoney() {
     ["info.date", () => (row.time ? d(row.time * 1000) : t("swap.date.unknown"))],
     ["info.network", () => t("value.network", { settlement: row.net.name, monero: row.net.monero })],
   ];
-  renderInfo(swapInfoEl, rows);
+  drawInfo(swapInfoEl, rows);
   moneyEl.hidden = false;
 }
 
@@ -1349,15 +1440,19 @@ function drawMoney() {
 // THE SAME WALLET, A FRESH BALANCE. `sync` is enough while the adapter is open; a closed adapter (the SDK closes it
 // after a failed signature and after every relay) is discarded and rebuilt from the same key and plan. The returned
 // value is `true` or the key of the plain line that says why not.
-async function refreshBalance() {
+async function refreshBalance(swap, from) {
   // A RETRY AFTER AN INCOMPLETE SCAN MUST RUN THE SCAN AGAIN. A plain sync cannot see a spend or a block the earlier
   // pass never read, and keeping the old verdict would leave the page incomplete until the swap is reopened. Close
   // the wallet and let syncWallet restore from the swap's height, which is the pass that can return a new verdict.
-  if (balance && balance.scanComplete === false) {
-    await closeWallet();
-    return syncWallet();
+  // ANOTHER START HEIGHT IS ANOTHER SCAN: the open wallet answers for the height it was restored from. `from` is the node
+  // and the height Withdraw took when it was pressed.
+  const { adapter, wallet } = swap;
+  const incomplete = swap.balance && swap.balance.scanComplete === false;
+  if (!adapter || !wallet) return syncWallet(swap, from);
+  if (incomplete || from.height !== swap.height) {
+    await closeWallet(swap);
+    return syncWallet(swap, from);
   }
-  if (!adapter || !wallet) return syncWallet();
   try {
     await adapter.sync();
     const total = BigInt(await wallet.getBalance());
@@ -1372,7 +1467,7 @@ async function refreshBalance() {
     // refresh must not lose the verdict and turn a partial balance into "ready". Once the SDK has said the scan
     // was incomplete, a plain sync cannot prove otherwise (it does not read spent status or rescan the range), so
     // the incomplete verdict is kept until a full restore names a complete pass.
-    const previous = balance;
+    const previous = swap.balance;
     let scanComplete = false;
     let scanIncompleteReason = previous && previous.scanIncompleteReason ? previous.scanIncompleteReason : "no-heights";
     try {
@@ -1382,26 +1477,14 @@ async function refreshBalance() {
         // A MATCHING HEIGHT IS NOT ENOUGH: a node that stopped advancing claims the same short tip as the wallet.
         // The plain sync used to upgrade that short chain to a complete scan; keep the same corroboration the full
         // restore uses, so a stale tip leaves the balance incomplete rather than "unseen" or "nothing".
-        let tipTrusted = false;
-        if (walletHeight >= nodeHeight) {
-          const tipHeight = tipHeaderHeight(nodeHeight);
-          if (tipHeight !== null) {
-            try {
-              const tipTime = await moneroHeaderTime(nodeUrl(), tipHeight);
-              const orderTime = current && Number.isFinite(Number(current.time)) ? Number(current.time) : null;
-              tipTrusted = tipIsTrusted({ tipTime, orderTime });
-            } catch {
-              // A node that cannot name its tip's time cannot prove the chain holds the swap.
-            }
-          }
-        }
+        const tipTrusted = walletHeight >= nodeHeight && (await tipCorroborated(swap, tipHeaderHeight(nodeHeight)));
         scanComplete = walletHeight >= nodeHeight && tipTrusted;
         scanIncompleteReason = scanComplete ? null : walletHeight >= nodeHeight ? "tip-unconfirmed" : "behind-node";
       }
     } catch {
       /* no heights: the scan stays incomplete, never assumed complete */
     }
-    balance = {
+    swap.balance = {
       total,
       unlocked,
       txs,
@@ -1410,45 +1493,101 @@ async function refreshBalance() {
     };
     return true;
   } catch (e) {
-    log(t("log.wallet.closed", { words: sdkWords(e) }), "wait");
-    await closeWallet();
-    return syncWallet();
+    if (!holds(swap)) return false;
+    log(t("log.wallet.closed", { words: reason(e) }), "wait");
+    await closeWallet(swap);
+    return syncWallet(swap, from);
   }
 }
 
+// THE TIP BLOCK'S OWN TIME says whether a node's chain can hold the swap; a node that cannot name it proves nothing.
+async function tipCorroborated(swap, tipHeight) {
+  if (tipHeight === null) return false;
+  try {
+    const tipTime = await moneroHeaderTime(swap.node, tipHeight);
+    const orderTime = Number.isFinite(Number(swap.row.time)) ? Number(swap.row.time) : null;
+    return tipIsTrusted({ tipTime, orderTime });
+  } catch {
+    return false;
+  }
+}
+
+// WITHDRAW BUILDS ONE TRANSFER, for the address in the field when it is pressed. The scan belongs to the swap and is
+// kept; the transfer ends with any change, and then there is no signature or no confirmation for it.
 async function withdraw() {
+  const swap = current;
+  if (sending() || (swap && swap.building)) return false;
   quiet(withdrawErrorEl);
-  dropSigned();
-  if (!current || !plan || !contents) return say(withdrawErrorEl, "flow.err.open");
-  if (!destInput.value.trim()) return say(withdrawErrorEl, "flow.err.dest.empty");
+  dropTransfer(swap, "again");
+  if (!swap || !swap.plan || !swap.contents) return say(withdrawErrorEl, "flow.err.open");
+  const transfer = newTransfer(swap, destInput.value.trim());
+  if (!transfer.dest) return say(withdrawErrorEl, "flow.err.dest.empty");
   // THE NODE AND THE SWAP MUST BE ON ONE NETWORK: a stagenet swap against a mainnet node finds nothing and would look
-  // like an empty wallet.
-  if (!nodeNetwork) return say(withdrawErrorEl, "flow.err.noNode");
-  if (nodeNetwork !== network) return say(withdrawErrorEl, "flow.err.networks", { swap: network, node: nodeNetwork });
-  // EVERY SPENDING DECISION IS TAKEN ON A FRESH BALANCE. A saved balance is a snapshot: after "locked" the outputs may
-  // have matured, and after a failed signature the SDK has closed the wallet while the page still holds the adapter.
-  // Refresh the wallet in place when it is still open, and rebuild it when it is not.
-  const synced = await refreshBalance();
-  if (synced !== true) {
-    hideProgress();
-    return say(withdrawErrorEl, synced);
-  }
-  drawMoney();
-  const m = currentState();
-  if (m.state !== "ready") {
-    hideProgress();
-    return say(withdrawErrorEl, "money." + m.state, {}, "wait");
-  }
-  showProgress("flow.progress.sign");
-  const built = await buildTx();
-  hideProgress();
-  if (built !== true) return say(withdrawErrorEl, built);
-  showTx();
-  confirmEl.hidden = false;
+  // like an empty wallet. The node and the height are the ones chosen now, and both are closed until this ends: what
+  // the page shows is what the wallet reads.
+  const from = { node: nodeUrl(), height: selectedHeight(swap) };
+  const answered = nodeNetwork();
+  if (!answered) return say(withdrawErrorEl, "flow.err.noNode");
+  if (answered !== swap.network)
+    return say(withdrawErrorEl, "flow.err.networks", { swap: swap.network, node: answered });
+  swap.transfer = transfer;
+  swap.building = true;
   updateButtons();
-  confirmEl.scrollIntoView({ block: "nearest" });
-  log(t("log.next.send"));
-  return true;
+  // WHY IT STOPPED is said in the swap's own step, and only while that swap is on the screen.
+  const stop = (words, tone) => {
+    if (swap.transfer === transfer) dropTransfer(swap, "changed");
+    return say(withdrawErrorEl, words, {}, tone);
+  };
+  const moved = () => stop(transfer.dropped === "key" ? "flow.err.key" : "flow.err.changed", "wait");
+  try {
+    const refused = await refusedDestination(swap, transfer);
+    // EVERY SPENDING DECISION IS TAKEN ON A FRESH BALANCE. A saved balance is a snapshot: after "locked" the outputs
+    // may have matured, and after a failed signature the SDK has closed the wallet while the page still holds the
+    // adapter. Refresh the wallet in place when it is still open, and rebuild it when it is not.
+    const synced = refused || !holds(swap) ? refused : await refreshBalance(swap, from);
+    if (!holds(swap)) return false;
+    if (synced !== true) return stop(synced);
+    if (swap.outcome === "unsure") swap.outcome = null;
+    drawMoney();
+    const m = currentState();
+    if (m.state !== "ready") return stop("money." + m.state, "wait");
+    if (!holds(swap, transfer)) return moved();
+    showProgress(swap, "flow.progress.sign");
+    const built = await buildTx(swap, transfer);
+    if (!holds(swap)) return false;
+    if (!holds(swap, transfer)) return moved();
+    if (built !== true) return stop(built);
+    drawConfirm();
+    confirmEl.scrollIntoView({ block: "nearest" });
+    log(t("log.next.send"));
+    return true;
+  } finally {
+    swap.building = false;
+    hideProgress(swap);
+    updateButtons();
+  }
+}
+
+// ADDRESS IS A PACKAGE RULE (sweep.destination): shape and network; monero-ts is not a second judge. A swap found by
+// the key promised no address: the chain holds none. Returns null, or the key of the plain line that says why not.
+async function refusedDestination(swap, transfer) {
+  let verdict;
+  try {
+    verdict = await swap.core.sweep.destination({
+      file: { contents: swap.contents },
+      passphrase: "",
+      dest: transfer.dest,
+    });
+  } catch (e) {
+    if (holds(swap)) log(t("log.dest.refused", { words: reason(e) }), "bad");
+    return "flow.err.dest";
+  }
+  if (!verdict.ok) {
+    if (holds(swap)) log(t("log.dest.refused", { words: nameOf(verdict.reason) || "?" }), "bad");
+    return "flow.err.dest";
+  }
+  if (holds(swap)) log(t("log.dest.accepted", { network: swap.network }));
+  return null;
 }
 
 // A WALLET THAT DID NOT OPEN, said by cause: the core refused to build it, the keys do not give the swap's address,
@@ -1459,19 +1598,18 @@ const WALLET_STOPS = {
   "recovery-failed": "flow.err.keys",
 };
 
-// THE HEIGHT THE PERSON CHOSE: the field wins over the plan's finder value, so the restore and the node read
-// start at the same block. A blank field with no plan height is refused, never read as the genesis block.
-function selectedHeight() {
+// THE HEIGHT THE PERSON CHOSE: the field wins over the plan's finder value. A blank field with no plan height is
+// refused, never read as the genesis block. The wallet keeps the height it was restored from, and the node reads of
+// its transfers start at the same block.
+function selectedHeight(swap) {
   const typed = heightInput.value.trim();
-  return typed ? Number(typed) : Number(plan.restoreHeight) || 0;
+  return typed ? Number(typed) : Number(swap.plan.restoreHeight) || 0;
 }
 
 // THE WALLET OF THE SWAP + SYNC. Returns true, or the key of the plain line that says why not; the detail is logged.
-async function syncWallet() {
-  const dest = destInput.value.trim();
-  const typed = heightInput.value.trim();
-  let height = selectedHeight();
-  if (!typed && height <= 0) {
+// A swap that was closed while this ran gets no wallet: one that still opened is closed here.
+async function syncWallet(swap, { node, height }) {
+  if (height === 0) {
     log(t("log.height.blank"), "bad");
     return "flow.err.height.blank";
   }
@@ -1479,30 +1617,16 @@ async function syncWallet() {
     log(t("log.height.invalid"), "bad");
     return "flow.err.height.invalid";
   }
-  const core = await facadeFor(settlement, network);
-
-  // ADDRESS IS A PACKAGE RULE (sweep.destination): shape and network; monero-ts is not a second judge.
-  let verdict;
-  try {
-    verdict = await core.sweep.destination({ file: { contents }, passphrase: "", dest });
-  } catch (e) {
-    log(t("log.dest.refused", { words: sdkWords(e) }), "bad");
-    return "flow.err.dest";
-  }
-  if (!verdict.ok) {
-    log(t("log.dest.refused", { words: verdict.reason || "?" }), "bad");
-    return "flow.err.dest";
-  }
-  log(t("log.dest.accepted", { network }));
 
   // KEYS ARE THE CORE'S: sweep.keys sums the key's half and the maker's REVEALED half and checks (s_a + s_b)*G.
   let keys;
   try {
-    keys = await core.sweep.keys({ file: { contents }, passphrase: "" });
+    keys = await swap.core.sweep.keys({ file: { contents: swap.contents }, passphrase: "" });
   } catch (e) {
-    log(t("log.keys.failed", { words: sdkWords(e) }), "bad");
+    if (holds(swap)) log(t("log.keys.failed", { words: reason(e) }), "bad");
     return "flow.err.keys";
   }
+  if (!holds(swap)) return false;
   const fields = {
     privateSpendKey: keys.privateSpendKey,
     privateViewKey: keys.privateViewKey,
@@ -1511,30 +1635,35 @@ async function syncWallet() {
   log(t("log.keys.summed"), "ok");
 
   // WALLET IS THE CORE'S (sweep.wallet), including network name to library enum; the page passes monero-ts and the facts.
-  showProgress("flow.progress.connect");
-  adapter = core.sweep.wallet({
+  showProgress(swap, "flow.progress.connect");
+  const adapter = swap.core.sweep.wallet({
     moneroTs: api,
-    network,
-    serverUri: nodeUrl(),
+    network: swap.network,
+    serverUri: node,
     password: "ninsei-sweep-session",
     keys: fields,
     restoreHeight: height,
-    expectedAddress: plan.address,
+    expectedAddress: swap.plan.address,
   });
-  // THE WALLET IS BOUND TO THIS NODE NOW: the choice closes until the wallet is forgotten.
-  updateNodeLock();
-  // THE CORE WALLET UNDER ITS OWN NAME, so (...balances) is not read as a call on monero-ts by the API check.
-  const coreWallet = core.wallet;
-  coreWallet.use(adapter);
+  swap.adapter = adapter;
+  swap.node = node;
+  swap.height = height;
+  // AN OPENING THAT FAILS AFTER THE LIBRARY MADE ITS WALLET leaves that wallet open behind the adapter, with the keys: the
+  // adapter is closed whatever its opening came to, unless it is the swap's.
   try {
-    await coreWallet.connect();
+    await adapter.connect();
   } catch (e) {
-    log(t("log.wallet.notConnected", { words: sdkWords(e) }), "bad");
-    adapter = null;
-    updateNodeLock();
+    if (holds(swap)) log(t("log.wallet.notConnected", { words: reason(e) }), "bad");
+    if (swap.adapter === adapter) await closeWallet(swap);
+    else await adapter.close();
     return WALLET_STOPS[e && e.code] || "flow.err.wallet";
   }
-  wallet = adapter.driver();
+  if (swap.adapter !== adapter) {
+    await adapter.close();
+    return false;
+  }
+  const wallet = adapter.driver();
+  swap.wallet = wallet;
   log(t("log.wallet.restored"), "ok");
 
   // A HEIGHT ABOVE THE NODE'S TIP is refused before the scan: it would read no blocks and look like a complete empty
@@ -1543,16 +1672,16 @@ async function syncWallet() {
   try {
     nodeTip = Number(await wallet.getDaemonHeight());
   } catch (e) {
-    log(t("log.diag.failed", { why: String((e && e.message) || e) }), "wait");
+    if (holds(swap)) log(t("log.diag.failed", { why: reason(e) }), "wait");
   }
+  if (!holds(swap)) return false;
   const daemonTip = tipHeaderHeight(nodeTip);
   const start = scanStartHeight(height, daemonTip);
   if (!start.ok) {
     log(t("log.height.aboveTip", { height: n(height), tip: daemonTip === null ? "?" : n(daemonTip) }), "bad");
-    await closeWallet();
+    await closeWallet(swap);
     return "flow.err.height";
   }
-  height = start.height;
 
   // PROGRESS IS SHOWN, NOT NEEDED. The scan is sweep.restore's rescanBlockchain, which tells no listener how far it
   // is, so the bar runs without an end over the start block and the time so far. The count of new blocks is not
@@ -1572,7 +1701,7 @@ async function syncWallet() {
         const fraction = Math.min(1, Math.max(0, Number(done) || 0));
         const elapsed = (performance.now() - scanStarted) / 1000;
         const left = fraction >= 0.03 && elapsed > 3 ? timeLeft((elapsed * (1 - fraction)) / fraction) : "";
-        showProgress("flow.progress.scan", {
+        showProgress(swap, "flow.progress.scan", {
           fraction,
           sub: () => {
             const blocks = t("flow.progress.blocks", { at: n(Number(at)), end: n(Number(end)) });
@@ -1585,9 +1714,9 @@ async function syncWallet() {
   } catch {
     listener = null;
   }
-  showProgress("flow.progress.scanning", { sub: soFar });
+  showProgress(swap, "flow.progress.scanning", { sub: soFar });
   const ticker = setInterval(() => {
-    if (progress && progress.sub === soFar) drawProgress();
+    if (swap.progress && swap.progress.sub === soFar) drawProgress();
   }, 1000);
 
   // THE SCAN IS THE PACKAGE'S (sweep.restore), FROM THE START BLOCK. It used to read the blocks around the
@@ -1598,9 +1727,9 @@ async function syncWallet() {
   let restored;
   try {
     log(t("log.scan.start", { from: n(scanFrom), height: n(height) }));
-    restored = await core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10 });
+    restored = await swap.core.sweep.restore({ wallet: adapter, fromHeight: height, scanBack: 10 });
   } catch (e) {
-    log(t("log.rescan.failed", { why: (e && e.message) || e }), "bad");
+    if (holds(swap)) log(t("log.rescan.failed", { why: reason(e) }), "bad");
     return "flow.err.sync";
   } finally {
     clearInterval(ticker);
@@ -1612,6 +1741,7 @@ async function syncWallet() {
       }
     }
   }
+  if (!holds(swap)) return false;
   const ms = Math.round(performance.now() - t0);
   const unlocked = BigInt(restored.unlocked);
   const total = BigInt(restored.total);
@@ -1619,16 +1749,7 @@ async function syncWallet() {
   // height with the height the daemon claims; a daemon that is days behind claims a matching short tip and would turn
   // a complete, empty scan into "nothing ever arrived". The tip block's own timestamp is the corroboration: it must
   // be recent, and not older than the order.
-  let tipTrusted = false;
-  if (daemonTip !== null) {
-    try {
-      const tipTime = await moneroHeaderTime(nodeUrl(), daemonTip);
-      const orderTime = current && Number.isFinite(Number(current.time)) ? Number(current.time) : null;
-      tipTrusted = tipIsTrusted({ tipTime, orderTime });
-    } catch {
-      // A node that cannot name its tip's time cannot prove the chain holds the swap: incomplete, never "unseen".
-    }
-  }
+  const tipTrusted = await tipCorroborated(swap, daemonTip);
   // THE SCAN'S VERDICT TRAVELS WITH THE BALANCE. Only an explicit `true` from the SDK, corroborated by a recent tip,
   // is a completed scan: a missing verdict (an older package), a false one, and a short chain all mean the address's
   // total is unknown, never zero.
@@ -1642,15 +1763,18 @@ async function syncWallet() {
   try {
     txs = (await wallet.getTxs()).length;
   } catch (e) {
-    log(t("log.diag.failed", { why: String((e && e.message) || e) }), "wait");
+    if (holds(swap)) log(t("log.diag.failed", { why: reason(e) }), "wait");
   }
-  balance = {
+  swap.balance = {
     total,
     unlocked,
     txs,
     scanComplete,
     ...(scanIncompleteReason ? { scanIncompleteReason } : {}),
   };
+  const walletHeight = await wallet.getHeight();
+  const nodeHeight = await wallet.getDaemonHeight();
+  if (!holds(swap)) return false;
   log(
     t("log.restored.passes", {
       passes: n(restored.passes),
@@ -1659,25 +1783,12 @@ async function syncWallet() {
     "ok",
   );
 
-  const walletHeight = await wallet.getHeight();
-  const nodeHeight = await wallet.getDaemonHeight();
-  window.__sweepFlow.unlocked = unlocked;
-  window.__sweepFlow.syncInfo = {
-    walletHeight,
-    nodeHeight,
-    txs,
-    balance: String(total),
-    unlocked: String(unlocked),
-    scanHeight: height,
-    scanComplete,
-    scanIncompleteReason,
-  };
   log(t("log.sync.took", { ms: n(ms), height: n(height || 0) }));
-  if (!scanComplete) log(t("log.synced.incomplete", { why: scanIncompleteReason }), "warn");
+  if (!scanComplete) log(t("log.synced.incomplete", { why: nameOf(scanIncompleteReason) || "?" }), "warn");
   else if (unlocked > 0n)
     log(t("log.synced.ok", { xmr: xmr(unlocked), walletHeight: n(walletHeight), nodeHeight: n(nodeHeight) }), "ok");
   else if (total > 0n) log(t("log.synced.zero.locked", { total: xmr(total) }), "wait");
-  else if (txs === 0) log(t("log.synced.unseen", { address: plan.address, height: n(height) }), "warn");
+  else if (txs === 0) log(t("log.synced.unseen", { address: swap.plan.address, height: n(height) }), "warn");
   else log(t("log.synced.zero.empty", { txs: txs === null ? "?" : n(txs) }), "wait");
   return true;
 }
@@ -1685,7 +1796,7 @@ async function syncWallet() {
 // THE UNSPENT SET THE PACKAGE MUST SEE. `sweep.sign` compares the signed inputs with this exact list, so it is read
 // from the same wallet and the same pass: unspent, unlocked and not frozen outputs are what `sweepUnlocked` may
 // select. A missing or malformed key image is a refusal, never a reason to sign without the guard.
-async function unspentKeyImages() {
+async function unspentKeyImages(wallet) {
   const outputs = await wallet.getOutputs({ isSpent: false });
   const images = [];
   for (const output of outputs) {
@@ -1694,7 +1805,7 @@ async function unspentKeyImages() {
     const keyImage = typeof output.getKeyImage === "function" ? output.getKeyImage() : null;
     const hex = keyImage && (typeof keyImage.getHex === "function" ? keyImage.getHex() : keyImage.hex);
     if (typeof hex !== "string" || !/^[0-9a-f]{64}$/.test(hex.replace(/^0x/i, "").toLowerCase())) {
-      throw new Error("unspent output without a key image");
+      throw pageFailure("key-image");
     }
     images.push(hex.replace(/^0x/i, "").toLowerCase());
   }
@@ -1708,45 +1819,51 @@ async function unspentKeyImages() {
 //
 // The checkpoint is the caller-owned one from the SDK's one-read path. It is bound to the address, network and start
 // height, so a second read after signing resumes instead of walking the same blocks again.
-async function pageKeyImages(core) {
-  const walletImages = await unspentKeyImages();
-  const keys = await core.sweep.keys({ file: { contents }, passphrase: "" });
-  const addressKeys = mod.decodeAddressKeys(plan.address);
-  const fromHeight = selectedHeight();
-  if (!Number.isSafeInteger(fromHeight) || fromHeight <= 0) throw new Error("the swap has no scan height");
-  const read = await core.swaps.readRecovery({
-    node: nodeUrl(),
-    address: plan.address,
+async function pageKeyImages(swap, transfer) {
+  // A swap that was left has let go of what this reads: the read ends with the swap.
+  const still = () => {
+    if (!holds(swap)) throw pageFailure("left");
+  };
+  const walletImages = await unspentKeyImages(swap.wallet);
+  still();
+  const keys = await swap.core.sweep.keys({ file: { contents: swap.contents }, passphrase: "" });
+  still();
+  const addressKeys = mod.decodeAddressKeys(swap.plan.address);
+  if (!Number.isSafeInteger(swap.height) || swap.height <= 0) throw pageFailure("height");
+  const read = await swap.core.swaps.readRecovery({
+    node: swap.node,
+    address: swap.plan.address,
     viewSecret: keys.privateViewKey,
     spendPub: addressKeys.spendPub,
-    fromHeight,
-    network,
+    fromHeight: swap.height,
+    network: swap.network,
     // A node read that cannot see the whole range cannot prove an unspent set.
     keyImages: walletImages,
     // THE PAGE'S OWN TRANSPORT. The facade is built with `noService` so its other routes cannot call a host; this
     // read is the one place where the chosen node is asked directly.
     fetch: globalThis.fetch,
     onProgress: (event) => {
+      if (!holds(swap, transfer)) return;
       const total = Number(event && event.blocksTotal);
       const done = Number(event && event.blocksVerified);
       const fraction = Number.isFinite(total) && total > 0 && Number.isFinite(done) ? Math.min(1, done / total) : null;
-      showProgress("flow.progress.scan", {
+      showProgress(swap, "flow.progress.scan", {
         fraction,
         sub:
           Number.isFinite(total) && total > 0 ? () => t("flow.progress.blocks", { at: n(done), end: n(total) }) : null,
       });
     },
     checkpoint: {
-      read: () => nodeReadCheckpoint,
+      read: () => swap.checkpoint,
       save: (record) => {
-        nodeReadCheckpoint = record;
+        swap.checkpoint = record;
       },
       discard: () => {
-        nodeReadCheckpoint = null;
+        swap.checkpoint = null;
       },
     },
   });
-  if (!read || read.complete !== true) throw new Error("the node read is incomplete");
+  if (!read || read.complete !== true) throw pageFailure("node-read");
   const spent = new Set((read.spends || []).map((spend) => String(spend.keyImage || "").toLowerCase()));
   const outputs = [];
   for (const transfer of read.transfers || []) {
@@ -1757,7 +1874,8 @@ async function pageKeyImages(core) {
       outputs.push(output);
     }
   }
-  const fromNode = await core.sweep.keyImages({ keys, arrival: { outputs } });
+  still();
+  const fromNode = await swap.core.sweep.keyImages({ keys, arrival: { outputs } });
   const available = new Set(walletImages);
   return fromNode
     .map((entry) => (typeof entry === "string" ? entry : entry.keyImage))
@@ -1765,59 +1883,44 @@ async function pageKeyImages(core) {
     .filter((image) => available.has(image) && !spent.has(image));
 }
 
-// BUILD AND SIGN, NOT SEND. Returns true, or the key of the plain line that says why not.
-async function buildTx() {
-  const dest = destInput.value.trim();
-  // THE ADDRESS AGAINST THE SWAP'S NETWORK IS A PACKAGE RULE (sweep.destination); the person names the address. A
-  // swap found by the key promised no address: the chain holds none.
-  const core = await facadeFor(settlement, network);
-  let verdict;
-  try {
-    verdict = await core.sweep.destination({ file: { contents }, passphrase: "", dest });
-  } catch (e) {
-    log(t("log.dest.refused", { words: sdkWords(e) }), "bad");
-    return "flow.err.dest";
-  }
-  if (!verdict.ok) {
-    log(t("log.dest.refused", { words: verdict.reason || "?" }), "bad");
-    return "flow.err.dest";
-  }
-
+// BUILD AND SIGN, NOT SEND. Returns true, or the key of the plain line that says why not. A transfer that was dropped
+// while the node was read is not signed, and a signature that returns for one that was dropped is dropped too.
+async function buildTx(swap, transfer) {
   // SIGNING IS THE CORE'S (sweep.sign): plan -> wallet -> sync -> unlocked balance -> signature WITHOUT sending.
   // An empty balance stops with `insufficient-funds` BEFORE signing, on the SAME wallet scanned above.
   let signed;
   try {
-    sweepKeyImages = await pageKeyImages(core);
-    signed = await core.sweep.sign({
-      file: { contents },
+    const keyImages = await pageKeyImages(swap, transfer);
+    if (!holds(swap, transfer)) return "flow.err.changed";
+    signed = await swap.core.sweep.sign({
+      file: { contents: swap.contents },
       passphrase: "",
-      to: dest,
-      keyImages: sweepKeyImages,
+      to: transfer.dest,
+      keyImages,
       maxFeeAtomic: SWEEP_FEE_LIMIT_ATOMIC,
       // THE SAME ADAPTER THE RESTORE USED. A second adapter for the same wallet would not carry the scan verdict,
       // and 0.62 refuses to sign without a completed restore on this exact adapter.
-      wallet: adapter,
+      wallet: swap.adapter,
     });
   } catch (e) {
-    const words = sdkWords(e);
-    log(t("log.sign.stopped", { words }), "bad");
-    // The code goes to state and log: words for the person, the code for debugging.
-    window.__sweepFlow.sdkError = { code: (e && e.code) || null, params: (e && e.params) || null, words };
+    if (!holds(swap)) return false;
+    log(t("log.sign.stopped", { words: reason(e) }), "bad");
     // A FEE REFUSAL IS THE PERSON'S NEXT DECISION, not a generic "could not build": name it on the step.
     if (e && (e.code === "sweep-fee-too-high" || e.code === "sweep-fee-unknown")) return "sdk." + e.code;
     return "flow.err.sign";
   }
-  signedToken = signed.token;
-  window.__sweepFlow.signed = true;
-
+  if (!holds(swap, transfer)) return "flow.err.changed";
   // FEE AND RECEIVE COME FROM sweep.sign. The whole unlocked balance is withdrawn, so the fee is subtracted and
   // `receive` is what arrives; a missing fee is null, shown as "unknown", never as zero.
-  lastTx = { amount: BigInt(signed.amount), fee: signed.fee, receive: signed.receive, dest };
-  log(t("log.signed", { token: signedToken }));
+  transfer.token = signed.token;
+  transfer.amount = BigInt(signed.amount);
+  transfer.fee = signed.fee;
+  transfer.receive = signed.receive;
+  log(t("log.signed", { token: transfer.token }));
   return true;
 }
 
-function explorerLink(id) {
+function explorerLink(network, id) {
   const a = document.createElement("a");
   a.href = EXPLORER[network] + id;
   a.target = "_blank";
@@ -1837,133 +1940,170 @@ function explorerLink(id) {
   return a;
 }
 
-// THE CONFIRMATION: drawn from lastTx, so a language change keeps the same numbers and addresses.
-function showTx() {
-  if (!lastTx) return;
-  const tx = lastTx;
-  renderInfo(txInfoEl, [
-    ["info.amount", () => t("value.amount", { xmr: xmr(tx.amount) })],
-    [
-      "info.fee",
-      () => (tx.fee === null ? t("value.fee.unknown") : xmr(BigInt(tx.fee)) + " XMR"),
-      tx.fee === null ? "warn" : "",
-    ],
-    [
-      "info.receive",
-      () => (tx.receive === null ? t("value.receive.unknown") : xmr(BigInt(tx.receive)) + " XMR"),
-      tx.receive === null ? "warn" : "good",
-    ],
-    ["info.recipient", tx.dest],
+// THE CONFIRMATION: drawn from the open swap's signed transfer, so a language change keeps its numbers and addresses.
+const receives = ({ receive }) => (receive === null ? t("value.receive.unknown") : xmr(BigInt(receive)) + " XMR");
+function drawConfirm() {
+  const transfer = current && current.transfer;
+  const signed = Boolean(transfer && transfer.token);
+  confirmEl.hidden = !signed;
+  if (!signed) return;
+  const { amount, fee, receive, dest } = transfer;
+  drawInfo(txInfoEl, [
+    ["info.amount", t("value.amount", { xmr: xmr(amount) })],
+    ["info.fee", fee === null ? t("value.fee.unknown") : xmr(BigInt(fee)) + " XMR", fee === null ? "warn" : ""],
+    ["info.receive", receives(transfer), receive === null ? "warn" : "good"],
+    ["info.recipient", dest],
   ]);
 }
 
+// CONFIRM GIVES THE NODE THE TRANSFER ON THE SCREEN, OR NOTHING. The press holds the transfer it was made for; the
+// node is read again, and only if the press still holds is that transfer given. From then until the answer nothing
+// newer can be started, and the attempt stands in the results. A press that was dropped meanwhile has already been said
+// as not sent (dropTransfer), and its end touches nothing.
 async function sendTx() {
+  const swap = current;
+  const transfer = swap && swap.transfer;
+  if (transfer && transfer.pressed) return false;
   quiet(withdrawErrorEl);
-  if (!signedToken) {
+  if (!transfer || !transfer.token) {
     log(t("log.nothing.toSend"), "bad");
     return say(withdrawErrorEl, "flow.err.send");
   }
-  showProgress("flow.progress.send");
+  transfer.pressed = true;
+  showProgress(swap, "flow.progress.check");
+  updateButtons();
+  const moved = () => {
+    if (swap !== current || swap.transfer !== transfer) return false;
+    dropTransfer(swap, "changed");
+    return say(withdrawErrorEl, "flow.err.changed", {}, "wait");
+  };
+  if (!holds(swap, transfer)) return moved();
+  // NOTHING WAS GIVEN, SO NOTHING WAS SENT: the confirmation stays, and Confirm can be pressed again.
+  const unsent = (e, result) => {
+    log(t("log.send.failed", { words: reason(e) }), "bad");
+    if (result) endResult(result, "unsent", { why: "check" });
+    else record(transfer, "unsent", "check");
+    transfer.pressed = transfer.given = false;
+    hideProgress(swap);
+    drawSwaps();
+    updateButtons();
+    return say(withdrawErrorEl, "flow.err.send");
+  };
   let freshImages;
-  const core = await facadeFor(settlement, network);
   try {
     // THE RELAY CHECK READS THE NODE AGAIN. The signed bytes cannot change, but the page's view can: a fresh list
     // that differs from the signed inputs keeps the session open and sends nothing. The checkpoint resumes the read.
-    freshImages = await pageKeyImages(core);
+    freshImages = await pageKeyImages(swap, transfer);
   } catch (e) {
-    hideProgress();
-    log(t("log.send.unknown", { words: sdkWords(e) }), "bad");
-    return say(withdrawErrorEl, "flow.err.send");
+    return holds(swap, transfer) ? unsent(e) : moved();
   }
-  let out;
-  try {
-    // SENDING IS THE CORE'S (sweep.relay). Its "withdrawn" mark for a service meets `noService` and goes nowhere.
-    out = await core.sweep.relay({ token: signedToken, keyImages: freshImages });
-  } catch (e) {
-    hideProgress();
-    // THE NODE MAY HAVE ACCEPTED THE TRANSACTION AND LOST ONLY THE REPLY. A definite "not sent" would be false, and a
-    // second Confirm would use a session that no longer exists. Drop the session, leave the wallet for a fresh balance
-    // check, and ask the person to look at the wallet before trying again.
-    log(t("log.send.unknown", { words: sdkWords(e) }), "bad");
-    signedToken = null;
-    lastTx = null;
-    confirmEl.hidden = true;
-    window.__sweepFlow.signed = false;
-    updateButtons();
+  if (!holds(swap, transfer)) return moved();
+  showProgress(swap, "flow.progress.send");
+  transfer.given = true;
+  const result = record(transfer, "given");
+  drawSwaps();
+  updateButtons();
+  // SENDING IS THE CORE'S (sweep.relay). Its "withdrawn" mark for a service meets `noService` and goes nowhere.
+  const relay = swap.core.sweep.relay({ token: transfer.token, keyImages: freshImages }).then(
+    (out) => ({ txids: txIds(out && out.txids) }),
+    (error) => ({ error, txids: txIds(error && error.params && error.params.txids) }),
+  );
+  const answer = await Promise.race([relay, after(RELAY_LIMIT_MS)]);
+  if (!answer) {
+    // NO ANSWER IS UNKNOWN, NOT NOT-SENT. What can be started opens again, and nothing is sent by itself; an answer that
+    // still comes ends its own result.
+    log(t("log.send.silent", { minutes: n(RELAY_LIMIT_MS / 60_000) }), "bad");
+    endResult(result, "unknown");
+    unsure(swap);
+    // A SUCCESS THAT COMES LATE ends the swap it belongs to, if that is still the one that is open, and with it whatever
+    // of it contradicts the success: a newer confirmation, a Withdraw or a Confirm that is running, the warning, the
+    // key. What a person has started since is theirs: another swap or key, or a newer transfer the node already has.
+    relay.then(({ error, txids }) => {
+      log(t(error ? "log.send.unknown" : "log.sent", { words: reason(error), txids: txids.join(", ") || "?" }));
+      endResult(result, error ? "unknown" : "sent", { txids });
+      if (error || !holds(swap) || sending()) return;
+      closeSwap("sent");
+      forgetKey();
+    });
     return say(withdrawErrorEl, "flow.err.sendUnknown");
   }
-  hideProgress();
-  signedToken = null;
-  const hashes = Array.isArray(out.txids) ? out.txids : [];
-  log(t("log.sent", { txids: hashes.join(", ") }), "ok");
-  confirmEl.hidden = true;
-  showDone(hashes);
+  const { error, txids } = answer;
+  // THE CORE REFUSES BY A NAME BEFORE IT GIVES ANYTHING (a token or an input set that does not fit); from the moment
+  // it gives the transfer its only answer is `sweep-relay-unknown`. An error without a name is not proof of either.
+  if (error && typeof error.code === "string" && error.code !== "sweep-relay-unknown") return unsent(error, result);
+  if (error) {
+    // THE NODE MAY HAVE ACCEPTED THE TRANSACTION. A definite "not sent" would be false, and a second Confirm would use a
+    // session that no longer exists. Drop it, leave the wallet for a fresh balance check, and ask the person to look.
+    log(t("log.send.unknown", { words: reason(error), txids: txids.join(", ") || "?" }), "bad");
+    endResult(result, "unknown", { txids });
+    unsure(swap);
+    return say(withdrawErrorEl, "flow.err.sendUnknown");
+  }
+  log(t("log.sent", { txids: txids.join(", ") }), "ok");
+  endResult(result, "sent", { txids });
   // THE WALLET IS EMPTY NOW: the button would only sign for zero. The keys have done their job, so they leave the
-  // tab's memory at once instead of waiting for the tab to close; the sent view and the txid stay.
-  withdrawBtn.disabled = true;
-  await dropKeys();
+  // tab's memory at once instead of waiting for the tab to close; the result and the txid stay.
+  swap.outcome = "sent";
+  finishTransfer(swap);
+  drawMoney();
+  await dropKeys(swap);
   log(t("log.done"), "ok");
   return true;
 }
 
-// SENT: every transaction of a split sweep and where to see each one.
-function showDone(txids) {
-  const list = (Array.isArray(txids) ? txids : []).filter((id) => typeof id === "string" && id);
-  const rows = list.length
-    ? list.map((id) => ["info.txid", () => explorerLink(id)])
-    : [["info.txid", t("value.txid.none")]];
-  renderInfo(doneInfoEl, rows);
-  doneEl.hidden = false;
+// LONGER THAN THE WALLET LIBRARY'S OWN REQUEST LIMIT (180 s), so its answer comes first when it gives one.
+const RELAY_LIMIT_MS = 240_000;
+const after = (ms) => new Promise((resolve) => setTimeout(resolve, ms, null));
+
+// WHETHER IT WAS SENT IS NOT KNOWN: neither is what the wallet holds, until it is read again.
+function unsure(swap) {
+  swap.outcome = "unsure";
+  finishTransfer(swap);
+  drawMoney();
+}
+
+// THE NODE'S ANSWER, OR ITS ABSENCE, ENDS THE TRANSFER: what can be started opens again.
+function finishTransfer(swap) {
+  swap.transfer = null;
+  drawConfirm();
+  hideProgress(swap);
+  drawSwaps();
   updateButtons();
 }
 
-// THE WALLET CLOSES and the node choice opens again; a failed close must not keep the rest in memory. The facade is
-// told as well: its `wallet` object caches the keyed adapter and would otherwise rebuild the same wallet on the next
-// `connect()` without asking for the key again.
-async function closeWallet() {
-  const core = settlement && network ? facades.get(settlement + "/" + network) : null;
+// THE WALLET OF ONE SWAP CLOSES and the node choice opens again; a failed close must not keep the rest in memory. The
+// swap lets go of it first, so a step of that swap that is still running cannot use it.
+async function closeWallet(swap) {
+  const { adapter } = swap;
+  swap.adapter = null;
+  swap.wallet = null;
+  swap.checkpoint = null;
+  updateButtons();
   try {
     if (adapter) await adapter.close();
   } catch {
-    /* the keys go below either way */
+    /* the keys go either way */
   }
-  adapter = null;
-  wallet = null;
-  sweepKeyImages = null;
-  nodeReadCheckpoint = null;
-  if (core) {
-    try {
-      await core.wallet.disconnect();
-    } catch {
-      /* the adapter is already gone */
-    }
-  }
-  updateNodeLock();
 }
 
-// ANOTHER SWAP OR ANOTHER KEY: the wallet closes, the swap's payload and the signed transfer go, and the step is
-// back to "choose a swap". The key and the list stay: the person is choosing among them.
-async function closeSwap() {
-  await closeWallet();
-  clearEthState();
+// A SWAP THAT IS LEFT KEEPS ITS ROW AND NOTHING ELSE: its key, its payload, its facade with every signed session, and its
+// wallet go, so a step of it that is still running has nothing left to use. Its wallet closes behind it.
+function leaveSwap(swap) {
+  closeWallet(swap);
+  const { row, settlement, network } = swap;
+  for (const name of Object.keys(swap)) swap[name] = null;
+  Object.assign(swap, { row, settlement, network });
+}
+
+// ANOTHER SWAP OR ANOTHER KEY: the open swap ends here, at once. Its transfer is dropped and the step is back to "choose a
+// swap". The key and the list stay: the person is choosing among them.
+function closeSwap(why = "left") {
+  const swap = current;
+  if (!swap) return;
+  dropTransfer(swap, why);
   current = null;
-  contents = null;
-  plan = null;
-  network = null;
-  settlement = null;
-  balance = null;
-  signedToken = null;
-  lastTx = null;
-  window.__sweepFlow = {
-    ready: window.__sweepFlow.ready,
-    network: null,
-    address: null,
-    restoreHeight: null,
-    unlocked: 0n,
-    signed: false,
-    steps: window.__sweepFlow.steps,
-    search: window.__sweepFlow.search,
-  };
+  leaveSwap(swap);
+  clearEthState();
   stepSwap.hidden = true;
   stepTransfer.hidden = true;
   ethBox.hidden = true;
@@ -1974,11 +2114,9 @@ async function closeSwap() {
   quiet(ethErrorEl);
   moneyEl.hidden = true;
   confirmEl.hidden = true;
-  doneEl.hidden = true;
   quiet(openErrorEl);
   quiet(withdrawErrorEl);
-  hideProgress();
-  withdrawBtn.disabled = false;
+  drawProgress();
   destInput.value = "";
   heightInput.value = "";
   heightBox.hidden = true;
@@ -1986,23 +2124,23 @@ async function closeSwap() {
   updateButtons();
 }
 
-// THE KEYS LEAVE WITH THE TRANSFER: the wallet closes, and the recovery key, the swap's payload and the signed
-// transfer go. The sent view and the txid stay; the list goes with the key, since every action in it needs the key.
-async function dropKeys() {
-  await closeWallet();
-  clearEthState();
-  // THE FACADES HOLD THE ONLY CACHED ADAPTERS. Disconnecting is not enough if the facade itself survives in this map:
-  // clear it, so a later `createNinsei` starts from the key it is given and not from a wallet built from this one.
-  facades.clear();
+// THE KEYS LEAVE WITH THE TRANSFER: the swap's wallet closes, and the recovery key and the swap's payload go. The
+// result and the txid stay; the list goes with the key, since every action in it needs the key. The key is this
+// swap's: no other could be read while the node held the transfer. Words typed before that are another key's, and stay.
+// What the step still shows of the swap (its address, its amounts) stays on the screen.
+async function dropKeys(swap) {
+  const closing = closeWallet(swap);
+  Object.assign(swap, { key: null, core: null, contents: null });
+  forgetKey();
+  await closing;
+  log(t("log.forgotten"), "ok");
+}
+function forgetKey() {
   key = null;
   search = null;
-  contents = null;
-  signedToken = null;
-  lastTx = null;
-  clearKeyFields();
-  drawSwaps();
   say(keyErrorEl, "key.gone", {}, "wait");
-  log(t("log.forgotten"), "ok");
+  drawSwaps();
+  updateButtons();
 }
 
 // --- 0c. Node: a checked list of the listed nodes, the page's pick or the person's choice among them ---
@@ -2044,7 +2182,7 @@ const listed = NODES.map((url) => ({ url, network: nodeNetworkOf(url), answer: n
 let note = null; // [key, params] of the line under the list
 
 function nodeLocked() {
-  return Boolean(adapter || wallet);
+  return Boolean(current && (current.building || current.adapter));
 }
 
 function rowFor(url) {
@@ -2223,21 +2361,19 @@ let announced = false;
 async function runPreflight({ probeNode = true } = {}) {
   const mine = ++preflightRun;
   const isCurrent = () => mine === preflightRun;
-  findSwapsBtn.disabled = true;
+  searchReady = false;
+  updateButtons();
   // ISOLATION IS NOT A REQUIREMENT. monero-ts 0.11.20 has no pthreads and needs no SharedArrayBuffer; the headers
   // are still served when the host has them, and the diagnostics report the fact. WebCrypto needs a secure context.
   setCheck("secure", self.isSecureContext ? "ok" : "bad", () => t("preflight.fail.https"));
   if (!probeNode) setCheck("node", "idle");
-  const [walletOk, nodeOk] = await Promise.all([
-    checkWallet(),
-    probeNode ? checkNode(isCurrent) : Promise.resolve(true),
-  ]);
+  const [walletOk, nodeOk] = await Promise.all([checkWallet(), probeNode ? checkNode() : Promise.resolve(true)]);
   if (!isCurrent()) return false;
   const ready = walletOk && nodeOk && self.isSecureContext;
-  window.__sweepFlow.ready = ready;
   // THE SEARCH NEEDS THE SDK AND THE BROWSER'S CRYPTO, NOT THE NODE: a key can be read and its swaps listed while the
   // person still picks a node. The withdrawal checks the node itself.
-  findSwapsBtn.disabled = !(walletOk && self.isSecureContext);
+  searchReady = walletOk && self.isSecureContext;
+  updateButtons();
   if (ready && !announced) {
     announced = true;
     log(t("log.ready"));
@@ -2245,7 +2381,7 @@ async function runPreflight({ probeNode = true } = {}) {
   return ready;
 }
 function checkEnvironment() {
-  return runPreflight().catch((e) => log(String((e && e.message) || e), "bad"));
+  return runPreflight().catch((e) => log(reason(e), "bad"));
 }
 
 document.addEventListener("i18n:applied", () => {
@@ -2269,15 +2405,13 @@ copyLogBtn.addEventListener("click", async () => {
   }, 2000);
 });
 
-keyFileInput.addEventListener("change", () => {
-  onKeyFileChosen().catch((e) => log(String((e && e.message) || e), "bad"));
-});
-findSwapsBtn.addEventListener("click", () => busy(findSwapsBtn, findKeySwaps, keyErrorEl));
-keyMoreEl.addEventListener("click", () => busy(keyMoreEl, () => findKeySwaps({ more: true }), keyErrorEl));
-withdrawBtn.addEventListener("click", () => busy(withdrawBtn, withdraw, withdrawErrorEl));
-sendBtn.addEventListener("click", () => busy(sendBtn, sendTx, withdrawErrorEl));
-ethConnectBtn.addEventListener("click", () => busy(ethConnectBtn, ethConnect, ethErrorEl));
-ethSendBtn.addEventListener("click", () => busy(ethSendBtn, ethSend, ethErrorEl));
+keyFileInput.addEventListener("change", onKeyFileChosen);
+findSwapsBtn.addEventListener("click", findKeySwaps);
+keyMoreEl.addEventListener("click", () => findKeySwaps({ more: true }));
+withdrawBtn.addEventListener("click", () => step(withdraw, withdrawErrorEl));
+sendBtn.addEventListener("click", () => step(sendTx, withdrawErrorEl));
+ethConnectBtn.addEventListener("click", () => step(ethConnect, ethErrorEl));
+ethSendBtn.addEventListener("click", () => step(ethSend, ethErrorEl));
 
 // AN OLDER BUILD OF THIS PAGE REGISTERED A SERVICE WORKER (sw.js) that added COEP to every answer. The wallet
 // needs no isolation, and a worker outlives its file, so a tab that met the old build stays under require-corp
@@ -2295,5 +2429,5 @@ initLocale()
     // Node rows are drawn AFTER the language loads: before that t() returns keys.
     await startNode();
   })
-  .catch((e) => log(t("log.error", { message: String((e && e.message) || e) }), "bad"));
+  .catch((e) => log(t("log.error", { message: reason(e) }), "bad"));
 findSwapsBtn.disabled = true;

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import { build } from "esbuild";
 import { msFromOrderSeconds } from "@ninsei-labs/sdk/core";
-import { deadlineOf, ethRecipient, readyByOf, sideOf, swapStateOf } from "../lib/rows.js";
+import { deadlineOf, ethRecipient, newOrders, orderId, readyByOf, sideOf, swapStateOf } from "../lib/rows.js";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -159,6 +159,20 @@ export async function checkRows() {
     [{ kind: "claim", expect: {} }, ""],
   ])
     assert.equal(ethRecipient({}, material), recipient, "settlement names the signed recipient");
+  // ONE ORDER IS ITS NETWORK AND ITS ESCROW: two networks with an order at the same address give two rows, one network
+  // gives it once, in whatever case its address is written, and a repeated search adds nothing.
+  const [one, two] = [{ id: "chain-one" }, { id: "chain-two" }];
+  const at = (address) => ({ escrow: address });
+  const listed = [{ net: one, swap: at("0x" + "AB".repeat(20)) }];
+  const same = at("0x" + "ab".repeat(20));
+  assert.notEqual(orderId(one, same.escrow), orderId(two, same.escrow));
+  for (const [rows, net, swaps, expected] of [
+    [listed, one, [same], []],
+    [listed, two, [same], [same]],
+    [listed, two, [same, at("0x" + "AB".repeat(20))], [same]],
+    [[], one, [same, at("0x" + "cd".repeat(20))], [same, at("0x" + "cd".repeat(20))]],
+  ])
+    assert.deepEqual(newOrders(rows, net, swaps), expected);
   assert.equal(rows, 39, "all boundary, terminal and unknown rows ran");
   return `${rows} row states and rendered actions, named recipients, real SDK deadline conversion`;
 }

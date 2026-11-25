@@ -199,12 +199,15 @@
                 <button id="send" type="button" class="cta ready" data-i18n="page.btn.send"></button>
               </div>
             </div>
-            <div id="done" class="done" hidden>
-              <p class="done-head" data-i18n="page.done.h"></p>
-              <div id="doneInfo" class="info"></div>
-              <p class="hint" data-i18n="page.done.close"></p>
-            </div>
           </div>
+        </section>
+
+        <!-- WHAT BECAME OF EACH CONFIRM of this tab: sent with its transaction, not known, or not sent. It belongs to no
+           open swap, so opening another swap or key leaves it where it is until the tab closes. -->
+        <section class="step" id="results" hidden>
+          <h2 data-i18n="page.step.results"></h2>
+          <p class="hint" data-i18n="page.hint.results"></p>
+          <div id="resultList" aria-live="polite"></div>
         </section>
       </div>
 

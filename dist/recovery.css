@@ -1091,6 +1091,14 @@ button.ghost:hover:not(:disabled) {
 .done-head {
   color: var(--lime);
 }
+/* A transfer that waits for the node, is not known, or was not sent: amber, and no lime frame. */
+.done:is([data-state="given"], [data-state="unknown"], [data-state="unsent"]) {
+  border-color: #6a4a1c;
+  background: #1f1508;
+}
+.done:is([data-state="given"], [data-state="unknown"], [data-state="unsent"]) .done-head {
+  color: var(--amber);
+}
 .done .info {
   margin-top: 12px;
   background: var(--bg);
