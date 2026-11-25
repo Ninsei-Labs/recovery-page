@@ -89,10 +89,6 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
     "closeSwap",
     "refreshBalance",
     "log",
-    "openEth",
-    "ethConnect",
-    "ethSend",
-    "drawEthGas",
     "actionCore",
     "runPreflight",
     "chooseListed",
@@ -117,10 +113,6 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
         `    const { settlement, network } = current;\n` +
         `    current.core = mod.createNinsei({ settlement: { chain: settlement }, xmrNetwork: network });\n` +
         `  }\n` +
-        `  if ("ethMaterial" in values) ethMaterial = values.ethMaterial;\n` +
-        `  if ("ethProvider" in values) ethProvider = values.ethProvider;\n` +
-        `  if ("ethAdapter" in values) ethAdapter = values.ethAdapter;\n` +
-        `  if ("ethBusy" in values) ethBusy = values.ethBusy;\n` +
         `  if ("loadWallet" in values) loadWalletImpl = values.loadWallet;\n` +
         `  if ("walletCheck" in values) walletCheck = values.walletCheck;\n` +
         `  if ("dest" in values) destInput.value = values.dest;\n` +
@@ -152,11 +144,7 @@ async function pageBundle({ rowSdk: extraSdk = {}, context: extraContext = {} } 
         `    network, settlement, balance, nodeNetwork: nodeNetwork(), confirmHidden: confirmEl.hidden,\n` +
         `    results: results.map((one) => one.state), withdrawDisabled: withdrawBtn.disabled,\n` +
         `    withdrawText: withdrawErrorEl.textContent, keyText: keyErrorEl.textContent, openErrorText: openErrorEl.textContent, keyPassHidden: keyPassField.hidden,\n` +
-        `    core, steps: logEl.children.map((line) => line.textContent.trim()),\n` +
-        `    ethMaterial, ethProvider, ethAdapter, ethBusy, ethErrorText: ethErrorEl.textContent,\n` +
-        `    ethDoneHidden: ethDoneEl.hidden, ethConfirmHidden: ethConfirmEl.hidden, ethWalletText: ethWalletEl.textContent,\n` +
-        `    ethConnectHidden: ethConnectBtn.hidden, ethSendDisabled: ethSendBtn.disabled, ethBoxHidden: ethBox.hidden,\n` +
-        `    ethInfoText: ethInfoEl.textContent };\n` +
+        `    core, steps: logEl.children.map((line) => line.textContent.trim()) };\n` +
         `}\n` +
         `export function __text(id) {\n` +
         `  const out = [];\n` +
@@ -986,148 +974,6 @@ export async function checkBeforeConfirm() {
   return "build, sign and confirmation run without a relay; an unsigned send is refused; the button relays";
 }
 
-export async function checkEthAction() {
-  const calls = { created: [], action: 0, request: null, adapter: null };
-  const hash = "0x" + "a".repeat(64);
-  const ethRow = { ...row, net: { ...row.net }, swap: { ...row.swap }, status: { ...row.status } };
-  const material = {
-    kind: "refund",
-    escrow: "0x" + "e".repeat(20),
-    half: "0x" + "1".repeat(64),
-    expect: { amount: "100", chainId: ethRow.net.chainId, locker: "0x" + "11".repeat(20) },
-  };
-  const adapter = {
-    connected: null,
-    receiptStatus: "0x1",
-    failConnect: false,
-    async connect(args) {
-      if (this.failConnect) throw new Error("wallet rejected the connection");
-      this.connected = args;
-    },
-    async address() {
-      return "0x" + "aa".repeat(20);
-    },
-    async chainId() {
-      return ethRow.net.chainId;
-    },
-    async receipt() {
-      return { status: this.receiptStatus };
-    },
-    disconnect() {},
-  };
-  const provider = {
-    requests: [],
-    async request(request) {
-      this.requests.push(request);
-      if (request.method === "eth_call") return "0x" + "0".repeat(64);
-      throw new Error("the page must not ask the provider to " + request.method);
-    },
-  };
-  const opened = await pageBundle({
-    rowSdk: {
-      createNinsei(options) {
-        calls.created.push(options);
-        return {
-          sweep: {
-            async fromOrder() {
-              return material;
-            },
-          },
-          actions: {
-            async refund(request, walletAdapter) {
-              if (calls.failWith) throw calls.failWith;
-              calls.action += 1;
-              calls.request = request;
-              calls.adapter = walletAdapter;
-              return { hash };
-            },
-            async claim(request, walletAdapter) {
-              if (calls.failWith) throw calls.failWith;
-              calls.action += 1;
-              calls.request = request;
-              calls.adapter = walletAdapter;
-              return { hash };
-            },
-          },
-        };
-      },
-      evmWallet(seen) {
-        calls.walletProvider = seen;
-        return adapter;
-      },
-    },
-  });
-  opened.window.ethereum = provider;
-  opened.page.__seed({
-    key: { mnemonic: "words", fingerprint: "fp" },
-    current: ethRow,
-    settlement: "testnet",
-    network: "testnet",
-    nodeNetwork: "testnet",
-  });
-
-  assert.equal(await opened.page.openEth(ethRow), true, "a refund row must open its ETH action");
-  assert.equal(opened.page.__state().ethMaterial, material, "the SDK material is kept for the approval step");
-  assert.equal(opened.page.__state().ethBoxHidden, false, "the ETH block is shown");
-
-  // A FAILED CONNECT KEEPS THE PREPARED ACTION: only the connection is dropped, so the next click retries the same
-  // material instead of asking for a new one.
-  adapter.failConnect = true;
-  assert.equal(await opened.page.ethConnect(), false, "a rejected connection must not report success");
-  assert.equal(opened.page.__state().ethMaterial, material, "a failed connect must keep the prepared action");
-  assert.equal(opened.page.__state().ethProvider, null, "a failed connect must not install a provider");
-  adapter.failConnect = false;
-
-  assert.equal(await opened.page.ethConnect(), true, "the injected wallet must connect");
-  assert.equal(calls.walletProvider, provider, "the page's own provider is the one wrapped");
-  assert.equal(adapter.connected.chainId, ethRow.net.chainId, "the adapter is asked for the row's chain");
-  assert.equal(opened.page.__state().ethProvider, provider, "the connected provider is kept for the send");
-  assert.equal(opened.page.__state().ethConfirmHidden, false, "the confirmation opens after a connection");
-  assert.match(opened.page.__text("ethInfo"), /eth\.gas\.unknown/, "gas is not estimated or read from the provider");
-
-  const action = opened.page.actionCore(ethRow, provider);
-  const options = calls.created.at(-1);
-  assert.ok(action, "the action facade is built from the row's chain");
-  assert.equal(await options.evmCall({ to: "0x" + "22".repeat(20), data: "0x1234" }), "0x" + "0".repeat(64));
-  assert.equal(provider.requests.length, 1);
-  assert.equal(provider.requests[0].method, "eth_call");
-  assert.equal(provider.requests[0].params[0].to, "0x" + "22".repeat(20));
-  assert.equal(provider.requests[0].params[0].data, "0x1234");
-  assert.equal(provider.requests[0].params[1], "latest");
-  await assert.rejects(options.fetch(), /no service/, "the action facade must not reach a service");
-
-  assert.equal(await opened.page.ethSend(), true, "a successful receipt must finish the action");
-  assert.equal(calls.action, 1, "the SDK action is called once");
-  assert.equal(calls.request.escrow, material.escrow, "the action gets the prepared escrow");
-  assert.equal(calls.request.halfLocker, material.half, "the refund gets the prepared half");
-  assert.equal(calls.adapter, adapter, "the action gets the connected wallet adapter");
-  assert.equal(ethRow.status.isRefunded, true, "only the observed receipt moves the row");
-  assert.ok(
-    !provider.requests.some(
-      (request) => request.method === "eth_sendTransaction" || request.method === "eth_estimateGas",
-    ),
-    "the page never sends or estimates through the provider",
-  );
-  assert.equal(opened.page.__state().ethDoneHidden, false, "the done panel opens after the receipt");
-
-  // A WALLET THAT CHANGED ITS ACCOUNT IS NAMED, NOT REPORTED AS A GENERIC SEND FAILURE.
-  calls.failWith = Object.assign(new Error("bad-input"), { code: "bad-input", params: { field: "wallet" } });
-  assert.equal(await opened.page.ethSend(), false, "a changed wallet account must stop the send");
-  assert.equal(opened.page.__state().ethErrorText, "eth.err.account", "a wallet account change is named");
-  calls.failWith = null;
-
-  // A REVERTED RECEIPT IS NOT A SUCCESS AND OPENS THE CONFIRMATION AGAIN; THE ROW STAYS UNTOUCHED UNTIL A RECEIPT.
-  ethRow.status = { ...row.status };
-  adapter.receiptStatus = "0x0";
-  assert.equal(await opened.page.ethSend(), false, "a reverted receipt must not finish the action");
-  assert.equal(opened.page.__state().ethErrorText, "eth.err.reverted", "a reverted receipt is named");
-  assert.equal(opened.page.__state().ethConfirmHidden, false, "a reverted receipt opens the confirmation again");
-  assert.equal(opened.page.__state().ethDoneHidden, true, "a reverted receipt must not show the done panel");
-  assert.equal(ethRow.status.isRefunded, false, "a reverted receipt must not move the row");
-
-  return "the ETH action is prepared from the order, connected through the injected wallet, sent by the SDK and moved only by a receipt";
-}
-
 export async function checkPreflight() {
   let loads = 0;
   let probes = 0;
@@ -1161,116 +1007,6 @@ export async function checkPreflight() {
   return "the wallet is loaded once, the search opens when it is ready, and a node change asks only the node";
 }
 
-export async function checkEthRace() {
-  let release;
-  let connectStarted = false;
-  const material = {
-    kind: "refund",
-    escrow: "0x" + "e".repeat(20),
-    half: "0x" + "1".repeat(64),
-    expect: { amount: "100", chainId: row.net.chainId, locker: "0x" + "11".repeat(20) },
-  };
-  const adapter = {
-    async connect() {
-      connectStarted = true;
-      await new Promise((resolve) => {
-        release = resolve;
-      });
-    },
-    async address() {
-      return "0x" + "aa".repeat(20);
-    },
-    async chainId() {
-      return row.net.chainId;
-    },
-    async receipt() {
-      return { status: "0x1" };
-    },
-    disconnect() {},
-  };
-  const opened = await pageBundle({
-    rowSdk: {
-      createNinsei() {
-        return {
-          sweep: {
-            async fromOrder() {
-              return material;
-            },
-          },
-          actions: {},
-        };
-      },
-      evmWallet() {
-        return adapter;
-      },
-    },
-  });
-  opened.window.ethereum = {
-    async request() {
-      throw new Error("no provider call expected");
-    },
-  };
-  opened.page.__seed({
-    key: { mnemonic: "words", fingerprint: "fp" },
-    current: row,
-    settlement: "testnet",
-    network: "testnet",
-    nodeNetwork: "testnet",
-  });
-  assert.equal(await opened.page.openEth(row), true);
-  const pending = opened.page.ethConnect();
-  while (!connectStarted) await Promise.resolve();
-  await opened.page.openEth(row);
-  release();
-  assert.equal(await pending, false, "a connection from a superseded swap must not install");
-  assert.equal(opened.page.__state().ethProvider, null, "a late connection must not keep its provider");
-  assert.equal(opened.page.__state().ethAdapter, null, "a late connection must not keep its adapter");
-  assert.equal(opened.page.__state().ethConfirmHidden, true, "a late connection must not open the confirmation");
-  return "a connection that answers after another swap opens is ignored";
-}
-
-export async function checkEthRouting() {
-  const material = {
-    kind: "refund",
-    escrow: "0x" + "e".repeat(20),
-    half: "0x" + "1".repeat(64),
-    expect: { amount: "100", chainId: row.net.chainId, locker: "0x" + "11".repeat(20) },
-  };
-  const ethRow = {
-    ...row,
-    swap: { ...row.swap, t1: 1_000_000_000 },
-    side: "buy",
-    status: { isFunded: true, isClaimed: false, isRefunded: false, isReady: false },
-  };
-  const opened = await pageBundle({
-    rowSdk: {
-      createNinsei() {
-        return {
-          sweep: {
-            async fromOrder() {
-              return material;
-            },
-          },
-          actions: {},
-        };
-      },
-    },
-  });
-  opened.page.__seed({
-    key: { mnemonic: "words", fingerprint: "fp" },
-    current: null,
-    plan: null,
-    contents: null,
-    nodeNetwork: "testnet",
-  });
-  assert.equal(await opened.page.openSwap(ethRow), true, "an ETH row must open its ETH block");
-  assert.equal(opened.page.__state().ethBoxHidden, false, "the ETH block is shown for a refund row");
-  assert.equal(opened.elements.get("moneyState").hidden, true, "the XMR block is hidden for an ETH row");
-  assert.equal(opened.elements.get("stepTransfer").hidden, true, "the transfer step is hidden for an ETH row");
-  assert.equal(opened.page.__state().current, ethRow, "the ETH row is the current swap");
-  return "an ETH row opens the ETH block, not the XMR flow";
-}
-
 export async function checkNoService() {
   let options = null;
   let created = 0;
@@ -1288,7 +1024,7 @@ export async function checkNoService() {
   assert.equal(typeof options.fetch, "function", "the search facade gets a fetch");
   await assert.rejects(options.fetch(), /no service/, "the search facade must not reach a service");
 
-  const action = opened.page.actionCore(row, { request() {} });
+  const action = opened.page.actionCore({ settlement: "testnet", network: "testnet" });
   assert.ok(action, "the action facade is built");
   assert.equal(created, 2, "the action facade is a second createNinsei");
   await assert.rejects(options.fetch(), /no service/, "the action facade must not reach a service");
@@ -1428,9 +1164,6 @@ if (import.meta.main) {
   console.log("ok    " + (await checkSend()));
   console.log("ok    " + (await checkLostRelay()));
   console.log("ok    " + (await checkBeforeConfirm()));
-  console.log("ok    " + (await checkEthAction()));
-  console.log("ok    " + (await checkEthRace()));
-  console.log("ok    " + (await checkEthRouting()));
   console.log("ok    " + (await checkPreflight()));
   console.log("ok    " + (await checkNoService()));
   console.log("ok    " + (await checkKeySecret()));
