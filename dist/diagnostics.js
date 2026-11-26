@@ -11,8 +11,8 @@
 // What the page does NOT do: it accepts no secrets, prints no mnemonic (the wallet is created with a random
 // seed inside and never shown) and sends no transactions.
 
-import { t, n, bindValues, init as initLocale } from "./locales/index.js?v=0.4.4";
-import { NODES, nodeUrl, setNodeUrl, networkFromNode } from "./lib/node.js?v=0.4.4";
+import { t, n, bindValues, init as initLocale } from "./locales/index.js?v=0.4.5";
+import { NODES, nodeUrl, setNodeUrl, networkFromNode } from "./lib/node.js?v=0.4.5";
 
 // The node comes from the shared module: one of the listed nodes, as this tab chose it or the default. nodeInfo is what the node answered on the first successful call: height and network. The wallet
 // is built for that network, otherwise the probe asks a stagenet node for another chain's ranges and that

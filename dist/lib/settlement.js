@@ -17,7 +17,7 @@
 //               it and say "no swaps". A factory without a block here fails the repository's checks instead of
 //               being searched from a guess.
 
-import { pageFailure } from "./reason.js?v=0.4.4";
+import { pageFailure } from "./reason.js?v=0.4.5";
 
 export const SETTLEMENT = Object.freeze({
   arbitrum: Object.freeze({

@@ -19,7 +19,7 @@
 //
 // NOTHING SECRET LIVES HERE. A node address is public by nature; the wallet's keys never leave the tab.
 
-import { nameOf, pageFailure } from "./reason.js?v=0.4.4";
+import { nameOf, pageFailure } from "./reason.js?v=0.4.5";
 
 // THE LIST: public nodes run by a wallet, a known community member or a named public RPC service, plus the
 // project's own stagenet node. A node sees the person's IP address and the moment the withdrawal is sent, so a
